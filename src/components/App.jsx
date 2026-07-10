@@ -4,6 +4,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import SettingsTabs from './SettingsTabs';
 import CoreSettings from './CoreSettings';
+import RestApiSettings from './RestApiSettings';
 
 const TABS = [
 	{ id: 'core', label: __( 'Core', 'simple-performance-for-wordpress' ) },
@@ -144,7 +145,14 @@ export default function App() {
 								}
 							/>
 						),
-						restapi: <ComingSoon />,
+						restapi: (
+							<RestApiSettings
+								settings={ settings }
+								onChange={ ( key, value ) =>
+									handleChange( 'restapi', key, value )
+								}
+							/>
+						),
 						hardening: <ComingSoon />,
 						fonts: <ComingSoon />,
 					} }
