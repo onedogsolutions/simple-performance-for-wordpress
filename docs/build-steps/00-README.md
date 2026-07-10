@@ -7,6 +7,11 @@ WordPress hooks/signatures involved, and lists acceptance criteria.
 
 Build them **in order** — each step assumes the prior steps' files exist.
 
+**Before starting any step, read `../../STATE.md`** — it is the single source of
+truth for progress. Each step spec ends with a required "Final step": update
+STATE.md (status, commit hash, next action, deviations) and commit it **in the same
+commit** as that step's code. State must never drift from the tree.
+
 | Step | File | Deliverable |
 |------|------|-------------|
 | 1 | `01-bootstrap.md` | Main plugin file, constants, activation/deactivation |

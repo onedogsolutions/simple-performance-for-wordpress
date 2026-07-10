@@ -84,3 +84,9 @@ private static function defaults() {
 - `sanitize()` rejects out-of-range heartbeat intervals and illegal namespace chars.
 - `update()` followed by `get()` reflects new values without a stale cache.
 - `php -l` clean, WPCS clean.
+
+## Final step (required)
+Before ending the session, update `../../STATE.md` per its "Update protocol":
+flip this step's row to ✅ (or 🟡 if paused), set the commit hash, refresh Overall
+status / Last updated / Next action, and log any deviations. Commit STATE.md **in
+the same commit** as this step's code, then push to the branch.

@@ -95,3 +95,9 @@ prefixed function; guard against empty list.
 - A logged-in admin can still reach disabled namespaces (block/site editors keep
   working).
 - `php -l` clean, WPCS clean.
+
+## Final step (required)
+Before ending the session, update `../../STATE.md` per its "Update protocol":
+flip this step's row to ✅ (or 🟡 if paused), set the commit hash, refresh Overall
+status / Last updated / Next action, and log any deviations. Commit STATE.md **in
+the same commit** as this step's code, then push to the branch.

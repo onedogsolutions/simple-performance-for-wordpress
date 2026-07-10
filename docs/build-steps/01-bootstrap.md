@@ -47,3 +47,9 @@ file WordPress loads directly; everything else is required from here.
 - `spfw_settings` option exists after activation (once Step 2/3 land; for now the
   activation callback can be a safe stub).
 - File passes `php -l` and WPCS sniff for the header block.
+
+## Final step (required)
+Before ending the session, update `../../STATE.md` per its "Update protocol":
+flip this step's row to ✅ (or 🟡 if paused), set the commit hash, refresh Overall
+status / Last updated / Next action, and log any deviations. Commit STATE.md **in
+the same commit** as this step's code, then push to the branch.
