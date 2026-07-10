@@ -97,7 +97,7 @@ class SPFW_Settings {
 
 		// Run migrations if upgrading from an older version (e.g. 1.0.0).
 		$stored_ver = isset( $stored['version'] ) ? $stored['version'] : '1.0.0';
-		if ( version_compare( $stored_ver, '1.1.0', '<' ) ) {
+		if ( version_compare( $stored_ver, '1.1.1', '<' ) ) {
 			self::run_migrations( $stored );
 			// Re-fetch stored options after migration.
 			$stored = get_option( self::OPTION_KEY, array() );
@@ -229,7 +229,7 @@ class SPFW_Settings {
 		}
 
 		// Heartbeat: control mode (default|disable|allow_posts) + optional
-		// polling frequency, matching Perfmatters' two separate controls.
+		// polling frequency, using two separate controls.
 		$heartbeat_control                  = isset( $core['heartbeat_control'] ) ? $core['heartbeat_control'] : $defaults['core']['heartbeat_control'];
 		$clean['core']['heartbeat_control'] = in_array( $heartbeat_control, array( 'default', 'disable', 'allow_posts' ), true )
 			? $heartbeat_control
@@ -358,7 +358,7 @@ class SPFW_Settings {
 			}
 		}
 
-		$updated['version'] = '1.1.0';
+		$updated['version'] = '1.1.1';
 
 		// Sanitize and update directly to avoid any potential loops.
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );

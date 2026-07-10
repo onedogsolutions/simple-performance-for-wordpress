@@ -99,26 +99,46 @@ export default function CoreSettings( { settings, onChange } ) {
 		setIsSearching( true );
 		const delayDebounce = setTimeout( () => {
 			Promise.all( [
-				apiFetch( { path: `/wp/v2/posts?search=${ encodeURIComponent( searchQuery ) }&per_page=5` } ).catch( () => [] ),
-				apiFetch( { path: `/wp/v2/pages?search=${ encodeURIComponent( searchQuery ) }&per_page=5` } ).catch( () => [] )
-			] ).then( ( [ posts, pages ] ) => {
-				const combined = [
-					...posts.map( p => ( { id: p.id, title: p.title.rendered, slug: p.slug, type: 'post' } ) ),
-					...pages.map( p => ( { id: p.id, title: p.title.rendered, slug: p.slug, type: 'page' } ) )
-				];
-				const unique = [];
-				const map = new Map();
-				for ( const item of combined ) {
-					if ( ! map.has( item.slug ) ) {
-						map.set( item.slug, true );
-						unique.push( item );
+				apiFetch( {
+					path: `/wp/v2/posts?search=${ encodeURIComponent(
+						searchQuery
+					) }&per_page=5`,
+				} ).catch( () => [] ),
+				apiFetch( {
+					path: `/wp/v2/pages?search=${ encodeURIComponent(
+						searchQuery
+					) }&per_page=5`,
+				} ).catch( () => [] ),
+			] )
+				.then( ( [ posts, pages ] ) => {
+					const combined = [
+						...posts.map( ( p ) => ( {
+							id: p.id,
+							title: p.title.rendered,
+							slug: p.slug,
+							type: 'post',
+						} ) ),
+						...pages.map( ( p ) => ( {
+							id: p.id,
+							title: p.title.rendered,
+							slug: p.slug,
+							type: 'page',
+						} ) ),
+					];
+					const unique = [];
+					const map = new Map();
+					for ( const item of combined ) {
+						if ( ! map.has( item.slug ) ) {
+							map.set( item.slug, true );
+							unique.push( item );
+						}
 					}
-				}
-				setSuggestions( unique );
-				setIsSearching( false );
-			} ).catch( () => {
-				setIsSearching( false );
-			} );
+					setSuggestions( unique );
+					setIsSearching( false );
+				} )
+				.catch( () => {
+					setIsSearching( false );
+				} );
 		}, 300 );
 
 		return () => clearTimeout( delayDebounce );
@@ -382,7 +402,9 @@ export default function CoreSettings( { settings, onChange } ) {
 					<div className="w-full space-y-3">
 						<Toggle
 							checked={ !! core.disable_google_maps }
-							onChange={ ( v ) => onChange( 'disable_google_maps', v ) }
+							onChange={ ( v ) =>
+								onChange( 'disable_google_maps', v )
+							}
 						/>
 
 						{ !! core.disable_google_maps && (
@@ -406,10 +428,16 @@ export default function CoreSettings( { settings, onChange } ) {
 												{ token }
 												<button
 													type="button"
-													onClick={ () => handleRemoveToken( token ) }
+													onClick={ () =>
+														handleRemoveToken(
+															token
+														)
+													}
 													className="group h-3.5 w-3.5 rounded-sm hover:bg-indigo-200/50 flex items-center justify-center text-indigo-600 hover:text-indigo-900"
 												>
-													<span className="text-[10px] font-bold leading-none">×</span>
+													<span className="text-[10px] font-bold leading-none">
+														×
+													</span>
 												</button>
 											</span>
 										) ) }
@@ -417,29 +445,48 @@ export default function CoreSettings( { settings, onChange } ) {
 											id="spfw-google-maps-exceptions"
 											type="text"
 											value={ searchQuery }
-											onChange={ ( e ) => setSearchQuery( e.target.value ) }
+											onChange={ ( e ) =>
+												setSearchQuery( e.target.value )
+											}
 											onKeyDown={ handleKeyDown }
-											placeholder={ selectedTokens.length === 0 ? __( 'Type to search page...', 'simple-performance-for-wordpress' ) : '' }
+											placeholder={
+												selectedTokens.length === 0
+													? __(
+															'Type to search page…',
+															'simple-performance-for-wordpress'
+													  )
+													: ''
+											}
 											className="flex-1 min-w-[120px] border-0 p-0 text-sm focus:ring-0 text-gray-900 focus:outline-none"
 										/>
 									</div>
 
-									{ ( suggestions.length > 0 || isSearching ) && (
+									{ ( suggestions.length > 0 ||
+										isSearching ) && (
 										<ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm border border-gray-200">
 											{ isSearching ? (
 												<li className="relative cursor-default select-none py-2 px-3 text-gray-500 italic">
-													{ __( 'Searching...', 'simple-performance-for-wordpress' ) }
+													{ __(
+														'Searching…',
+														'simple-performance-for-wordpress'
+													) }
 												</li>
 											) : (
 												suggestions.map( ( item ) => (
 													<li
-														key={ `${item.type}-${item.id}` }
-														onClick={ () => handleSelectSuggestion( item ) }
+														key={ `${ item.type }-${ item.id }` }
+														onClick={ () =>
+															handleSelectSuggestion(
+																item
+															)
+														}
 														className="relative cursor-pointer select-none py-2 pl-3 pr-9 text-gray-900 hover:bg-indigo-600 hover:text-white transition-colors duration-150"
 													>
 														<div className="flex items-center justify-between">
-															<span className="font-medium truncate">{ item.title }</span>
-															<span className="ml-2 text-xs text-gray-400">{ `(${item.type}: ${item.slug})` }</span>
+															<span className="font-medium truncate">
+																{ item.title }
+															</span>
+															<span className="ml-2 text-xs text-gray-400">{ `(${ item.type }: ${ item.slug })` }</span>
 														</div>
 													</li>
 												) )

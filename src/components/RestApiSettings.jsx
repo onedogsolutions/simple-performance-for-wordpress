@@ -23,21 +23,33 @@ export default function RestApiSettings( { settings, onChange } ) {
 	const restapi = settings.restapi || {};
 	const [ namespaces, setNamespaces ] = useState( [] );
 
+	// Local state to prevent React from stripping newlines as you type
+	const [ localNamespacesText, setLocalNamespacesText ] = useState( '' );
+
+	const disabledList = Array.isArray( restapi.disabled_namespaces )
+		? restapi.disabled_namespaces
+		: [];
+
 	useEffect( () => {
 		apiFetch( { path: '/' } )
 			.then( ( data ) => setNamespaces( data.namespaces || [] ) )
 			.catch( () => setNamespaces( [] ) );
 	}, [] );
 
-	const disabledList = Array.isArray( restapi.disabled_namespaces )
-		? restapi.disabled_namespaces
-		: [];
+	// Keep local text in sync when the external settings change
+	useEffect( () => {
+		setLocalNamespacesText( listToText( restapi.disabled_namespaces ) );
+	}, [ restapi.disabled_namespaces ] );
 
 	const toggleNamespace = ( ns, isDisabled ) => {
 		const next = isDisabled
 			? [ ...disabledList, ns ]
 			: disabledList.filter( ( item ) => item !== ns );
 		onChange( 'disabled_namespaces', next );
+	};
+
+	const handleNamespacesBlur = () => {
+		onChange( 'disabled_namespaces', textToList( localNamespacesText ) );
 	};
 
 	return (
@@ -74,36 +86,34 @@ export default function RestApiSettings( { settings, onChange } ) {
 					'simple-performance-for-wordpress'
 				) }
 			>
-				<div className="w-full space-y-3">
+				<div className="w-full space-y-4">
 					{ namespaces.length > 0 && (
-						<div className="flex flex-wrap gap-x-4 gap-y-2">
+						<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 							{ namespaces.map( ( ns ) => {
 								const inputId = `spfw-ns-${ ns.replace(
 									/[^a-zA-Z0-9]/g,
 									'-'
 								) }`;
 								return (
-									<label
+									<div
 										key={ ns }
-										htmlFor={ inputId }
-										className="flex items-center gap-x-2 text-sm text-gray-600"
+										className="flex items-center justify-between gap-x-3 bg-gray-50 px-3 py-2.5 rounded-md border border-gray-200 shadow-sm"
 									>
-										<input
-											id={ inputId }
-											type="checkbox"
+										<label
+											htmlFor={ inputId }
+											className="text-sm font-medium text-gray-700 cursor-pointer select-none"
+										>
+											{ ns }
+										</label>
+										<Toggle
 											checked={ disabledList.includes(
 												ns
 											) }
-											onChange={ ( e ) =>
-												toggleNamespace(
-													ns,
-													e.target.checked
-												)
+											onChange={ ( checked ) =>
+												toggleNamespace( ns, checked )
 											}
-											className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
 										/>
-										{ ns }
-									</label>
+									</div>
 								);
 							} ) }
 						</div>
@@ -111,7 +121,7 @@ export default function RestApiSettings( { settings, onChange } ) {
 					<div>
 						<label
 							htmlFor="spfw-disabled-namespaces"
-							className="block text-xs text-gray-600 mb-1"
+							className="block text-xs font-medium text-gray-600 mb-1"
 						>
 							{ __(
 								'Advanced: one route prefix per line (e.g. wp/v2/users)',
@@ -121,13 +131,11 @@ export default function RestApiSettings( { settings, onChange } ) {
 						<textarea
 							id="spfw-disabled-namespaces"
 							rows={ 3 }
-							value={ listToText( disabledList ) }
+							value={ localNamespacesText }
 							onChange={ ( e ) =>
-								onChange(
-									'disabled_namespaces',
-									textToList( e.target.value )
-								)
+								setLocalNamespacesText( e.target.value )
 							}
+							onBlur={ handleNamespacesBlur }
 							className={ textareaClass }
 						/>
 					</div>

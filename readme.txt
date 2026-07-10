@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -12,7 +12,7 @@ An ultra-lightweight performance, REST API hardening, and self-hosted-fonts tool
 
 == Description ==
 
-Simple Performance for WordPress consolidates the highest-value features of Perfmatters, Disable Bloat, and REST API Toolbox into one focused plugin — with no overlapping bloat and no heavy database footprint. It's purpose-built for OpenLiteSpeed running LiteSpeed Cache, but every feature works on any host.
+Simple Performance for WordPress consolidates highest-value performance, REST API, and security hardening features into one focused plugin — with no overlapping bloat and no heavy database footprint. It's purpose-built for OpenLiteSpeed running LiteSpeed Cache, but every feature works on any host.
 
 = Core Performance Toggles =
 * Disable emojis, embeds, and Dashicons (for logged-out visitors)
@@ -23,7 +23,7 @@ Simple Performance for WordPress consolidates the highest-value features of Perf
 * Remove query strings (?ver=) from static assets
 * Disable Google Maps embeds and the front-end password strength meter
 * Disable comments site-wide and remove the comment author URL field
-* Limit post revisions and set the autosave interval (Perfmatters-style)
+* Limit post revisions and set the autosave interval
 * Control the WordPress Heartbeat API (disable, or allow only in the editor) and its frequency
 * Add a blank favicon to stop /favicon.ico 404s
 * Disable jQuery Migrate on the frontend
@@ -83,9 +83,13 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 
 == Changelog ==
 
+= 1.1.1 =
+* Fixed textarea newline/onChange state handling and styled namespaces list using Toggle component.
+* Bumped version to 1.1.1 to trigger automatic migration checks.
+
 = 1.1.0 =
-* Added Perfmatters-parity quick toggles: hide WP version, remove shortlink and REST API header links, remove feed links, disable self pingbacks, disable Google Maps, disable the front-end password strength meter, disable comments, remove comment author URLs, add a blank favicon, limit post revisions, and set the autosave interval.
-* Reworked the Heartbeat controls to match Perfmatters (disable everywhere / allow only in the editor, plus a separate frequency).
+* Added performance quick toggles: hide WP version, remove shortlink and REST API header links, remove feed links, disable self pingbacks, disable Google Maps, disable the front-end password strength meter, disable comments, remove comment author URLs, add a blank favicon, limit post revisions, and set the autosave interval.
+* Reworked the Heartbeat controls (disable everywhere / allow only in the editor, plus a separate frequency).
 * Added a WooCommerce tab (shown only when WooCommerce is active): disable cart fragments, load scripts/styles only on store pages, disable the status widget, legacy widgets, Marketing hub, and password strength meter.
 * Reorganized the admin screens into floating meta-box cards to match the companion Google Security plugin.
 
