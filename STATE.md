@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 6 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 7 of 9 done)
 
 ## Shared project facts (true for every step)
 
@@ -47,7 +47,8 @@ together in one top-level document.
 | 3 | Core loader + module interface | ✅ Done | 169c712 |
 | 4 | Module 1 — core toggles | ✅ Done | 793acd0 |
 | 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | 26fefd7 |
-| 6 | Module 2 — REST API controls | ✅ Done | (this commit) |
+| 6 | Module 2 — REST API controls | ✅ Done | 22f3b40 |
+| 7 | Module 3 — directory hardening | ✅ Done | (this commit) |
 | 6 | Module 2 — REST API controls | ⬜ Not started | — |
 | 7 | Module 3 — directory hardening | ⬜ Not started | — |
 | 8 | Module 4 — Google Fonts localizer | ⬜ Not started | — |
@@ -57,9 +58,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 7** — full spec at `docs/build-steps/07-module-hardening.md`; condensed
+Start **Step 8** — full spec at `docs/build-steps/08-module-fonts.md`; condensed
 instructions below. `npm install && npm run build` must be re-run after pulling
-new `src/` changes (Steps 7–8 each add a component + wire it into `App.jsx`).
+new `src/` changes (Step 8 adds the last component + wires it into `App.jsx`).
 
 ---
 
@@ -395,6 +396,45 @@ follow-ups deferred. Keep entries dated and terse.
   `disabled_namespaces` empty, neither filter is attached at all (zero
   overhead). `npm run lint:js`/`lint:css` clean, `npm run build` succeeds.
   Harness was scratch-only, not committed.
+- 2026-07-10: Step 7 built exactly to the React-pivot revision of
+  `07-module-hardening.md`, with one deliberate simplification: rather than a
+  separate nonce-protected `admin_post_spfw_restore_htaccess` GET-triggered
+  handler (the spec's original phrasing, left over from before the REST pivot),
+  the Restore action is **only** the REST route
+  (`spfw/v1/settings/restore-htaccess`, `manage_options`-capped, added to
+  `SPFW_Rest_Settings`) that the React button already calls — a GET request
+  triggering a filesystem write is an anti-pattern anyway, and a second
+  independent restore code path would just be duplicated logic with nothing
+  gained. The native `admin_notices` warning (missing/altered) is kept as
+  plain server-rendered HTML above the React root — it doesn't need JS to be
+  visible — and just links to the Hardening tab rather than performing the
+  restore itself.
+  `SPFW_Module_Hardening` reacts to the toggle via
+  `add_action('update_option_' . SPFW_Settings::OPTION_KEY, ..., 10, 2)`
+  (comparing old vs new `hardening.plugins_htaccess`) rather than special-casing
+  anything in the REST controller — this means **any** future code path that
+  flips the toggle (REST, WP-CLI, direct `update_option`, etc.) gets the
+  write/remove side effect for free. Note: `write()`/`remove()` themselves call
+  `SPFW_Settings::update()` to persist/clear the hash, which re-triggers this
+  same `update_option_*` hook once more — harmlessly, since old/new
+  `plugins_htaccess` are now equal on that second pass and the handler no-ops;
+  documented here rather than added complexity to prevent a one-level bounce
+  that already self-terminates.
+  `SPFW_Htaccess` (the shared file utility) is required **unconditionally** in
+  `SPFW_Plugin::boot()` (not just when Module 3's file happens to exist),
+  because `SPFW_Rest_Settings::get_settings()` (always loaded, Step 5) needs
+  `SPFW_Htaccess::status()` for the `hardening_status` field it now returns.
+  `SPFW_Plugin::activate()`/`deactivate()` (Step 3) now call
+  `SPFW_Htaccess::write()`/`remove()`.
+  **Verified** against a real (temp-directory) filesystem, not just mocks: the
+  full lifecycle — disabled → toggle on writes file (`ok`) → manual edit
+  detected as `altered` → Restore (`write()`) fixes it back to `ok` → deleting
+  the file detected as `missing` → Restore recreates it → toggle off removes
+  the file (`disabled`) — plus confirmation that a foreign/pre-existing
+  `.htaccess` (hash never matches) is never touched by `remove()`. Also
+  confirmed the REST controller's new `restore-htaccess` route registers and
+  `GET /settings` includes `hardening_status`. `npm run lint:js`/`lint:css`
+  clean, `npm run build` succeeds. Harnesses were scratch-only, not committed.
 
 ## Open questions / blockers
 

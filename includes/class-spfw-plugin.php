@@ -58,10 +58,12 @@ class SPFW_Plugin {
 	public function boot() {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 		require_once SPFW_PATH . 'includes/interface-spfw-module.php';
+		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 
 		// REST requests are not admin context (is_admin() is false for
 		// /wp-json/), so the settings API must load unconditionally for its
-		// route to exist.
+		// route to exist. It also reports SPFW_Htaccess::status(), so that
+		// must be loaded first too.
 		require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
 		new SPFW_Rest_Settings();
 
@@ -95,25 +97,30 @@ class SPFW_Plugin {
 	}
 
 	/**
-	 * Activation callback: seed default settings if absent.
-	 *
-	 * Step 7 additionally writes the plugins-directory hardening
-	 * .htaccess here when that setting defaults on (it defaults off, so
-	 * this is currently a no-op beyond seeding).
+	 * Activation callback: seed default settings if absent, and write the
+	 * hardening .htaccess if that setting is (or defaults to) on.
 	 */
 	public static function activate() {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
+		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 
 		if ( false === get_option( SPFW_Settings::OPTION_KEY ) ) {
 			SPFW_Settings::update( array() );
 		}
+
+		if ( SPFW_Settings::value( 'hardening', 'plugins_htaccess', false ) ) {
+			SPFW_Htaccess::write();
+		}
 	}
 
 	/**
-	 * Deactivation callback.
-	 *
-	 * Step 7 adds removal of the authored hardening .htaccess here.
-	 * No-op for now.
+	 * Deactivation callback: remove the hardening .htaccess, but only if
+	 * this plugin authored it and it hasn't been altered.
 	 */
-	public static function deactivate() {}
+	public static function deactivate() {
+		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
+		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+
+		SPFW_Htaccess::remove();
+	}
 }
