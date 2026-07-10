@@ -6,6 +6,7 @@ import SettingsTabs from './SettingsTabs';
 import CoreSettings from './CoreSettings';
 import RestApiSettings from './RestApiSettings';
 import HardeningSettings from './HardeningSettings';
+import FontsSettings from './FontsSettings';
 
 const TABS = [
 	{ id: 'core', label: __( 'Core', 'simple-performance-for-wordpress' ) },
@@ -19,17 +20,6 @@ const TABS = [
 	},
 	{ id: 'fonts', label: __( 'Fonts', 'simple-performance-for-wordpress' ) },
 ];
-
-function ComingSoon() {
-	return (
-		<p className="text-sm text-gray-500">
-			{ __(
-				'This section is not available yet.',
-				'simple-performance-for-wordpress'
-			) }
-		</p>
-	);
-}
 
 export default function App() {
 	const initialData = window.spfwAdminData || { settings: {} };
@@ -88,6 +78,33 @@ export default function App() {
 					err.message ||
 						__(
 							'Failed to restore the hardening file.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
+	};
+
+	const handleScanFonts = () => {
+		return apiFetch( {
+			path: '/spfw/v1/settings/scan-fonts',
+			method: 'POST',
+		} )
+			.then( ( data ) => {
+				setSettings( data );
+				showToast(
+					__(
+						'Font scan complete.',
+						'simple-performance-for-wordpress'
+					),
+					'success'
+				);
+			} )
+			.catch( ( err ) => {
+				showToast(
+					err.message ||
+						__(
+							'Font scan failed.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -191,7 +208,15 @@ export default function App() {
 								onRestore={ handleRestoreHtaccess }
 							/>
 						),
-						fonts: <ComingSoon />,
+						fonts: (
+							<FontsSettings
+								settings={ settings }
+								onChange={ ( key, value ) =>
+									handleChange( 'fonts', key, value )
+								}
+								onScan={ handleScanFonts }
+							/>
+						),
 					} }
 				</SettingsTabs>
 
