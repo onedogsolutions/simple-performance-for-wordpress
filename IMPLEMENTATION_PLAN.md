@@ -1,0 +1,224 @@
+# Simple Performance for WordPress — Implementation Blueprint
+
+- **Plugin:** Simple Performance for WordPress
+- **Author:** Ryan Waterbury — One Dog Solutions (https://onedog.solutions/)
+- **License:** GPL-3.0-or-later
+- **Target stack:** OpenLiteSpeed (OLS) + LiteSpeed Cache (LSCache)
+
+Consolidates the high-value features of Perfmatters, Disable Bloat, and REST API
+Toolbox into one ultra-lightweight plugin with a single autoloaded options row.
+
+---
+
+## 1. Recommended File Directory Structure
+
+```
+simple-performance-for-wordpress/
+├── simple-performance-for-wordpress.php   # Bootstrap: header, constants, autoload, activation/deactivation
+├── uninstall.php                          # Delete option row + drop generated files on uninstall
+├── includes/
+│   ├── class-spfw-plugin.php              # Core singleton: loads settings once, dispatches modules
+│   ├── class-spfw-settings.php            # Get/sanitize/default merge for the single option array
+│   ├── class-spfw-htaccess.php            # Shared .htaccess/file writer + integrity checks
+│   ├── modules/
+│   │   ├── class-spfw-module-core.php     # Module 1: bloat toggles
+│   │   ├── class-spfw-module-restapi.php  # Module 2: REST API controls
+│   │   ├── class-spfw-module-hardening.php# Module 3: directory hardening
+│   │   └── class-spfw-module-fonts.php    # Module 4: Google Fonts localizer
+│   └── interface-spfw-module.php          # register(): each module self-hooks based on settings
+├── admin/
+│   ├── class-spfw-admin.php               # Menu page, tab router, save handler, admin notices
+│   ├── views/
+│   │   ├── tab-core.php
+│   │   ├── tab-restapi.php
+│   │   ├── tab-hardening.php
+│   │   └── tab-fonts.php
+│   └── assets/
+│       ├── admin.css                      # Enqueued ONLY on our settings screen
+│       └── admin.js                       # Tab UX + "scan fonts now" AJAX trigger
+├── languages/
+│   └── simple-performance-for-wordpress.pot
+└── README.md
+```
+
+`includes/` loads on every request; `admin/` is required only inside `is_admin()`
+to keep the frontend footprint minimal. Each module implements a common interface
+with a single `register()` method that reads pre-loaded settings and conditionally
+attaches hooks — no module performs its own DB work.
+
+---
+
+## 2. Database & Configuration Schema
+
+**One row, autoloaded, `1` query per request.** All state lives under `spfw_settings`.
+`Settings::get()` calls `get_option()` once, caches statically, and `wp_parse_args()`
+-merges against hardcoded defaults so missing keys never trigger extra writes.
+
+```php
+// option_name = 'spfw_settings' (autoload = yes)
+[
+  'version' => '1.0.0',                 // schema version for future migrations
+  'core' => [
+    'disable_emojis'         => true,
+    'disable_embeds'         => true,
+    'disable_dashicons'      => true,   // front-end, logged-out only
+    'disable_xmlrpc'         => true,
+    'remove_rsd'             => true,
+    'remove_wlwmanifest'     => true,
+    'disable_feeds'          => false,
+    'feed_redirect_home'     => true,   // only used when disable_feeds = true
+    'remove_query_strings'   => false,
+    'heartbeat_mode'         => 'modify', // 'default' | 'modify' | 'disable'
+    'heartbeat_interval'     => 60,     // seconds, used when mode = 'modify'
+    'disable_jquery_migrate' => true,
+  ],
+  'restapi' => [
+    'require_auth'        => false,     // global: block REST for logged-out
+    'disabled_namespaces' => [ 'wp/v2/users', 'wp/v2/themes' ], // route prefixes to 404
+    'whitelist_routes'    => [ 'contact-form-7/v1', 'wc/v3', 'wc/store' ],
+  ],
+  'hardening' => [
+    'plugins_htaccess' => false,        // drop deny-php file into wp-content/plugins
+    'htaccess_hash'    => '',           // sha1 of last-written file for tamper detection
+  ],
+  'fonts' => [
+    'localize_google' => false,
+    'discovered'      => [],            // [ 'families' => [...], 'css_map' => {...} ] last-scan cache
+    'last_scan'       => 0,             // timestamp
+  ],
+]
+```
+
+Nested arrays keep the option to one serialized blob; booleans cast on save;
+`disabled_namespaces`/`whitelist_routes` are flat prefix-string arrays for O(n)
+matching. No custom tables, no post meta, no transients except an optional
+font-scan working cache.
+
+---
+
+## 3. Module-by-Module Technical Breakdown
+
+### Module 1 — Core Performance Toggles
+Each toggle maps to a targeted hook, gated behind its setting so disabled features
+add zero runtime cost.
+
+- **Emojis:** remove `print_emoji_detection_script`/`print_emoji_styles` from
+  `wp_head`, `admin_print_scripts`, `wp_print_styles`; strip `emoji` from
+  `tiny_mce_plugins`; drop the DNS-prefetch via `wp_resource_hints`.
+- **Embeds:** `wp_deregister_script('wp-embed')` on `wp_footer`; remove
+  `rest_output_link_wp_head`, `oembed_add_discovery_links`; tear down `wp_embed`
+  auto-embed filter on `the_content`.
+- **Dashicons:** on `wp_enqueue_scripts` (priority 100),
+  `if (!is_user_logged_in()) wp_deregister_style('dashicons')`.
+- **XML-RPC:** `add_filter('xmlrpc_enabled', '__return_false')`; remove `rsd_link`,
+  `wlwmanifest_link` from `wp_head`; strip `X-Pingback` via `wp_headers`.
+- **Feeds:** hook `do_feed*` actions → `wp_redirect(home_url(), 301)` when
+  `disable_feeds`+`feed_redirect_home`, else `wp_die()`. Remove `feed_links`/
+  `feed_links_extra` from `wp_head`.
+- **Query strings:** filter `script_loader_src`/`style_loader_src` →
+  `remove_query_arg('ver', $src)`. (Mostly cosmetic under LSCache.)
+- **Heartbeat:** `heartbeat_settings` filter to override `interval` (mode=modify);
+  `wp_deregister_script('heartbeat')` on `init` (mode=disable).
+- **jQuery Migrate:** `wp_default_scripts` → remove `jquery-migrate` from `jquery`
+  deps.
+
+### Module 2 — Advanced REST API Controls
+Single filter chain, prefix-matched, whitelist-first.
+
+```
+add_filter('rest_authentication_errors', fn($result) => {
+    if (is_wp_error($result)) return $result;          // respect prior auth errors
+    $route = current REST route (ltrim '/');
+    if (route_matches($route, whitelist_routes)) return $result;         // always allow
+    if (require_auth && !is_user_logged_in())
+        return new WP_Error('rest_forbidden', 401);
+    if (route_matches($route, disabled_namespaces) && !current_user_can('manage_options'))
+        return new WP_Error('rest_no_route', 404);     // 404 not 403 → no enumeration signal
+    return $result;
+})
+```
+
+- Namespace disabling also uses the `rest_endpoints` filter to **unregister**
+  matched routes so they never appear in the `/wp-json/` index.
+- Whitelist matching runs **before** the global auth gate so WooCommerce Store API
+  / CF7 keep working with `require_auth` on.
+- Admin UI lists currently-registered namespaces from
+  `rest_get_server()->get_namespaces()` as checkboxes (pick from real data).
+
+### Module 3 — Directory-Level Security Hardening
+Managed via `class-spfw-htaccess.php`.
+
+- **Write:** on enable/activation, write `WP_CONTENT_DIR.'/plugins/.htaccess'`:
+  ```apache
+  # OLS/Apache: block direct PHP execution
+  <Files *.php>
+    Require all denied
+  </Files>
+  ```
+  Use `WP_Filesystem` (0644). Store `sha1_file()` in `hardening.htaccess_hash`.
+- **Integrity check:** on `admin_init`, if enabled but file missing or hash
+  mismatch → `admin_notices` warning with nonce-protected "Restore" link. Runs in
+  admin only.
+- **Guardrail:** UI warns that a few (legacy) plugins serve front-facing PHP under
+  `/plugins/`; user can opt out. On deactivate/uninstall, remove the file only if
+  we authored it (hash match).
+
+### Module 4 — Google Fonts Localizer & Discovery
+Two phases: **discover** (admin-triggered, cached) and **serve** (frontend rewrite).
+
+- **Discovery (AJAX, on demand):** `wp_remote_get(home_url())`, regex-scan for
+  `fonts.googleapis.com`; parse the Google CSS2 response for `@font-face` blocks and
+  `.woff2` URLs.
+- **Download & store:** fetch `.woff2` via `wp_remote_get`, write to
+  `uploads/ods-fonts/` with `WP_Filesystem`; rewrite CSS `src: url()` to local URLs;
+  persist generated CSS + family map in `fonts.discovered`.
+- **Serve (frontend):** on `wp_enqueue_scripts`, if `localize_google` and a cached
+  map exists: `wp_dequeue_style` the Google handle(s), drop the gstatic preconnect
+  via `wp_resource_hints`, enqueue the local stylesheet. Fallback: no local file →
+  leave the original enqueue untouched (never break rendering).
+- **Cache safety:** generated CSS versioned by family-map hash so LSCache busts on
+  re-scan.
+
+---
+
+## 4. OpenLiteSpeed-Specific Considerations
+
+- **`.htaccess` under OLS:** OLS reads `.htaccess` only when "Allow Override" is
+  enabled at the vhost/server level (`Rewrite → Auto Load from .htaccess`). Module 3
+  writes the file regardless (works on Apache + OLS-with-override), surfaces an admin
+  notice explaining the override requirement, and relies on OLS's Apache-compat layer
+  honoring `<Files>` / `Require all denied` when override is on.
+- **No `mod_php` assumption:** OLS runs PHP via LSAPI; the block still depends on the
+  web-server-level `<Files>` rule. UI copy notes that with override off the rule is
+  inert — fail-safe (only adds restriction), never fail-open.
+- **LSCache object cache:** `get_option('spfw_settings')` may be served from object
+  cache (0 SQL — good). After saving settings that alter frontend HTML (fonts, query
+  strings, feeds), trigger `do_action('litespeed_purge_all')`.
+- **Query-string removal is largely redundant** under LSCache (URL-keyed, asset
+  fingerprinting) — keep the toggle but flag low value in UI.
+- **Font files in `/uploads/`** are static and hard-cached by OLS; the family-map
+  hash in the CSS URL invalidates cache on re-scan without manual purge.
+
+---
+
+## 5. Phase 1 Action Steps
+
+1. **Bootstrap** — `simple-performance-for-wordpress.php`: header, `SPFW_VERSION`/
+   `SPFW_PATH`/`SPFW_URL`, require core class, activation/deactivation hooks.
+2. **Settings layer** — `class-spfw-settings.php`: defaults (§2), `get()` with static
+   cache + `wp_parse_args`, `sanitize()`.
+3. **Core loader** — `class-spfw-plugin.php` + `interface-spfw-module.php`: singleton
+   loads settings once, calls `register()` on enabled modules; loads `admin/` only in
+   `is_admin()`.
+4. **Module 1** — `class-spfw-module-core.php`: all §3 toggles, gated on settings.
+5. **Admin skeleton** — `class-spfw-admin.php` + `tab-core.php`: settings page, tabbed
+   nav, Settings API + nonce save, screen-scoped asset enqueue.
+6. **Module 2** — `class-spfw-module-restapi.php` + `tab-restapi.php`: auth/endpoint
+   logic + dynamic namespace checkbox list.
+7. **Module 3** — `class-spfw-htaccess.php` + `class-spfw-module-hardening.php` +
+   `tab-hardening.php`: `WP_Filesystem` writer, hash-integrity notice, restore action,
+   cleanup.
+8. **Module 4** — `class-spfw-module-fonts.php` + `tab-fonts.php` + `admin.js`: AJAX
+   scan endpoint, downloader, frontend rewrite, LSCache purge hook.
+9. **Uninstall** — `uninstall.php`: delete `spfw_settings`, remove generated
+   `.htaccess` (if hash-authored) and `ods-fonts/`.
