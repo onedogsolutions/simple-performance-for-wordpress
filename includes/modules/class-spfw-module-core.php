@@ -434,6 +434,33 @@ class SPFW_Module_Core implements SPFW_Module {
 			return;
 		}
 
+		// Check if the current page/post is excepted from Google Maps blocking.
+		$c          = SPFW_Settings::group( 'core' );
+		$exceptions = isset( $c['google_maps_exceptions'] ) && is_array( $c['google_maps_exceptions'] ) ? $c['google_maps_exceptions'] : array();
+
+		if ( ! empty( $exceptions ) ) {
+			$current_id   = (string) get_queried_object_id();
+			$queried_obj  = get_queried_object();
+			$current_slug = '';
+
+			if ( $queried_obj instanceof WP_Post ) {
+				$current_slug = $queried_obj->post_name;
+			} elseif ( $queried_obj instanceof WP_Term ) {
+				$current_slug = $queried_obj->slug;
+			} elseif ( $queried_obj instanceof WP_User ) {
+				$current_slug = $queried_obj->user_nicename;
+			}
+
+			$normalized_exceptions = array_map( 'strtolower', $exceptions );
+
+			if ( in_array( strtolower( $current_id ), $normalized_exceptions, true ) ) {
+				return;
+			}
+			if ( '' !== $current_slug && in_array( strtolower( $current_slug ), $normalized_exceptions, true ) ) {
+				return;
+			}
+		}
+
 		ob_start( array( $this, 'filter_google_maps' ) );
 	}
 
