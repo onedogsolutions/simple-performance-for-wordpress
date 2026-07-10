@@ -92,8 +92,19 @@ class SPFW_Settings {
 			return self::$cache;
 		}
 
-		$stored       = get_option( self::OPTION_KEY, array() );
-		self::$cache  = self::merge_recursive( self::defaults(), is_array( $stored ) ? $stored : array() );
+		$stored = get_option( self::OPTION_KEY, array() );
+		$stored = is_array( $stored ) ? $stored : array();
+
+		// Run migrations if upgrading from an older version (e.g. 1.0.0).
+		$stored_ver = isset( $stored['version'] ) ? $stored['version'] : '1.0.0';
+		if ( version_compare( $stored_ver, '1.1.0', '<' ) ) {
+			self::run_migrations( $stored );
+			// Re-fetch stored options after migration.
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		self::$cache = self::merge_recursive( self::defaults(), $stored );
 
 		return self::$cache;
 	}
@@ -322,5 +333,35 @@ class SPFW_Settings {
 		}
 
 		return array_values( array_unique( $clean ) );
+	}
+
+	/**
+	 * Run upgrade migrations on settings.
+	 *
+	 * @param array $stored Currently stored settings.
+	 */
+	private static function run_migrations( array $stored ) {
+		$updated = $stored;
+
+		// Migration to 1.1.0: Append new default REST namespaces if upgrading from older version.
+		if ( ! isset( $updated['restapi'] ) ) {
+			$updated['restapi'] = array();
+		}
+		if ( ! isset( $updated['restapi']['disabled_namespaces'] ) ) {
+			$updated['restapi']['disabled_namespaces'] = array( 'wp/v2/users', 'wp/v2/themes', 'wp/v2/comments', 'wp/v2/settings', 'wp/v2/taxonomies' );
+		} else {
+			$new_defaults = array( 'wp/v2/comments', 'wp/v2/settings', 'wp/v2/taxonomies' );
+			foreach ( $new_defaults as $ns ) {
+				if ( ! in_array( $ns, $updated['restapi']['disabled_namespaces'], true ) ) {
+					$updated['restapi']['disabled_namespaces'][] = $ns;
+				}
+			}
+		}
+
+		$updated['version'] = '1.1.0';
+
+		// Sanitize and update directly to avoid any potential loops.
+		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+		update_option( self::OPTION_KEY, $clean );
 	}
 }
