@@ -7,7 +7,7 @@ starting any step.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Planning complete — implementation not started
+- **Overall status:** 🟡 Implementation in progress (Step 1 of 9 done)
 
 ## Progress
 
@@ -15,7 +15,7 @@ starting any step.
 |------|-------------|--------|------------------|
 | — | Architecture blueprint (`IMPLEMENTATION_PLAN.md`) | ✅ Done | 5f938f7 |
 | — | Per-step build specs (`docs/build-steps/`) | ✅ Done | 5f938f7 |
-| 1 | Bootstrap file | ⬜ Not started | — |
+| 1 | Bootstrap file | ✅ Done | (this commit) |
 | 2 | Settings layer (`SPFW_Settings`) | ⬜ Not started | — |
 | 3 | Core loader + module interface | ⬜ Not started | — |
 | 4 | Module 1 — core toggles | ⬜ Not started | — |
@@ -29,7 +29,7 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 1** — feed `docs/build-steps/01-bootstrap.md` into a build session.
+Start **Step 2** — feed `docs/build-steps/02-settings.md` into a build session.
 
 ## Decisions & deviations log
 
@@ -37,7 +37,9 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
-- _(none yet)_
+- 2026-07-10: Step 1 built exactly to spec. `plugins_loaded`/activation/deactivation
+  callbacks use closures guarded by `class_exists`/`file_exists` checks since
+  `SPFW_Plugin` (Step 3) doesn't exist yet — no fatals on this partial build.
 
 ## Open questions / blockers
 
