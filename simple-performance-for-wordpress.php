@@ -29,31 +29,14 @@ add_action(
 	}
 );
 
-if ( file_exists( SPFW_PATH . 'includes/class-spfw-plugin.php' ) ) {
-	require_once SPFW_PATH . 'includes/class-spfw-plugin.php';
+require_once SPFW_PATH . 'includes/class-spfw-plugin.php';
 
-	add_action(
-		'plugins_loaded',
-		function () {
-			SPFW_Plugin::instance()->boot();
-		}
-	);
-}
-
-register_activation_hook(
-	__FILE__,
+add_action(
+	'plugins_loaded',
 	function () {
-		if ( class_exists( 'SPFW_Plugin' ) ) {
-			SPFW_Plugin::activate();
-		}
+		SPFW_Plugin::instance()->boot();
 	}
 );
 
-register_deactivation_hook(
-	__FILE__,
-	function () {
-		if ( class_exists( 'SPFW_Plugin' ) ) {
-			SPFW_Plugin::deactivate();
-		}
-	}
-);
+register_activation_hook( __FILE__, array( 'SPFW_Plugin', 'activate' ) );
+register_deactivation_hook( __FILE__, array( 'SPFW_Plugin', 'deactivate' ) );

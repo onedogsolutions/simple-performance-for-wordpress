@@ -7,7 +7,7 @@ starting any step.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 2 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 3 of 9 done)
 
 ## Progress
 
@@ -16,8 +16,8 @@ starting any step.
 | — | Architecture blueprint (`IMPLEMENTATION_PLAN.md`) | ✅ Done | 5f938f7 |
 | — | Per-step build specs (`docs/build-steps/`) | ✅ Done | 5f938f7 |
 | 1 | Bootstrap file | ✅ Done | 96d41e3 |
-| 2 | Settings layer (`SPFW_Settings`) | ✅ Done | (this commit) |
-| 3 | Core loader + module interface | ⬜ Not started | — |
+| 2 | Settings layer (`SPFW_Settings`) | ✅ Done | 1859f2f |
+| 3 | Core loader + module interface | ✅ Done | (this commit) |
 | 4 | Module 1 — core toggles | ⬜ Not started | — |
 | 5 | Admin skeleton + Core tab | ⬜ Not started | — |
 | 6 | Module 2 — REST API controls | ⬜ Not started | — |
@@ -29,7 +29,7 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 3** — feed `docs/build-steps/03-core-loader.md` into a build session.
+Start **Step 4** — feed `docs/build-steps/04-module-core.md` into a build session.
 
 ## Decisions & deviations log
 
@@ -50,6 +50,16 @@ follow-ups deferred. Keep entries dated and terse.
   call across repeated `get()`, sanitize clamps/filters, update+get reflects new
   values, partial update preserves other keys) — harness was scratch-only, not
   committed.
+- 2026-07-10: Step 3 built exactly to spec. `SPFW_Plugin::MODULES` is the explicit
+  class => file map named in the spec; each entry is `file_exists`-guarded so
+  partial builds (Steps 4/6/7/8 not yet present) boot cleanly with no fatal.
+  Simplified Step 1's activation/deactivation hook registration to
+  `array('SPFW_Plugin','activate')` / `array('SPFW_Plugin','deactivate')` directly
+  (the class now always exists, so the earlier `class_exists` closure-guard is
+  redundant) and made the `class-spfw-plugin.php` require unconditional. Verified
+  with a stubbed harness: activation seeds `spfw_settings` idempotently, a
+  frontend-context `boot()` never includes anything under `admin/`, and `boot()`
+  with zero modules present does not fatal.
 
 ## Open questions / blockers
 
