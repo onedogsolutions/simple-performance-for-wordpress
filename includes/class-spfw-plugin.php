@@ -20,10 +20,11 @@ class SPFW_Plugin {
 	 * @var array<string,string>
 	 */
 	const MODULES = array(
-		'SPFW_Module_Core'      => 'includes/modules/class-spfw-module-core.php',
-		'SPFW_Module_RestApi'   => 'includes/modules/class-spfw-module-restapi.php',
-		'SPFW_Module_Hardening' => 'includes/modules/class-spfw-module-hardening.php',
-		'SPFW_Module_Fonts'     => 'includes/modules/class-spfw-module-fonts.php',
+		'SPFW_Module_Core'        => 'includes/modules/class-spfw-module-core.php',
+		'SPFW_Module_RestApi'     => 'includes/modules/class-spfw-module-restapi.php',
+		'SPFW_Module_Hardening'   => 'includes/modules/class-spfw-module-hardening.php',
+		'SPFW_Module_Fonts'       => 'includes/modules/class-spfw-module-fonts.php',
+		'SPFW_Module_WooCommerce' => 'includes/modules/class-spfw-module-woocommerce.php',
 	);
 
 	/**

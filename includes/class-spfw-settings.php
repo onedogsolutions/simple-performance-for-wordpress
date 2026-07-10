@@ -28,34 +28,54 @@ class SPFW_Settings {
 	 */
 	private static function defaults() {
 		return array(
-			'version'   => SPFW_VERSION,
-			'core'      => array(
+			'version'     => SPFW_VERSION,
+			'core'        => array(
 				'disable_emojis'         => true,
 				'disable_embeds'         => true,
 				'disable_dashicons'      => true,
 				'disable_xmlrpc'         => true,
 				'remove_rsd'             => true,
 				'remove_wlwmanifest'     => true,
+				'hide_wp_version'        => true,
+				'remove_shortlink'       => true,
+				'remove_rest_api_links'  => false,
 				'disable_feeds'          => false,
 				'feed_redirect_home'     => true,
+				'remove_feed_links'      => false,
+				'disable_self_pingbacks' => true,
 				'remove_query_strings'   => false,
-				'heartbeat_mode'         => 'modify',
-				'heartbeat_interval'     => 60,
+				'disable_google_maps'    => false,
+				'disable_password_meter' => false,
+				'disable_comments'       => false,
+				'remove_comment_urls'    => false,
+				'blank_favicon'          => false,
+				'heartbeat_control'      => 'default',
+				'heartbeat_frequency'    => 0,
+				'post_revisions'         => 'default',
+				'autosave_interval'      => 0,
 				'disable_jquery_migrate' => true,
 			),
-			'restapi'   => array(
+			'restapi'     => array(
 				'require_auth'        => false,
 				'disabled_namespaces' => array( 'wp/v2/users', 'wp/v2/themes' ),
 				'whitelist_routes'    => array( 'contact-form-7/v1', 'wc/v3', 'wc/store' ),
 			),
-			'hardening' => array(
+			'hardening'   => array(
 				'plugins_htaccess' => false,
 				'htaccess_hash'    => '',
 			),
-			'fonts'     => array(
+			'fonts'       => array(
 				'localize_google' => false,
 				'discovered'      => array(),
 				'last_scan'       => 0,
+			),
+			'woocommerce' => array(
+				'disable_cart_fragments' => false,
+				'disable_scripts_styles' => false,
+				'disable_status_widget'  => false,
+				'disable_widgets'        => false,
+				'disable_password_meter' => false,
+				'disable_marketing_hub'  => false,
 			),
 		);
 	}
@@ -80,7 +100,7 @@ class SPFW_Settings {
 	/**
 	 * Get one settings group.
 	 *
-	 * @param string $key One of core|restapi|hardening|fonts.
+	 * @param string $key One of core|restapi|hardening|fonts|woocommerce.
 	 * @return array
 	 */
 	public static function group( $key ) {
@@ -169,24 +189,56 @@ class SPFW_Settings {
 
 		$core = isset( $input['core'] ) && is_array( $input['core'] ) ? $input['core'] : array();
 
-		$clean['core']['disable_emojis']         = self::to_bool( $core, 'disable_emojis', $defaults['core']['disable_emojis'] );
-		$clean['core']['disable_embeds']         = self::to_bool( $core, 'disable_embeds', $defaults['core']['disable_embeds'] );
-		$clean['core']['disable_dashicons']      = self::to_bool( $core, 'disable_dashicons', $defaults['core']['disable_dashicons'] );
-		$clean['core']['disable_xmlrpc']         = self::to_bool( $core, 'disable_xmlrpc', $defaults['core']['disable_xmlrpc'] );
-		$clean['core']['remove_rsd']             = self::to_bool( $core, 'remove_rsd', $defaults['core']['remove_rsd'] );
-		$clean['core']['remove_wlwmanifest']     = self::to_bool( $core, 'remove_wlwmanifest', $defaults['core']['remove_wlwmanifest'] );
-		$clean['core']['disable_feeds']          = self::to_bool( $core, 'disable_feeds', $defaults['core']['disable_feeds'] );
-		$clean['core']['feed_redirect_home']     = self::to_bool( $core, 'feed_redirect_home', $defaults['core']['feed_redirect_home'] );
-		$clean['core']['remove_query_strings']   = self::to_bool( $core, 'remove_query_strings', $defaults['core']['remove_query_strings'] );
-		$clean['core']['disable_jquery_migrate'] = self::to_bool( $core, 'disable_jquery_migrate', $defaults['core']['disable_jquery_migrate'] );
+		$core_bools = array(
+			'disable_emojis',
+			'disable_embeds',
+			'disable_dashicons',
+			'disable_xmlrpc',
+			'remove_rsd',
+			'remove_wlwmanifest',
+			'hide_wp_version',
+			'remove_shortlink',
+			'remove_rest_api_links',
+			'disable_feeds',
+			'feed_redirect_home',
+			'remove_feed_links',
+			'disable_self_pingbacks',
+			'remove_query_strings',
+			'disable_google_maps',
+			'disable_password_meter',
+			'disable_comments',
+			'remove_comment_urls',
+			'blank_favicon',
+			'disable_jquery_migrate',
+		);
 
-		$heartbeat_mode                  = isset( $core['heartbeat_mode'] ) ? $core['heartbeat_mode'] : $defaults['core']['heartbeat_mode'];
-		$clean['core']['heartbeat_mode'] = in_array( $heartbeat_mode, array( 'default', 'modify', 'disable' ), true )
-			? $heartbeat_mode
-			: 'modify';
+		foreach ( $core_bools as $key ) {
+			$clean['core'][ $key ] = self::to_bool( $core, $key, $defaults['core'][ $key ] );
+		}
 
-		$interval                            = isset( $core['heartbeat_interval'] ) ? absint( $core['heartbeat_interval'] ) : $defaults['core']['heartbeat_interval'];
-		$clean['core']['heartbeat_interval'] = max( 15, min( 300, $interval ) );
+		// Heartbeat: control mode (default|disable|allow_posts) + optional
+		// polling frequency, matching Perfmatters' two separate controls.
+		$heartbeat_control                  = isset( $core['heartbeat_control'] ) ? $core['heartbeat_control'] : $defaults['core']['heartbeat_control'];
+		$clean['core']['heartbeat_control'] = in_array( $heartbeat_control, array( 'default', 'disable', 'allow_posts' ), true )
+			? $heartbeat_control
+			: 'default';
+
+		$frequency                            = isset( $core['heartbeat_frequency'] ) ? absint( $core['heartbeat_frequency'] ) : 0;
+		$clean['core']['heartbeat_frequency'] = in_array( $frequency, array( 15, 30, 60, 120 ), true ) ? $frequency : 0;
+
+		// Post revisions: 'default' (leave WP alone) | 'disable' | integer 1..30.
+		$revisions = isset( $core['post_revisions'] ) ? $core['post_revisions'] : 'default';
+		if ( 'disable' === $revisions ) {
+			$clean['core']['post_revisions'] = 'disable';
+		} elseif ( is_numeric( $revisions ) ) {
+			$clean['core']['post_revisions'] = (string) max( 1, min( 30, absint( $revisions ) ) );
+		} else {
+			$clean['core']['post_revisions'] = 'default';
+		}
+
+		// Autosave interval in minutes: 0 = WordPress default, else 1..10.
+		$autosave                            = isset( $core['autosave_interval'] ) ? absint( $core['autosave_interval'] ) : 0;
+		$clean['core']['autosave_interval'] = ( 0 === $autosave ) ? 0 : max( 1, min( 10, $autosave ) );
 
 		$restapi = isset( $input['restapi'] ) && is_array( $input['restapi'] ) ? $input['restapi'] : array();
 
@@ -210,6 +262,12 @@ class SPFW_Settings {
 		$clean['fonts']['localize_google'] = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
 		$clean['fonts']['discovered']      = isset( $fonts['discovered'] ) && is_array( $fonts['discovered'] ) ? $fonts['discovered'] : array();
 		$clean['fonts']['last_scan']       = isset( $fonts['last_scan'] ) ? absint( $fonts['last_scan'] ) : 0;
+
+		$woo = isset( $input['woocommerce'] ) && is_array( $input['woocommerce'] ) ? $input['woocommerce'] : array();
+
+		foreach ( array_keys( $defaults['woocommerce'] ) as $key ) {
+			$clean['woocommerce'][ $key ] = self::to_bool( $woo, $key, $defaults['woocommerce'][ $key ] );
+		}
 
 		$clean['version'] = SPFW_VERSION;
 

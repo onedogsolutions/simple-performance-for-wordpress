@@ -7,10 +7,12 @@ exact hook lists, pseudo-code, and design rationale) live in `docs/build-steps/`
 this file inlines the condensed version of each so progress and plan travel
 together in one top-level document.
 
-- **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
-- **Plugin version target:** 1.0.0
+- **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
+  `claude/feature-parity-quick-toggles-sf64kt`)
+- **Plugin version target:** 1.1.0
 - **Last updated:** 2026-07-10
-- **Overall status:** ✅ Phase 1 complete (9 of 9 steps done)
+- **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
+  quick-toggle parity + WooCommerce tab) implemented
 
 ## Shared project facts (true for every step)
 
@@ -50,16 +52,18 @@ together in one top-level document.
 | 6 | Module 2 — REST API controls | ✅ Done | 22f3b40 |
 | 7 | Module 3 — directory hardening | ✅ Done | 2326c84 |
 | 8 | Module 4 — Google Fonts localizer | ✅ Done | a294f3b |
-| 9 | Uninstall cleanup | ✅ Done | (this commit) |
+| 9 | Uninstall cleanup | ✅ Done | 92afbf5 |
+| 10 | Perfmatters quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Phase 1 is complete.** All 9 steps are built, verified, and pushed. Suggested
-next work (not yet scoped as formal steps): manual QA on a live WordPress +
-OpenLiteSpeed install, a `.pot` translation file, and packaging
-(`npm run build` + zip) for distribution.
+**Step 10 is implemented** (see `docs/build-steps/10-feature-parity-quick-toggles-and-woocommerce.md`
+for the full spec and "what shipped"). Remaining before a 1.1.0 release:
+regenerate `languages/simple-performance-for-wordpress.pot` (new strings not yet
+extracted), and manual QA on a live WordPress + OpenLiteSpeed + WooCommerce
+install. Phase 1 (Steps 1–9) remains complete.
 
 ---
 
@@ -531,6 +535,34 @@ follow-ups deferred. Keep entries dated and terse.
   can't be produced without a live running install to actually screenshot.
   This work sits outside the original 9-step Phase 1 plan, so it isn't a row
   in the Progress table above — noted here for continuity only.
+- 2026-07-10 (Step 10): Perfmatters quick-toggle parity + WooCommerce tab,
+  built on branch `claude/feature-parity-quick-toggles-sf64kt`. Per user
+  direction: **no Change Login URL**; **Heartbeat and post options match
+  Perfmatters** (replaced `heartbeat_mode`/`heartbeat_interval` with
+  `heartbeat_control` [default|disable|allow_posts] + separate
+  `heartbeat_frequency`; added `post_revisions` [default|disable|1–30] and
+  `autosave_interval` [0=default|1–5 min]); **Google Maps included** as a
+  `template_redirect` output-buffer scrub of external Maps scripts + map
+  iframes. Autosave uses `define('AUTOSAVE_INTERVAL', …)` in
+  `SPFW_Module_Core::register()` — safe because `plugins_loaded` (when the
+  module registers) runs before `wp_functionality_constants()` defines the WP
+  default, so our value wins via the `if (!defined())` guard. New WooCommerce
+  module bails immediately unless `class_exists('WooCommerce')`, added to
+  `SPFW_Plugin::MODULES`. `hide_wp_version`/`remove_shortlink`/
+  `disable_self_pingbacks` default **on** (harmless cleanup, matching the
+  plugin's existing opinionated defaults) — a slight deviation from the plan's
+  "all new toggles default off" note, chosen for consistency with the existing
+  aggressive Core defaults; all behavior-changing toggles (comments, maps,
+  password meter, feeds, favicon, etc.) default off. Admin now localizes
+  `woocommerceActive`; the WooCommerce React tab only mounts when true. REST
+  save fires `litespeed_purge_all` (no-op without LSCache). Admin UI adopted
+  the sister plugin's floating meta-box cards via a shared `SettingsCard`
+  component (Core split into 5 cards; REST/Hardening/Fonts each wrapped in one).
+  **Verified:** `php -l` clean; scratch PHP hook-registry/sanitize/helper
+  harness green (default vs all-on wiring, sanitize whitelists+clamps,
+  WooCommerce no-op-without-Woo, self-pingback/Maps-scrub/revisions/version-arg/
+  comment-URL helpers); `npm run build` + `lint:js` + `lint:css` clean. Harness
+  scratch-only, not committed. **Outstanding:** regenerate `.pot`; live QA.
 
 ## Open questions / blockers
 

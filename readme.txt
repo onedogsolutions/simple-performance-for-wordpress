@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -17,10 +17,22 @@ Simple Performance for WordPress consolidates the highest-value features of Perf
 = Core Performance Toggles =
 * Disable emojis, embeds, and Dashicons (for logged-out visitors)
 * Disable XML-RPC, RSD, and Windows Live Writer manifest links
-* Disable RSS feeds, with an option to redirect feed requests to the homepage
+* Hide the WordPress version, remove the shortlink and REST API header links
+* Disable RSS feeds (with optional homepage redirect) or just remove the feed links
+* Disable self pingbacks
 * Remove query strings (?ver=) from static assets
-* Limit or fully disable the WordPress Heartbeat API
+* Disable Google Maps embeds and the front-end password strength meter
+* Disable comments site-wide and remove the comment author URL field
+* Limit post revisions and set the autosave interval (Perfmatters-style)
+* Control the WordPress Heartbeat API (disable, or allow only in the editor) and its frequency
+* Add a blank favicon to stop /favicon.ico 404s
 * Disable jQuery Migrate on the frontend
+
+= WooCommerce Optimizations (shown when WooCommerce is active) =
+* Disable AJAX cart fragments off the cart/checkout — the biggest single store speed win
+* Load WooCommerce scripts and styles only on store pages
+* Remove the Status dashboard widget, legacy widgets, and the Marketing hub
+* Disable the WooCommerce password strength meter
 
 = Advanced REST API Controls =
 * Optionally require authentication for the entire REST API
@@ -50,7 +62,7 @@ The settings screen is a small React application (built on WordPress's own bundl
 
 1. Upload the plugin files to the `/wp-content/plugins/simple-performance-for-wordpress` directory, or install the plugin through the WordPress plugins screen directly.
 2. Activate the plugin.
-3. Navigate to **Settings → Simple Performance** to configure Core, REST API, Hardening, and Fonts.
+3. Navigate to **Settings → Simple Performance** to configure Core, REST API, Hardening, Fonts, and (when WooCommerce is active) WooCommerce.
 
 == Frequently Asked Questions ==
 
@@ -70,6 +82,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.1.0 =
+* Added Perfmatters-parity quick toggles: hide WP version, remove shortlink and REST API header links, remove feed links, disable self pingbacks, disable Google Maps, disable the front-end password strength meter, disable comments, remove comment author URLs, add a blank favicon, limit post revisions, and set the autosave interval.
+* Reworked the Heartbeat controls to match Perfmatters (disable everywhere / allow only in the editor, plus a separate frequency).
+* Added a WooCommerce tab (shown only when WooCommerce is active): disable cart fragments, load scripts/styles only on store pages, disable the status widget, legacy widgets, Marketing hub, and password strength meter.
+* Reorganized the admin screens into floating meta-box cards to match the companion Google Security plugin.
 
 = 1.0.0 =
 * Initial release: core performance toggles, REST API controls, directory-level security hardening, and a Google Fonts localizer, with a React-based settings screen backed by a single REST endpoint.

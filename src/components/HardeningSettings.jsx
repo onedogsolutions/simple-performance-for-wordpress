@@ -1,4 +1,5 @@
 import { __ } from '@wordpress/i18n';
+import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 
@@ -32,7 +33,16 @@ export default function HardeningSettings( {
 		'missing' === hardeningStatus || 'altered' === hardeningStatus;
 
 	return (
-		<div className="divide-y divide-gray-200">
+		<SettingsCard
+			title={ __(
+				'Directory Hardening',
+				'simple-performance-for-wordpress'
+			) }
+			description={ __(
+				'Server-level restrictions that reduce the plugin directory’s attack surface.',
+				'simple-performance-for-wordpress'
+			) }
+		>
 			<SettingsRow
 				title={ __(
 					'Block direct PHP execution in wp-content/plugins',
@@ -97,6 +107,6 @@ export default function HardeningSettings( {
 					</div>
 				) }
 			</SettingsRow>
-		</div>
+		</SettingsCard>
 	);
 }

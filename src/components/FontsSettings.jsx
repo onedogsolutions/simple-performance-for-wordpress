@@ -1,5 +1,6 @@
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 
@@ -21,7 +22,13 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 		: __( 'Never', 'simple-performance-for-wordpress' );
 
 	return (
-		<div className="divide-y divide-gray-200">
+		<SettingsCard
+			title={ __( 'Google Fonts', 'simple-performance-for-wordpress' ) }
+			description={ __(
+				'Discover and self-host Google Fonts to remove third-party requests to Google.',
+				'simple-performance-for-wordpress'
+			) }
+		>
 			<SettingsRow
 				title={ __(
 					'Self-host Google Fonts',
@@ -83,6 +90,6 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					) }
 				</div>
 			</SettingsRow>
-		</div>
+		</SettingsCard>
 	);
 }

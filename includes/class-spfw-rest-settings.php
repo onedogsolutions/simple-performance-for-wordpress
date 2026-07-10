@@ -101,6 +101,11 @@ class SPFW_Rest_Settings {
 
 		SPFW_Settings::update( is_array( $params ) ? $params : array() );
 
+		// Many toggles alter cached front-end HTML (head links, favicon,
+		// Google Maps, WooCommerce assets), so purge LiteSpeed Cache. Harmless
+		// no-op when LSCache is not installed (no listeners on the action).
+		do_action( 'litespeed_purge_all' );
+
 		return $this->get_settings();
 	}
 
