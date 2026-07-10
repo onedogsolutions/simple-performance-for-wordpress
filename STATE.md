@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 8 of 9 done — all 4 modules complete)
+- **Overall status:** ✅ Phase 1 complete (9 of 9 steps done)
 
 ## Shared project facts (true for every step)
 
@@ -49,18 +49,17 @@ together in one top-level document.
 | 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | 26fefd7 |
 | 6 | Module 2 — REST API controls | ✅ Done | 22f3b40 |
 | 7 | Module 3 — directory hardening | ✅ Done | 2326c84 |
-| 8 | Module 4 — Google Fonts localizer | ✅ Done | (this commit) |
-| 6 | Module 2 — REST API controls | ⬜ Not started | — |
-| 7 | Module 3 — directory hardening | ⬜ Not started | — |
-| 8 | Module 4 — Google Fonts localizer | ⬜ Not started | — |
-| 9 | Uninstall cleanup | ⬜ Not started | — |
+| 8 | Module 4 — Google Fonts localizer | ✅ Done | a294f3b |
+| 9 | Uninstall cleanup | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 9** — full spec at `docs/build-steps/09-uninstall.md`; condensed
-instructions below. This is the last step — all 4 feature modules are complete.
+**Phase 1 is complete.** All 9 steps are built, verified, and pushed. Suggested
+next work (not yet scoped as formal steps): manual QA on a live WordPress +
+OpenLiteSpeed install, a `.pot` translation file, and packaging
+(`npm run build` + zip) for distribution.
 
 ---
 
@@ -139,7 +138,7 @@ all-off attaches zero hooks, and every pure-logic helper (query-arg stripping,
 pingback filtering, emoji dns-prefetch filtering, heartbeat interval override,
 jQuery Migrate dep removal) behaves correctly in isolation.
 
-### Step 5 — Admin skeleton (React + Tailwind v4 + REST)
+### Step 5 — Admin skeleton (React + Tailwind v4 + REST) ✅
 **Architecture pivot (2026-07-10):** the admin UI is a single React app —
 `@wordpress/element` (vanilla JS/React, **no jQuery**), built with
 `@wordpress/scripts` + Tailwind v4, matching the sister plugin
@@ -185,7 +184,7 @@ save handler, no plain admin.js/admin.css** — those are superseded by this.
   `wp_localize_script`s `spfwAdminData` with `restUrl`, a `wp_rest` nonce, and
   the current `SPFW_Settings::get()` snapshot.
 
-### Step 6 — Module 2: REST API controls
+### Step 6 — Module 2: REST API controls ✅
 `includes/modules/class-spfw-module-restapi.php` → `SPFW_Module_RestApi`. Reads
 `SPFW_Settings::group('restapi')`.
 - **A. Unregister disabled namespaces** via `rest_endpoints` filter (only if
@@ -207,7 +206,7 @@ save handler, no plain admin.js/admin.css** — those are superseded by this.
 - Zero overhead when both `require_auth` is false and `disabled_namespaces` is
   empty — don't touch the filters at all.
 
-### Step 7 — Module 3: directory-level security hardening
+### Step 7 — Module 3: directory-level security hardening ✅
 `includes/class-spfw-htaccess.php` → `SPFW_Htaccess` utility (shared file logic):
 `path()`, `payload()` (the `<Files *.php> Require all denied </Files>` block, with
 an `!mod_authz_core.c` fallback for older Apache), `write()` (via `WP_Filesystem`,
@@ -232,7 +231,7 @@ OLS only honors `.htaccess` when "Allow Override" is enabled at the vhost level
 serve front-facing PHP from `/plugins/`. Status indicator + Restore button driven
 by `hardeningStatus`.
 
-### Step 8 — Module 4: Google Fonts localizer & discovery
+### Step 8 — Module 4: Google Fonts localizer & discovery ✅
 `includes/modules/class-spfw-module-fonts.php` → `SPFW_Module_Fonts`.
 - **Discover** (triggered by `spfw/v1/settings/scan-fonts` POST route on
   `SPFW_Rest_Settings`, cap `manage_options` — not `admin-ajax.php`): fetch the
@@ -256,7 +255,7 @@ by `hardeningStatus`.
   the rewrite; the `hash` in the stylesheet version busts OLS's static-file cache
   on re-scan without a manual purge.
 
-### Step 9 — Uninstall cleanup
+### Step 9 — Uninstall cleanup ✅
 `uninstall.php`: `defined('WP_UNINSTALL_PLUGIN') || exit;` guard (runs outside the
 normal plugin load — don't assume plugin classes are loaded). Read
 `hardening.htaccess_hash` from the stored option; delete the plugins-directory
@@ -480,6 +479,38 @@ follow-ups deferred. Keep entries dated and terse.
   **All four functional modules (Steps 4, 6, 7, 8) are now complete** — only
   Step 9 (uninstall cleanup) remains before the plugin is feature-complete
   per the original implementation plan.
+- 2026-07-10: Step 9 built exactly to spec. `uninstall.php` is fully
+  self-contained (per the spec's own guidance) — it inlines the hash-gated
+  `.htaccess` removal and `ods-fonts/` deletion logic directly rather than
+  requiring `SPFW_Htaccess`, since that class's `status()`/`write()` also read
+  the *toggle* setting (which is irrelevant at uninstall — we only care whether
+  the stored hash matches what's on disk, regardless of whether the toggle was
+  left on or off) and pulling in `SPFW_Settings`'s static-cache machinery for a
+  script that runs exactly once and exits would be pure overhead. A tiny local
+  `spfw_uninstall_filesystem()` helper mirrors the same `WP_Filesystem` init
+  pattern used in `SPFW_Htaccess`/`SPFW_Module_Fonts` (Steps 7/8) to avoid
+  duplicating that boilerplate twice within the same file. Multisite is handled
+  by looping `get_sites()`/`switch_to_blog()`/`restore_current_blog()` around
+  the same per-site cleanup function — no network option exists in v1, so
+  there's nothing to `delete_site_option`.
+  **Verified** with a stubbed harness against a real temp filesystem: a normal
+  run removes the authored `.htaccess`, the whole `ods-fonts/` directory
+  (recursively), and the `spfw_settings` option; re-running cleanup with
+  everything already absent produces no errors (idempotent); and a foreign or
+  stale-hash `.htaccess` is confirmed untouched. `php -l` clean across every
+  PHP file in the repo. Harness was scratch-only, not committed.
+
+  **Phase 1 is now fully complete: all 9 steps built, verified, and pushed to
+  `claude/simple-performance-wordpress-plugin-6qbso2`.** The plugin implements
+  all four modules from `IMPLEMENTATION_PLAN.md` (core toggles, REST API
+  controls, directory hardening, Google Fonts localizer) behind a single
+  React + Tailwind v4 admin app talking to one REST settings endpoint, backed
+  by the single autoloaded `spfw_settings` option. Not yet done (out of scope
+  for these 9 steps): a `.pot` translation file, a `readme.txt`
+  (WordPress.org-style), and end-to-end manual QA against a live OpenLiteSpeed
+  + LiteSpeed Cache install (everything so far has been verified with stubbed
+  PHP harnesses and a real `npm run build`/lint pipeline, not a running
+  WordPress site).
 
 ## Open questions / blockers
 
