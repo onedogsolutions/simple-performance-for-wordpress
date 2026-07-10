@@ -53,6 +53,16 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/scan-fonts',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'scan_fonts' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -103,6 +113,22 @@ class SPFW_Rest_Settings {
 	 */
 	public function restore_htaccess() {
 		SPFW_Htaccess::write();
+
+		return $this->get_settings();
+	}
+
+	/**
+	 * POST callback: run the Google Fonts discovery/download scan and
+	 * return the refreshed state.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function scan_fonts() {
+		$result = ( new SPFW_Module_Fonts() )->scan();
+
+		if ( is_wp_error( $result ) ) {
+			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), 500 );
+		}
 
 		return $this->get_settings();
 	}

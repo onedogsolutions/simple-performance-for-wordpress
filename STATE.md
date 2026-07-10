@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 7 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 8 of 9 done — all 4 modules complete)
 
 ## Shared project facts (true for every step)
 
@@ -48,7 +48,8 @@ together in one top-level document.
 | 4 | Module 1 — core toggles | ✅ Done | 793acd0 |
 | 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | 26fefd7 |
 | 6 | Module 2 — REST API controls | ✅ Done | 22f3b40 |
-| 7 | Module 3 — directory hardening | ✅ Done | (this commit) |
+| 7 | Module 3 — directory hardening | ✅ Done | 2326c84 |
+| 8 | Module 4 — Google Fonts localizer | ✅ Done | (this commit) |
 | 6 | Module 2 — REST API controls | ⬜ Not started | — |
 | 7 | Module 3 — directory hardening | ⬜ Not started | — |
 | 8 | Module 4 — Google Fonts localizer | ⬜ Not started | — |
@@ -58,9 +59,8 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 8** — full spec at `docs/build-steps/08-module-fonts.md`; condensed
-instructions below. `npm install && npm run build` must be re-run after pulling
-new `src/` changes (Step 8 adds the last component + wires it into `App.jsx`).
+Start **Step 9** — full spec at `docs/build-steps/09-uninstall.md`; condensed
+instructions below. This is the last step — all 4 feature modules are complete.
 
 ---
 
@@ -435,6 +435,51 @@ follow-ups deferred. Keep entries dated and terse.
   confirmed the REST controller's new `restore-htaccess` route registers and
   `GET /settings` includes `hardening_status`. `npm run lint:js`/`lint:css`
   clean, `npm run build` succeeds. Harnesses were scratch-only, not committed.
+- 2026-07-10: Step 8 built exactly to the React-pivot revision of
+  `08-module-fonts.md`, following the `restore-htaccess` REST pattern from
+  Step 7 for `scan-fonts` (`SPFW_Rest_Settings::scan_fonts()` calls
+  `(new SPFW_Module_Fonts())->scan()` directly — no defensive re-require, since
+  by the time any REST callback fires, `SPFW_Plugin::boot()` has already run
+  the full `MODULES` loop synchronously within the same `plugins_loaded`
+  invocation, same reasoning already established for `SPFW_Htaccess` in Step 7).
+  One meaningful deviation from the literal spec text: the static
+  `ods-fonts/fonts.css` file is written **once, during `scan()`** rather than
+  regenerated on every frontend request inside `wp_enqueue_scripts` — writing a
+  file on every single page load would be wasteful I/O directly contradicting
+  the plugin's "no heavy footprint" goal, and it's unnecessary since OLS/LSCache
+  already hard-caches the static file per the spec's own LSCache note.
+  `serve_local_fonts()` only falls back to a **self-heal** rewrite (via the
+  cached `discovered.css` still held in the option) if the physical file has
+  gone missing since the last scan (moved/deleted), and if that regeneration
+  also fails, it returns immediately **before** dequeuing anything — this is
+  what actually implements "if the local file/CSS is missing, do nothing" from
+  the acceptance criteria, since a naive "dequeue first, enqueue second" order
+  would risk leaving a page with no font styles at all if the enqueue step
+  failed.
+  Google stylesheets are matched by **registered `src` substring**, never by
+  handle, exactly per the design constraint (themes use arbitrary handle
+  names). `wp_resource_hints` filtering handles both string and
+  `{href: ...}` array hint shapes and only touches `preconnect`/`dns-prefetch`
+  relations.
+  **Verified** with a stubbed harness that fakes `wp_remote_get` per URL
+  pattern (homepage HTML → Google CSS → `.woff2` binary) and writes to a real
+  temp uploads directory: `scan()` discovers both `@font-face` blocks from a
+  two-weight Google Fonts response, downloads both `.woff2` files to disk,
+  rewrites the CSS to local URLs with zero remaining `fonts.gstatic.com`
+  references, and persists `discovered`/`last_scan`; enabling `localize_google`
+  (with cached CSS present) attaches the serve hooks, zero hooks attach
+  otherwise; `serve_local_fonts()` dequeues only the style whose **src**
+  matches Google (leaving an unrelated enqueued style untouched) and enqueues
+  the local stylesheet; the resource-hints filter strips Google entries only
+  for `preconnect`/`dns-prefetch`; and — using a fake filesystem that can be
+  told to simulate a write failure — a missing physical file that can't be
+  regenerated is confirmed to leave both dequeue and enqueue untouched (the
+  "never break rendering" fallback). `npm run lint:js`/`lint:css` clean,
+  `npm run build` succeeds. Harness was scratch-only, not committed.
+
+  **All four functional modules (Steps 4, 6, 7, 8) are now complete** — only
+  Step 9 (uninstall cleanup) remains before the plugin is feature-complete
+  per the original implementation plan.
 
 ## Open questions / blockers
 
