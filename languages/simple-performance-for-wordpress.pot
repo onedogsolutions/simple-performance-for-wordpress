@@ -1,0 +1,325 @@
+# Copyright (C) 2026 Ryan Waterbury
+# This file is distributed under the GPL-3.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Simple Performance for WordPress 1.0.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-07-10T17:36:31+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: simple-performance-for-wordpress\n"
+
+#. Plugin Name of the plugin
+#: simple-performance-for-wordpress.php
+#: src/components/App.jsx:165
+msgid "Simple Performance for WordPress"
+msgstr ""
+
+#. Description of the plugin
+#: simple-performance-for-wordpress.php
+msgid "Ultra-lightweight performance, REST API, and hardening toolkit for OpenLiteSpeed + LiteSpeed Cache."
+msgstr ""
+
+#. Author of the plugin
+#: simple-performance-for-wordpress.php
+msgid "Ryan Waterbury"
+msgstr ""
+
+#. Author URI of the plugin
+#: simple-performance-for-wordpress.php
+msgid "https://onedog.solutions/"
+msgstr ""
+
+#: admin/class-spfw-admin.php:33
+#: admin/class-spfw-admin.php:34
+msgid "Simple Performance"
+msgstr ""
+
+#: admin/class-spfw-admin.php:52
+msgid "Loading settings…"
+msgstr ""
+
+#: includes/modules/class-spfw-module-core.php:196
+msgid "Feeds are disabled on this site."
+msgstr ""
+
+#: includes/modules/class-spfw-module-fonts.php:42
+msgid "Could not fetch the homepage to scan for fonts."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:43
+msgid "Simple Performance: the plugins-directory hardening file is missing."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:44
+msgid "Simple Performance: the plugins-directory hardening file has been modified."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:58
+msgid "Go to the Hardening tab to restore it."
+msgstr ""
+
+#: includes/modules/class-spfw-module-restapi.php:84
+msgid "REST API restricted to authenticated users."
+msgstr ""
+
+#: includes/modules/class-spfw-module-restapi.php:92
+msgid "No route was found matching the URL and request method."
+msgstr ""
+
+#: src/components/App.jsx:12
+msgid "Core"
+msgstr ""
+
+#: src/components/App.jsx:15
+msgid "REST API"
+msgstr ""
+
+#: src/components/App.jsx:19
+msgid "Hardening"
+msgstr ""
+
+#: src/components/App.jsx:21
+msgid "Fonts"
+msgstr ""
+
+#: src/components/App.jsx:69
+msgid "Hardening file restored."
+msgstr ""
+
+#: src/components/App.jsx:79
+msgid "Failed to restore the hardening file."
+msgstr ""
+
+#: src/components/App.jsx:96
+msgid "Font scan complete."
+msgstr ""
+
+#: src/components/App.jsx:106
+msgid "Font scan failed."
+msgstr ""
+
+#: src/components/App.jsx:128
+msgid "Settings saved."
+msgstr ""
+
+#: src/components/App.jsx:136
+msgid "Failed to save settings. Please try again."
+msgstr ""
+
+#: src/components/App.jsx:171
+msgid "Lightweight performance, REST API, and hardening controls for OpenLiteSpeed + LiteSpeed Cache."
+msgstr ""
+
+#: src/components/App.jsx:230
+msgid "Saving…"
+msgstr ""
+
+#: src/components/App.jsx:234
+msgid "Save Settings"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:8
+msgid "Default (WordPress behavior)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:15
+msgid "Limit frequency"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:19
+msgid "Disable entirely"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:32
+msgid "Disable emojis"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:36
+msgid "Removes emoji detection scripts, styles, and the s.w.org DNS-prefetch hint from the frontend and admin."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:48
+msgid "Disable embeds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:52
+msgid "Removes oEmbed discovery links and the wp-embed script."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:64
+msgid "Disable Dashicons for visitors"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:68
+msgid "Stops loading the Dashicons stylesheet for logged-out visitors."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:80
+msgid "Disable XML-RPC"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:84
+msgid "Disables the XML-RPC endpoint and pingback headers/methods."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:96
+msgid "Remove RSD link"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:100
+msgid "Removes the Really Simple Discovery link from the site header."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:112
+msgid "Remove Windows Live Writer manifest"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:116
+msgid "Removes the wlwmanifest link from the site header."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:128
+msgid "Disable RSS feeds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:132
+msgid "Blocks all feed URLs (post, comment, category, etc.)."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:158
+msgid "Redirect feed requests to the homepage (otherwise shows a 403)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:167
+msgid "Remove query strings from static assets"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:171
+msgid "Strips ?ver= from enqueued scripts and styles. Low value under LiteSpeed Cache, which already caches by full URL and fingerprints assets — kept for completeness."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:183
+msgid "Heartbeat API"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:187
+msgid "Controls the frequency of the WordPress Heartbeat API, which affects autosave, post locking, and admin notifications."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:212
+msgid "Interval (seconds, 15-300)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:240
+msgid "Disabling Heartbeat entirely affects post-locking and autosave notices."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:249
+msgid "Disable jQuery Migrate"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:253
+msgid "Removes jquery-migrate from jQuery’s dependencies on the frontend."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:21
+msgid "Never"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:26
+msgid "Self-host Google Fonts"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:30
+msgid "Serves discovered Google Fonts from your own site instead of fonts.googleapis.com/fonts.gstatic.com. Run a scan first — this has no effect until fonts have been discovered."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:42
+msgid "Font discovery"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:46
+msgid "Scans your homepage for Google Fonts references and downloads the .woff2 files locally. Fetches your homepage and Google’s stylesheet."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:59
+msgid "Scanning…"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:63
+msgid "Scan fonts now"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:70
+msgid "Last scan:"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:7
+msgid "Active"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:12
+msgid "File missing"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:17
+msgid "File modified"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:37
+msgid "Block direct PHP execution in wp-content/plugins"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:43
+msgid "Drops an .htaccess file into the plugins directory that denies direct requests to .php files."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:49
+msgid "OpenLiteSpeed note:"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:54
+msgid ".htaccess is honored only when \"Allow Override\" is enabled for this vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess). If override is off, this file has no effect but causes no harm."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:59
+msgid "A small number of legacy plugins serve front-facing PHP from /plugins/ — disable this if something breaks."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:91
+msgid "Restore"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:45
+msgid "Require authentication"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:49
+msgid "Blocks all REST API requests from logged-out visitors, except whitelisted routes below."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:61
+msgid "Disable namespaces"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:65
+msgid "Unregisters matching routes entirely (404, not 403) to prevent user enumeration and scanning."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:109
+msgid "Advanced: one route prefix per line (e.g. wp/v2/users)"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:131
+msgid "Whitelist routes"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:135
+msgid "Route prefixes that always bypass both the auth gate and namespace disabling (e.g. Contact Form 7, WooCommerce). This plugin’s own settings API (spfw/v1) is always exempt automatically."
+msgstr ""

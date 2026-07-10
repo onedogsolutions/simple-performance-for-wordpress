@@ -1,0 +1,30 @@
+# Files excluded from the packaged plugin ZIP / WordPress.org SVN release.
+# The admin app must be built first (`npm install && npm run build`) so
+# `build/` exists and ships in the release — this file only controls what's
+# excluded, not what's built.
+
+.git
+.github
+.gitattributes
+.gitignore
+.distignore
+.editorconfig
+.eslintcache
+.eslintignore
+
+node_modules
+src
+docs
+
+IMPLEMENTATION_PLAN.md
+STATE.md
+README.md
+
+package.json
+package-lock.json
+webpack.config.js
+postcss.config.js
+
+*.log
+.DS_Store
+Thumbs.db

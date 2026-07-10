@@ -511,6 +511,26 @@ follow-ups deferred. Keep entries dated and terse.
   + LiteSpeed Cache install (everything so far has been verified with stubbed
   PHP harnesses and a real `npm run build`/lint pipeline, not a running
   WordPress site).
+- 2026-07-10 (post-Phase-1 follow-up): added WordPress.org submission
+  readiness — `readme.txt` (standard `.org` format: headers, Description,
+  Installation, FAQ, Changelog; short description 128 chars, under the
+  150-char limit; 5 tags; `Stable tag: 1.0.0` matches the plugin header
+  version), `languages/simple-performance-for-wordpress.pot` (generated for
+  real via WP-CLI's `wp i18n make-pot` — downloaded the phar since it wasn't
+  preinstalled — scanning **both** PHP and JSX sources, 77 unique strings with
+  correct file:line references; confirmed by spot-checking entries attributed
+  to `src/components/*.jsx`), a `Domain Path: /languages` header added to the
+  main plugin file, and `.distignore` (excludes `node_modules/`, `src/`,
+  `docs/`, `IMPLEMENTATION_PLAN.md`, `STATE.md`, `README.md`, and the npm/build
+  config files from the release ZIP — none of that dev tooling belongs in a
+  shipped plugin). **Still manual/outstanding before an actual `.org`
+  submission:** run `npm install && npm run build` and zip per `.distignore`
+  to produce the release artifact; the submission itself
+  (wordpress.org/plugins/developers/add/) requires a human with a WP.org
+  account; and optional SVN `/assets` graphics (banner/icon/screenshots)
+  can't be produced without a live running install to actually screenshot.
+  This work sits outside the original 9-step Phase 1 plan, so it isn't a row
+  in the Progress table above — noted here for continuity only.
 
 ## Open questions / blockers
 
