@@ -8,6 +8,7 @@
  * License:           GPL-3.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-3.0.html
  * Text Domain:       simple-performance-for-wordpress
+ * Domain Path:       /languages
  * Requires at least: 6.0
  * Requires PHP:      7.4
  *
