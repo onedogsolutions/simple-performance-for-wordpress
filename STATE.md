@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 5 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 6 of 9 done)
 
 ## Shared project facts (true for every step)
 
@@ -46,7 +46,8 @@ together in one top-level document.
 | 2 | Settings layer (`SPFW_Settings`) | ✅ Done | 1859f2f |
 | 3 | Core loader + module interface | ✅ Done | 169c712 |
 | 4 | Module 1 — core toggles | ✅ Done | 793acd0 |
-| 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | (this commit) |
+| 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | 26fefd7 |
+| 6 | Module 2 — REST API controls | ✅ Done | (this commit) |
 | 6 | Module 2 — REST API controls | ⬜ Not started | — |
 | 7 | Module 3 — directory hardening | ⬜ Not started | — |
 | 8 | Module 4 — Google Fonts localizer | ⬜ Not started | — |
@@ -56,9 +57,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 6** — full spec at `docs/build-steps/06-module-restapi.md`; condensed
+Start **Step 7** — full spec at `docs/build-steps/07-module-hardening.md`; condensed
 instructions below. `npm install && npm run build` must be re-run after pulling
-new `src/` changes (Steps 6–8 each add a component + wire it into `App.jsx`).
+new `src/` changes (Steps 7–8 each add a component + wire it into `App.jsx`).
 
 ---
 
@@ -370,6 +371,30 @@ follow-ups deferred. Keep entries dated and terse.
   stubbed harness (route registers with GET+POST, permission_callback rejects
   non-`manage_options`, GET returns the full settings snapshot, POST persists a
   partial update while preserving untouched keys).
+- 2026-07-10: Step 6 built exactly to spec (per the React-pivot revision of
+  `06-module-restapi.md`). `route_in_list()` hardcodes `spfw/v1` as
+  always-exempt (equality or `spfw/v1/` prefix) ahead of checking the
+  user-configured `whitelist_routes`, so the plugin's own settings API can never
+  be locked out regardless of configuration — verified explicitly in the test
+  harness by listing `spfw/v1/settings` as if it were itself a disabled
+  namespace and confirming it's still kept. `RestApiSettings.jsx` fetches the
+  live namespace list via `apiFetch({path:'/'})` (the WP-JSON index's
+  `namespaces` array) on mount for the checkbox list, with a newline-separated
+  textarea as the single source of truth for `disabled_namespaces` (checkboxes
+  and textarea both read/write the same flat array — no separate state to
+  reconcile). Two `jsx-a11y/label-has-associated-control` findings needed
+  explicit `htmlFor`/`id` pairs (as in Step 5 — this project's eslint config
+  doesn't accept label-nesting alone as valid association). **Verified** with a
+  stubbed PHP harness covering every acceptance criterion: disabled namespaces
+  are fully unregistered from `rest_endpoints` (not just gated) unless
+  whitelisted; anonymous requests to a disabled namespace get 404
+  (`rest_no_route`), never 403; a logged-in `manage_options` user is exempt from
+  that 404; `require_auth` returns 401 for anonymous requests on unrestricted
+  routes while whitelisted routes still pass; `spfw/v1` passes through
+  untouched in every scenario; and with both `require_auth` off and
+  `disabled_namespaces` empty, neither filter is attached at all (zero
+  overhead). `npm run lint:js`/`lint:css` clean, `npm run build` succeeds.
+  Harness was scratch-only, not committed.
 
 ## Open questions / blockers
 
