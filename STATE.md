@@ -7,7 +7,7 @@ starting any step.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 1 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 2 of 9 done)
 
 ## Progress
 
@@ -15,8 +15,8 @@ starting any step.
 |------|-------------|--------|------------------|
 | — | Architecture blueprint (`IMPLEMENTATION_PLAN.md`) | ✅ Done | 5f938f7 |
 | — | Per-step build specs (`docs/build-steps/`) | ✅ Done | 5f938f7 |
-| 1 | Bootstrap file | ✅ Done | (this commit) |
-| 2 | Settings layer (`SPFW_Settings`) | ⬜ Not started | — |
+| 1 | Bootstrap file | ✅ Done | 96d41e3 |
+| 2 | Settings layer (`SPFW_Settings`) | ✅ Done | (this commit) |
 | 3 | Core loader + module interface | ⬜ Not started | — |
 | 4 | Module 1 — core toggles | ⬜ Not started | — |
 | 5 | Admin skeleton + Core tab | ⬜ Not started | — |
@@ -29,7 +29,7 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 2** — feed `docs/build-steps/02-settings.md` into a build session.
+Start **Step 3** — feed `docs/build-steps/03-core-loader.md` into a build session.
 
 ## Decisions & deviations log
 
@@ -40,6 +40,16 @@ follow-ups deferred. Keep entries dated and terse.
 - 2026-07-10: Step 1 built exactly to spec. `plugins_loaded`/activation/deactivation
   callbacks use closures guarded by `class_exists`/`file_exists` checks since
   `SPFW_Plugin` (Step 3) doesn't exist yet — no fatals on this partial build.
+- 2026-07-10: Step 2 built exactly to spec. `update()` deep-merges the incoming
+  (possibly partial) array against the **current stored settings** (not just
+  defaults) before sanitizing, so a save from one admin tab never clobbers another
+  group's values. `merge_recursive()` distinguishes associative "group" arrays
+  (deep-merged) from list arrays like `disabled_namespaces` (replaced wholesale on
+  update, per the spec's "list values replace outright" intent). Verified all four
+  acceptance criteria with a stubbed WP-function test harness (single `get_option`
+  call across repeated `get()`, sanitize clamps/filters, update+get reflects new
+  values, partial update preserves other keys) — harness was scratch-only, not
+  committed.
 
 ## Open questions / blockers
 
