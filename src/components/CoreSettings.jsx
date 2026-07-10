@@ -1,4 +1,6 @@
+import { useState, useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
@@ -79,6 +81,79 @@ const AUTOSAVE_OPTIONS = [
 
 export default function CoreSettings( { settings, onChange } ) {
 	const core = settings.core || {};
+
+	const [ searchQuery, setSearchQuery ] = useState( '' );
+	const [ suggestions, setSuggestions ] = useState( [] );
+	const [ isSearching, setIsSearching ] = useState( false );
+
+	const selectedTokens = Array.isArray( core.google_maps_exceptions )
+		? core.google_maps_exceptions
+		: [];
+
+	useEffect( () => {
+		if ( ! searchQuery.trim() ) {
+			setSuggestions( [] );
+			return;
+		}
+
+		setIsSearching( true );
+		const delayDebounce = setTimeout( () => {
+			Promise.all( [
+				apiFetch( { path: `/wp/v2/posts?search=${ encodeURIComponent( searchQuery ) }&per_page=5` } ).catch( () => [] ),
+				apiFetch( { path: `/wp/v2/pages?search=${ encodeURIComponent( searchQuery ) }&per_page=5` } ).catch( () => [] )
+			] ).then( ( [ posts, pages ] ) => {
+				const combined = [
+					...posts.map( p => ( { id: p.id, title: p.title.rendered, slug: p.slug, type: 'post' } ) ),
+					...pages.map( p => ( { id: p.id, title: p.title.rendered, slug: p.slug, type: 'page' } ) )
+				];
+				const unique = [];
+				const map = new Map();
+				for ( const item of combined ) {
+					if ( ! map.has( item.slug ) ) {
+						map.set( item.slug, true );
+						unique.push( item );
+					}
+				}
+				setSuggestions( unique );
+				setIsSearching( false );
+			} ).catch( () => {
+				setIsSearching( false );
+			} );
+		}, 300 );
+
+		return () => clearTimeout( delayDebounce );
+	}, [ searchQuery ] );
+
+	const handleRemoveToken = ( token ) => {
+		const next = selectedTokens.filter( ( t ) => t !== token );
+		onChange( 'google_maps_exceptions', next );
+	};
+
+	const handleSelectSuggestion = ( item ) => {
+		const tokenToAdd = item.slug || String( item.id );
+		if ( ! selectedTokens.includes( tokenToAdd ) ) {
+			const next = [ ...selectedTokens, tokenToAdd ];
+			onChange( 'google_maps_exceptions', next );
+		}
+		setSearchQuery( '' );
+		setSuggestions( [] );
+	};
+
+	const handleKeyDown = ( e ) => {
+		if ( e.key === 'Enter' || e.key === ',' ) {
+			e.preventDefault();
+			const val = searchQuery.trim().toLowerCase();
+			if ( val ) {
+				const cleaned = val.replace( /[^a-z0-9_.-]/g, '' );
+				if ( cleaned && ! selectedTokens.includes( cleaned ) ) {
+					const next = [ ...selectedTokens, cleaned ];
+					onChange( 'google_maps_exceptions', next );
+				}
+			}
+			setSearchQuery( '' );
+			setSuggestions( [] );
+		}
+	};
 
 	const toggleRow = ( key, title, description ) => (
 		<SettingsRow title={ title } description={ description }>
@@ -294,17 +369,94 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					)
 				) }
-				{ toggleRow(
-					'disable_google_maps',
-					__(
+				<SettingsRow
+					title={ __(
 						'Disable Google Maps',
 						'simple-performance-for-wordpress'
-					),
-					__(
+					) }
+					description={ __(
 						'Strips Google Maps scripts and embedded map iframes from the frontend HTML. May not catch maps rendered entirely by JavaScript.',
 						'simple-performance-for-wordpress'
-					)
-				) }
+					) }
+				>
+					<div className="w-full space-y-3">
+						<Toggle
+							checked={ !! core.disable_google_maps }
+							onChange={ ( v ) => onChange( 'disable_google_maps', v ) }
+						/>
+
+						{ !! core.disable_google_maps && (
+							<div className="space-y-1.5 sm:max-w-md">
+								<label
+									htmlFor="spfw-google-maps-exceptions"
+									className="block text-xs text-gray-600 font-medium"
+								>
+									{ __(
+										'Page exceptions (auto-populated as you type)',
+										'simple-performance-for-wordpress'
+									) }
+								</label>
+								<div className="relative">
+									<div className="flex flex-wrap gap-2 p-1.5 min-h-[38px] rounded-md border border-gray-300 shadow-sm focus-within:ring-2 focus-within:ring-indigo-600 focus-within:border-indigo-600 bg-white">
+										{ selectedTokens.map( ( token ) => (
+											<span
+												key={ token }
+												className="inline-flex items-center gap-x-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-600/20"
+											>
+												{ token }
+												<button
+													type="button"
+													onClick={ () => handleRemoveToken( token ) }
+													className="group h-3.5 w-3.5 rounded-sm hover:bg-indigo-200/50 flex items-center justify-center text-indigo-600 hover:text-indigo-900"
+												>
+													<span className="text-[10px] font-bold leading-none">×</span>
+												</button>
+											</span>
+										) ) }
+										<input
+											id="spfw-google-maps-exceptions"
+											type="text"
+											value={ searchQuery }
+											onChange={ ( e ) => setSearchQuery( e.target.value ) }
+											onKeyDown={ handleKeyDown }
+											placeholder={ selectedTokens.length === 0 ? __( 'Type to search page...', 'simple-performance-for-wordpress' ) : '' }
+											className="flex-1 min-w-[120px] border-0 p-0 text-sm focus:ring-0 text-gray-900 focus:outline-none"
+										/>
+									</div>
+
+									{ ( suggestions.length > 0 || isSearching ) && (
+										<ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm border border-gray-200">
+											{ isSearching ? (
+												<li className="relative cursor-default select-none py-2 px-3 text-gray-500 italic">
+													{ __( 'Searching...', 'simple-performance-for-wordpress' ) }
+												</li>
+											) : (
+												suggestions.map( ( item ) => (
+													<li
+														key={ `${item.type}-${item.id}` }
+														onClick={ () => handleSelectSuggestion( item ) }
+														className="relative cursor-pointer select-none py-2 pl-3 pr-9 text-gray-900 hover:bg-indigo-600 hover:text-white transition-colors duration-150"
+													>
+														<div className="flex items-center justify-between">
+															<span className="font-medium truncate">{ item.title }</span>
+															<span className="ml-2 text-xs text-gray-400">{ `(${item.type}: ${item.slug})` }</span>
+														</div>
+													</li>
+												) )
+											) }
+										</ul>
+									) }
+								</div>
+								<p className="text-[11px] text-gray-500">
+									{ __(
+										'Google Maps will still load on these pages. Press Enter or comma to add a custom slug.',
+										'simple-performance-for-wordpress'
+									) }
+								</p>
+							</div>
+						) }
+					</div>
+				</SettingsRow>
 				{ toggleRow(
 					'disable_password_meter',
 					__(

@@ -45,6 +45,7 @@ class SPFW_Settings {
 				'disable_self_pingbacks' => true,
 				'remove_query_strings'   => false,
 				'disable_google_maps'    => false,
+				'google_maps_exceptions' => array(),
 				'disable_password_meter' => false,
 				'disable_comments'       => false,
 				'remove_comment_urls'    => false,
@@ -57,7 +58,7 @@ class SPFW_Settings {
 			),
 			'restapi'     => array(
 				'require_auth'        => false,
-				'disabled_namespaces' => array( 'wp/v2/users', 'wp/v2/themes' ),
+				'disabled_namespaces' => array( 'wp/v2/users', 'wp/v2/themes', 'wp/v2/comments', 'wp/v2/settings', 'wp/v2/taxonomies' ),
 				'whitelist_routes'    => array( 'contact-form-7/v1', 'wc/v3', 'wc/store' ),
 			),
 			'hardening'   => array(
@@ -239,6 +240,10 @@ class SPFW_Settings {
 		// Autosave interval in minutes: 0 = WordPress default, else 1..10.
 		$autosave                            = isset( $core['autosave_interval'] ) ? absint( $core['autosave_interval'] ) : 0;
 		$clean['core']['autosave_interval'] = ( 0 === $autosave ) ? 0 : max( 1, min( 10, $autosave ) );
+
+		$clean['core']['google_maps_exceptions'] = self::sanitize_route_list(
+			isset( $core['google_maps_exceptions'] ) ? $core['google_maps_exceptions'] : $defaults['core']['google_maps_exceptions']
+		);
 
 		$restapi = isset( $input['restapi'] ) && is_array( $input['restapi'] ) ? $input['restapi'] : array();
 
