@@ -64,3 +64,9 @@ enqueue. This step ships the **Core** tab; later steps add their own tab views.
 - Visiting `?tab=restapi` before Step 6 exists renders the nav without fataling
   (missing view handled gracefully).
 - `php -l` clean, WPCS clean.
+
+## Final step (required)
+Before ending the session, update `../../STATE.md` per its "Update protocol":
+flip this step's row to ✅ (or 🟡 if paused), set the commit hash, refresh Overall
+status / Last updated / Next action, and log any deviations. Commit STATE.md **in
+the same commit** as this step's code, then push to the branch.

@@ -100,3 +100,9 @@ Only when `localize_google` is on AND `discovered['css']` is non-empty.
 - Re-scan changes the stylesheet version (hash) and (if LSCache present) purges.
 - Disabling the toggle restores the original Google enqueue (no local injection).
 - `php -l` clean, WPCS clean.
+
+## Final step (required)
+Before ending the session, update `../../STATE.md` per its "Update protocol":
+flip this step's row to ✅ (or 🟡 if paused), set the commit hash, refresh Overall
+status / Last updated / Next action, and log any deviations. Commit STATE.md **in
+the same commit** as this step's code, then push to the branch.
