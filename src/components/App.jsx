@@ -5,6 +5,7 @@ import apiFetch from '@wordpress/api-fetch';
 import SettingsTabs from './SettingsTabs';
 import CoreSettings from './CoreSettings';
 import RestApiSettings from './RestApiSettings';
+import HardeningSettings from './HardeningSettings';
 
 const TABS = [
 	{ id: 'core', label: __( 'Core', 'simple-performance-for-wordpress' ) },
@@ -65,6 +66,33 @@ export default function App() {
 				[ key ]: value,
 			},
 		} ) );
+	};
+
+	const handleRestoreHtaccess = () => {
+		apiFetch( {
+			path: '/spfw/v1/settings/restore-htaccess',
+			method: 'POST',
+		} )
+			.then( ( data ) => {
+				setSettings( data );
+				showToast(
+					__(
+						'Hardening file restored.',
+						'simple-performance-for-wordpress'
+					),
+					'success'
+				);
+			} )
+			.catch( ( err ) => {
+				showToast(
+					err.message ||
+						__(
+							'Failed to restore the hardening file.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
 	};
 
 	const handleSave = ( e ) => {
@@ -153,7 +181,16 @@ export default function App() {
 								}
 							/>
 						),
-						hardening: <ComingSoon />,
+						hardening: (
+							<HardeningSettings
+								settings={ settings }
+								onChange={ ( key, value ) =>
+									handleChange( 'hardening', key, value )
+								}
+								hardeningStatus={ settings.hardening_status }
+								onRestore={ handleRestoreHtaccess }
+							/>
+						),
 						fonts: <ComingSoon />,
 					} }
 				</SettingsTabs>

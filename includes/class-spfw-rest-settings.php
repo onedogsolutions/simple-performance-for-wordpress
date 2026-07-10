@@ -24,7 +24,7 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
-	 * Register the settings route.
+	 * Register the settings routes.
 	 */
 	public function register_routes() {
 		register_rest_route(
@@ -43,6 +43,16 @@ class SPFW_Rest_Settings {
 				),
 			)
 		);
+
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/restore-htaccess',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'restore_htaccess' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -55,17 +65,23 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
-	 * GET callback: current settings.
+	 * GET callback: current settings plus computed, read-only status
+	 * fields the React app needs without a second round trip.
 	 *
 	 * @return WP_REST_Response
 	 */
 	public function get_settings() {
-		return new WP_REST_Response( SPFW_Settings::get(), 200 );
+		$settings                    = SPFW_Settings::get();
+		$settings['hardening_status'] = SPFW_Htaccess::status();
+
+		return new WP_REST_Response( $settings, 200 );
 	}
 
 	/**
 	 * POST callback: persist submitted settings (sanitized internally by
-	 * SPFW_Settings::update()) and return the refreshed state.
+	 * SPFW_Settings::update(), which ignores unknown top-level keys such
+	 * as the computed hardening_status echoed back by get_settings())
+	 * and return the refreshed state.
 	 *
 	 * @param WP_REST_Request $request Incoming request.
 	 * @return WP_REST_Response
@@ -75,6 +91,19 @@ class SPFW_Rest_Settings {
 
 		SPFW_Settings::update( is_array( $params ) ? $params : array() );
 
-		return new WP_REST_Response( SPFW_Settings::get(), 200 );
+		return $this->get_settings();
+	}
+
+	/**
+	 * POST callback: rewrite the plugins-directory hardening file and
+	 * return the refreshed state (used by the Hardening tab's Restore
+	 * button — no page reload needed).
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function restore_htaccess() {
+		SPFW_Htaccess::write();
+
+		return $this->get_settings();
 	}
 }
