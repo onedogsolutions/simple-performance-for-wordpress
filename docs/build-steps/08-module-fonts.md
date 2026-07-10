@@ -17,8 +17,15 @@ external Google requests. Two phases: **discover** (admin AJAX, cached) and **se
 ## Deliverables
 1. `includes/modules/class-spfw-module-fonts.php` →
    `class SPFW_Module_Fonts implements SPFW_Module`.
-2. `admin/views/tab-fonts.php` + the "Scan fonts now" JS handler in
-   `admin/assets/admin.js` (namespace defined in Step 5).
+2. `src/components/FontsSettings.jsx` (React tab component, calling a REST route
+   for the scan — the admin UI is React/Tailwind per Step 5, not PHP form views
+   or `admin-ajax.php`).
+3. A `spfw/v1/settings/scan-fonts` `POST` route on `SPFW_Rest_Settings` (Step 5),
+   cap `manage_options`, following the same pattern as Step 7's
+   `restore-htaccess` route: runs the discovery/download logic below, persists
+   `discovered`/`last_scan` via `SPFW_Settings::update()`, and returns the
+   refreshed settings so the component can update from the response with no
+   page reload.
 
 ### `discovered` structure (persisted)
 ```php
@@ -31,8 +38,9 @@ external Google requests. Two phases: **discover** (admin AJAX, cached) and **se
 ```
 
 ### Phase 1 — Discovery (admin, on demand)
-- AJAX action `wp_ajax_spfw_scan_fonts` (cap `manage_options` + nonce from the Step 5
-  localize).
+- Triggered by the `spfw/v1/settings/scan-fonts` REST route (cap
+  `manage_options`, registered on `SPFW_Rest_Settings` per the Deliverables
+  above — not `admin-ajax.php`).
 - **Find Google references:**
   1. Fetch the homepage: `wp_remote_get( home_url('/'), [timeout=>15] )`.
   2. Regex-scan the HTML for `href`/`@import`/`url()` matching
@@ -49,8 +57,9 @@ external Google requests. Two phases: **discover** (admin AJAX, cached) and **se
   `uploads/ods-fonts/<file>` URL. Concatenate all `@font-face` blocks into one CSS
   string. Compute `sha1` → `hash`.
 - Persist the whole `discovered` array + `last_scan = time()` via
-  `SPFW_Settings::update()`. Return a JSON summary (families found, files saved) to
-  the JS.
+  `SPFW_Settings::update()`. The REST route returns the refreshed
+  `SPFW_Settings::get()` (families found, files saved, timestamp are all visible
+  to the component from `settings.fonts.discovered`/`last_scan`).
 - Use a short-lived transient only as an in-progress working buffer if needed
   (optional); the durable cache is the option.
 
@@ -71,11 +80,17 @@ Only when `localize_google` is on AND `discovered['css']` is non-empty.
     by `hash` so re-scans bust caches.
 - **Fallback:** if the local file/CSS is missing, do nothing (leave Google enqueue).
 
-### `tab-fonts.php`
-- Checkbox `spfw[fonts][localize_google]`.
-- "Scan fonts now" button → AJAX → shows spinner, then a summary (families + file
-  count + last-scan time). Warn that scanning fetches the homepage and Google CSS.
-- List currently localized families; a "Clear cache / re-scan" control.
+### `FontsSettings.jsx`
+Props: `{ settings, onChange, onScan }` (same `onChange` contract as the other
+tab components; `onScan` POSTs to `/spfw/v1/settings/scan-fonts` and updates
+local state from the response).
+- Toggle `settings.fonts.localize_google`.
+- "Scan fonts now" button → `onScan()` → local `isScanning` state shows a
+  spinner, then a summary (families + file count + last-scan time) read from
+  `settings.fonts.discovered`/`last_scan`. Warn that scanning fetches the
+  homepage and Google CSS.
+- List currently localized families (`settings.fonts.discovered.families`); a
+  "Re-scan" control (same button, re-runs `onScan()`).
 
 ### LSCache / OLS notes (put in help text + code comments)
 - After a successful scan that changes `hash`, trigger

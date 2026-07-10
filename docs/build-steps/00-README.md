@@ -18,7 +18,7 @@ commit** as that step's code. State must never drift from the tree.
 | 2 | `02-settings.md` | `Settings` class: defaults, cached `get()`, `sanitize()` |
 | 3 | `03-core-loader.md` | Plugin singleton + module interface + admin gating |
 | 4 | `04-module-core.md` | Module 1 — core performance toggles |
-| 5 | `05-admin-skeleton.md` | Settings page, tabs, save handler, asset enqueue |
+| 5 | `05-admin-skeleton.md` | React+Tailwind v4 admin app, REST settings controller, build tooling |
 | 6 | `06-module-restapi.md` | Module 2 — REST API controls |
 | 7 | `07-module-hardening.md` | Module 3 — directory hardening + `.htaccess` writer |
 | 8 | `08-module-fonts.md` | Module 4 — Google Fonts localizer |
@@ -39,6 +39,11 @@ commit** as that step's code. State must never drift from the tree.
   (`manage_options`) on every write, `ABSPATH` guard at the top of every PHP file,
   no direct DB access, no new tables/post-meta/transients (except the optional
   font-scan working cache in Step 8).
+- **Admin UI:** a single React app (`@wordpress/element` — no jQuery, no separate
+  React dependency) built with `@wordpress/scripts` + Tailwind v4, matching the
+  sister plugin `onedogsolutions/google-security-for-wordpress`'s architecture:
+  one settings REST endpoint (`spfw/v1/settings`), one root `<div>`, `build/`
+  gitignored and produced by `npm run build`. See `05-admin-skeleton.md`.
 
 ## Reference
 

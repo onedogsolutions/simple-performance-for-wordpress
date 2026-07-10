@@ -17,8 +17,16 @@ missing or altered. Plus the Hardening tab. Includes OLS-specific UI guidance.
 1. `includes/class-spfw-htaccess.php` → `class SPFW_Htaccess` (shared file utility).
 2. `includes/modules/class-spfw-module-hardening.php` →
    `class SPFW_Module_Hardening implements SPFW_Module`.
-3. `admin/views/tab-hardening.php`.
+3. `src/components/HardeningSettings.jsx` (React tab component — the admin UI is
+   React/Tailwind per Step 5, not PHP form views).
 4. Wire `SPFW_Plugin::activate()`/`deactivate()` (Step 3) to write/remove the file.
+5. Extend `SPFW_Rest_Settings::get_settings()` (Step 5) to include a computed,
+   read-only `hardening_status` field (`ok|missing|altered|disabled`, from
+   `SPFW_Htaccess::status()`) in the REST response — the React component needs
+   this to render live status without a second endpoint. Add a REST-only
+   `spfw/v1/settings/restore-htaccess` `POST` route (cap `manage_options`) that
+   calls `SPFW_Htaccess::write()` and returns the refreshed settings +
+   `hardening_status`, so the Restore button doesn't need a page reload.
 
 ### The file payload
 Target path: `WP_CONTENT_DIR . '/plugins/.htaccess'`. Contents:
@@ -68,15 +76,22 @@ Target path: `WP_CONTENT_DIR . '/plugins/.htaccess'`. Contents:
 - Deactivation (`SPFW_Plugin::deactivate()`): call `remove()` (only removes if
   authored + unaltered).
 
-### `tab-hardening.php`
-- Checkbox `spfw[hardening][plugins_htaccess]` with clear help:
+### `HardeningSettings.jsx`
+Props: `{ settings, onChange, hardeningStatus, onRestore }` (same `onChange`
+contract as `CoreSettings.jsx`/`RestApiSettings.jsx`: calls
+`handleChange('hardening', 'plugins_htaccess', value)`; `onRestore` POSTs to
+`/spfw/v1/settings/restore-htaccess` and refreshes local state from the
+response).
+- Toggle `settings.hardening.plugins_htaccess` with clear help text:
   - What it does (blocks direct `/wp-content/plugins/*.php` execution).
   - **OLS note:** "On OpenLiteSpeed, `.htaccess` is honored only when *Allow
     Override* is enabled for this vhost (LiteSpeed WebAdmin → Rewrite → Auto Load
     from .htaccess). If override is off, this file has no effect but causes no harm."
   - Rare-plugin warning: some (legacy) plugins serve front-facing PHP from
     `/plugins/`; if something breaks, disable this.
-- Show live `status()` (ok/missing/altered) with a Restore button when relevant.
+- Status indicator driven by `hardeningStatus` (`ok`/`missing`/`altered`/
+  `disabled` — from the REST response's `hardening_status` field): green for
+  `ok`, amber/red with a "Restore" button for `missing`/`altered`.
 
 ## Design constraints
 - **Never** raw `fopen`/`file_put_contents` — use `WP_Filesystem` for host/perms
