@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2`
 - **Plugin version target:** 1.0.0
 - **Last updated:** 2026-07-10
-- **Overall status:** 🟡 Implementation in progress (Step 4 of 9 done)
+- **Overall status:** 🟡 Implementation in progress (Step 5 of 9 done)
 
 ## Shared project facts (true for every step)
 
@@ -26,6 +26,15 @@ together in one top-level document.
   nonce + `manage_options` capability check on every write, `ABSPATH` guard at the
   top of every PHP file, no direct DB access, no new tables/post-meta/transients
   (except the optional font-scan working cache in Step 8)
+- **Admin UI (as of Step 5):** a single React app (`@wordpress/element` — no
+  jQuery, no separate React dependency) built with `@wordpress/scripts` +
+  Tailwind v4, matching the sister plugin
+  `onedogsolutions/google-security-for-wordpress`'s architecture exactly. One
+  REST endpoint (`spfw/v1/settings`) is the only persistence path — no PHP form
+  views, no `admin-post.php` handler. `build/` is gitignored, produced by
+  `npm run build`; `package-lock.json` **is** committed (pins transitive
+  dependency versions — see the Step 5 deviation entry below for why this
+  matters).
 
 ## Progress
 
@@ -36,8 +45,8 @@ together in one top-level document.
 | 1 | Bootstrap file | ✅ Done | 96d41e3 |
 | 2 | Settings layer (`SPFW_Settings`) | ✅ Done | 1859f2f |
 | 3 | Core loader + module interface | ✅ Done | 169c712 |
-| 4 | Module 1 — core toggles | ✅ Done | (this commit) |
-| 5 | Admin skeleton + Core tab | ⬜ Not started | — |
+| 4 | Module 1 — core toggles | ✅ Done | 793acd0 |
+| 5 | Admin skeleton (React + Tailwind v4 + REST) | ✅ Done | (this commit) |
 | 6 | Module 2 — REST API controls | ⬜ Not started | — |
 | 7 | Module 3 — directory hardening | ⬜ Not started | — |
 | 8 | Module 4 — Google Fonts localizer | ⬜ Not started | — |
@@ -47,8 +56,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-Start **Step 5** — full spec at `docs/build-steps/05-admin-skeleton.md`; condensed
-instructions below.
+Start **Step 6** — full spec at `docs/build-steps/06-module-restapi.md`; condensed
+instructions below. `npm install && npm run build` must be re-run after pulling
+new `src/` changes (Steps 6–8 each add a component + wire it into `App.jsx`).
 
 ---
 
@@ -127,26 +137,51 @@ all-off attaches zero hooks, and every pure-logic helper (query-arg stripping,
 pingback filtering, emoji dns-prefetch filtering, heartbeat interval override,
 jQuery Migrate dep removal) behaves correctly in isolation.
 
-### Step 5 — Admin skeleton + Core tab
-`admin/class-spfw-admin.php` → `SPFW_Admin`, loaded only in `is_admin()`.
-- `add_options_page` under Settings → "Simple Performance" (slug `spfw-settings`,
-  cap `manage_options`).
-- Tab registry `core|restapi|hardening|fonts`; current tab from sanitized/
-  whitelisted `$_GET['tab']` (default `core`); only `include` a tab view file that
-  exists so partial builds don't fatal.
-- Save handler on `admin_init`/`admin_post_spfw_save`: cap check +
-  `check_admin_referer('spfw_save','spfw_nonce')`, read `$_POST['spfw'][group]`,
-  `SPFW_Settings::update()`, PRG redirect back to the same tab with a success
-  notice. Field names namespaced `spfw[core][disable_emojis]` etc. so one handler
-  serves every tab.
-- `admin_enqueue_scripts` bails unless `$hook === 'settings_page_spfw-settings'`;
-  enqueues `admin.css`/`admin.js` versioned by `SPFW_VERSION`.
-- `admin/views/tab-core.php`: one control per `core` setting (checkboxes, a
-  `<select>` for `heartbeat_mode`, a number input 15–300 for `heartbeat_interval`
-  shown only when mode=modify via JS), field names `spfw[core][...]`, escaped
-  output, LSCache caveat note next to "Remove query strings".
-- `admin/assets/admin.js`: heartbeat-interval show/hide; placeholder namespace for
-  Step 8's "Scan fonts" button. `admin/assets/admin.css`: light layout only.
+### Step 5 — Admin skeleton (React + Tailwind v4 + REST)
+**Architecture pivot (2026-07-10):** the admin UI is a single React app —
+`@wordpress/element` (vanilla JS/React, **no jQuery**), built with
+`@wordpress/scripts` + Tailwind v4, matching the sister plugin
+`onedogsolutions/google-security-for-wordpress` exactly (verified by cloning it:
+`package.json`/`webpack.config.js`/`postcss.config.js` shape, `src/index.js`
+mounting into a root div, `src/styles/index.css` with `@import "tailwindcss"`
+scoped under an isolation class, tab components reading/writing state via
+`@wordpress/api-fetch` against one REST endpoint, Tailwind conventions —
+indigo-600 primary buttons, gray-900/500 text scale, toast notifications, `role`
+tablist/tabpanel with arrow-key nav). **No PHP form views, no `admin-post.php`
+save handler, no plain admin.js/admin.css** — those are superseded by this.
+- **Build tooling** (repo root): `package.json` (`@wordpress/scripts`,
+  `tailwindcss`^4, `@tailwindcss/postcss`^4, `postcss`, `autoprefixer`),
+  `webpack.config.js` (extends `@wordpress/scripts` default), `postcss.config.js`
+  (`@tailwindcss/postcss` + `autoprefixer`). `build/` gitignored — produced by
+  `npm run build`, never committed (same as the sister plugin).
+- `src/index.js` → mounts `<App />` into `#spfw-admin-root`.
+- `src/components/App.jsx` → bootstraps from `window.spfwAdminData`
+  (`{restUrl, nonce, settings}`), refreshes via `apiFetch({path:'/spfw/v1/settings'})`
+  on mount, holds `settings`/`isSaving`/`toast` state, `handleChange(group,key,val)`,
+  `handleSave` POSTs the full settings object and shows a toast. Tabs:
+  `core` (ships now via `CoreSettings.jsx`), `restapi`/`hardening`/`fonts`
+  (placeholder body until Steps 6–8 add their components).
+- `src/components/SettingsTabs.jsx` → generic tablist/tabpanel, keyboard nav.
+- `src/components/CoreSettings.jsx` → every Step 4 `core` setting; props
+  `{settings, onChange}`.
+- `includes/class-spfw-rest-settings.php` → `SPFW_Rest_Settings`. Registers
+  `spfw/v1/settings` (`GET`→`SPFW_Settings::get()`, `POST`→
+  `SPFW_Settings::update($request->get_json_params())`, both capped
+  `manage_options`). **Loads unconditionally** (required + instantiated directly
+  in `SPFW_Plugin::boot()`, not admin-gated, not in the toggleable `MODULES`
+  list) — REST requests aren't admin context, so `rest_api_init` must fire on
+  every request. `spfw/v1` is treated as always-whitelisted by Module 2 (Step 6)
+  so the settings screen can never lock itself out.
+- `admin/class-spfw-admin.php` → `SPFW_Admin`, loaded only in `is_admin()`.
+  `add_options_page` under Settings → "Simple Performance" (slug
+  `spfw-settings`, cap `manage_options`). `render_page()` outputs only the root
+  div (`<div id="spfw-admin-root" class="spfw-admin-isolated">`) — no PHP form
+  markup. `admin_enqueue_scripts` bails unless
+  `$hook === 'settings_page_spfw-settings'`; reads `build/index.asset.php` for
+  deps/version (falls back to `['wp-element','wp-api-fetch','wp-i18n']` +
+  `SPFW_VERSION` if not yet built); enqueues `build/index.js`/`build/index.css`;
+  `wp_localize_script`s `spfwAdminData` with `restUrl`, a `wp_rest` nonce, and
+  the current `SPFW_Settings::get()` snapshot.
 
 ### Step 6 — Module 2: REST API controls
 `includes/modules/class-spfw-module-restapi.php` → `SPFW_Module_RestApi`. Reads
@@ -160,10 +195,13 @@ jQuery Migrate dep removal) behaves correctly in isolation.
   `require_auth` and anonymous → `401`; else if route matches a disabled namespace
   and user lacks `manage_options` → **404** (`rest_no_route` — no signal the route
   exists, not 403).
-- Helper `route_in_list($route, $list)`: prefix match, `"$item"` or `"$item/"`.
-- `admin/views/tab-restapi.php`: require-auth checkbox; disabled-namespaces from
-  **live** `rest_get_server()->get_namespaces()` as checkboxes + advanced textarea;
-  whitelist textarea pre-seeded with CF7/WooCommerce examples.
+- Helper `route_in_list($route, $list)`: prefix match, `"$item"` or `"$item/"`,
+  **plus `spfw/v1` hardcoded always-whitelisted** (never let the plugin lock out
+  its own settings API).
+- `src/components/RestApiSettings.jsx` (React tab, props `{settings,onChange}`):
+  require-auth toggle; disabled-namespaces from a live `/` index fetch
+  (`apiFetch({path:'/'})`) as checkboxes + advanced textarea; whitelist textarea
+  pre-seeded with CF7/WooCommerce placeholder examples.
 - Zero overhead when both `require_auth` is false and `disabled_namespaces` is
   empty — don't touch the filters at all.
 
@@ -176,34 +214,42 @@ deletes if `sha1_file()` matches the stored hash — never touches a foreign
 `.htaccess`), `status()` → `ok|missing|altered|disabled`.
 
 `includes/modules/class-spfw-module-hardening.php` → `SPFW_Module_Hardening`:
-on `admin_init`, if `missing`/`altered`, show an `admin_notices` warning with a
-nonce-protected Restore link (`admin_post_spfw_restore_htaccess`); toggling the
-setting on/off calls `write()`/`remove()`; wire into `SPFW_Plugin::activate()`/
-`deactivate()`.
+on `admin_init`, if `missing`/`altered`, show an `admin_notices` warning (native
+WP notice, above the React root); toggling the setting on/off calls
+`write()`/`remove()`; wire into `SPFW_Plugin::activate()`/`deactivate()`.
+`SPFW_Rest_Settings::get_settings()` (Step 5) gains a computed read-only
+`hardening_status` field, plus a `spfw/v1/settings/restore-htaccess` POST route
+(cap `manage_options`) so the React Restore button needs no page reload.
 
-`admin/views/tab-hardening.php`: checkbox with an explicit **OpenLiteSpeed note**
-— OLS only honors `.htaccess` when "Allow Override" is enabled at the vhost level
+`src/components/RestApiSettings.jsx` sibling
+`src/components/HardeningSettings.jsx` (props `{settings, onChange,
+hardeningStatus, onRestore}`): toggle with an explicit **OpenLiteSpeed note** —
+OLS only honors `.htaccess` when "Allow Override" is enabled at the vhost level
 (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); the write is fail-safe
 (only adds restriction) if override is off. Also warn that rare legacy plugins
-serve front-facing PHP from `/plugins/`. Show live `status()` + Restore button.
+serve front-facing PHP from `/plugins/`. Status indicator + Restore button driven
+by `hardeningStatus`.
 
 ### Step 8 — Module 4: Google Fonts localizer & discovery
 `includes/modules/class-spfw-module-fonts.php` → `SPFW_Module_Fonts`.
-- **Discover** (admin AJAX `wp_ajax_spfw_scan_fonts`, cap+nonce): fetch the
+- **Discover** (triggered by `spfw/v1/settings/scan-fonts` POST route on
+  `SPFW_Rest_Settings`, cap `manage_options` — not `admin-ajax.php`): fetch the
   homepage, regex-scan for `fonts.googleapis.com` references, fetch each Google
   CSS URL with a modern Chrome UA (so Google returns `.woff2`), parse `@font-face`
   blocks, download each unique `.woff2` via `wp_remote_get`/`WP_Filesystem` into
   `wp_upload_dir()['basedir'].'/ods-fonts/'`, rewrite `src: url()` to local URLs,
   persist `discovered = {css, families, files, hash}` + `last_scan` via
-  `SPFW_Settings::update()`.
+  `SPFW_Settings::update()`; the route returns the refreshed settings.
 - **Serve** (frontend, only when `localize_google` on and `discovered['css']` set):
   on `wp_enqueue_scripts` (~99), dequeue any style whose **src** (not handle)
   contains `fonts.googleapis.com`, strip the gstatic/googleapis resource hints,
   enqueue the generated local stylesheet versioned by `discovered['hash']`.
   **Fallback:** no local CSS yet → leave the original Google enqueue untouched,
   never break rendering.
-- `admin/views/tab-fonts.php`: toggle + "Scan fonts now" AJAX button + summary
-  (families/files/last-scan) + re-scan control.
+- `src/components/FontsSettings.jsx` (props `{settings, onChange, onScan}`):
+  toggle + "Scan fonts now" button (`onScan()` → local `isScanning` state) +
+  summary (families/files/last-scan, read from `settings.fonts.discovered`) +
+  re-scan control.
 - After a hash-changing scan, trigger `litespeed_purge_all` so LSCache picks up
   the rewrite; the `hash` in the stylesheet version busts OLS's static-file cache
   on re-scan without a manual purge.
@@ -260,6 +306,70 @@ follow-ups deferred. Keep entries dated and terse.
   dns-prefetch filtering, heartbeat interval override, jQuery Migrate dependency
   removal) was exercised directly and behaves correctly. Harness was scratch-only,
   not committed.
+- 2026-07-10: **Architecture pivot before Step 5** — the user required vanilla
+  JS/no jQuery and asked for styling to match the sister plugin
+  `onedogsolutions/google-security-for-wordpress`, built with React + Tailwind
+  v4. Cloned that repo (added via `add_repo`, at `/workspace/google-security-for-wordpress`)
+  to copy its actual architecture rather than guess: `@wordpress/element` (React
+  bundled with WP core, so genuinely no separate React dep and no jQuery),
+  `@wordpress/scripts` (wp-scripts) build, Tailwind v4 via `@tailwindcss/postcss`,
+  one settings REST endpoint consumed via `@wordpress/api-fetch`, a
+  `.{plugin}-admin-isolated` class scoping Tailwind's `@layer base` so wp-admin's
+  unlayered styles can't clobber it (and vice versa), `build/` gitignored and
+  produced by `npm run build`. Rewrote the already-in-progress Step 5 (which had
+  started as plain PHP form views/admin-post.php before this correction) and
+  updated `IMPLEMENTATION_PLAN.md` §1 plus `docs/build-steps/00,05,06,07,08` to
+  reflect this for all remaining steps: Steps 6–8's "admin tab" deliverable is now
+  a React component (`RestApiSettings.jsx`/`HardeningSettings.jsx`/
+  `FontsSettings.jsx`) wired into `App.jsx`, not a `tab-*.php` view; Step 8's
+  "Scan fonts" AJAX action became a `spfw/v1/settings/scan-fonts` REST route (and
+  Step 7 similarly gained `spfw/v1/settings/restore-htaccess`) for consistency
+  with the REST-driven persistence model — **these two routes are specified but
+  not yet implemented; they land with Steps 7/8 respectively.**
+  Added `includes/class-spfw-rest-settings.php` (`SPFW_Rest_Settings`): GET/POST
+  `spfw/v1/settings`, both capped `manage_options`, POST sanitizing via the
+  existing `SPFW_Settings::update()`. Loads **unconditionally** from
+  `SPFW_Plugin::boot()` (required directly, not through the toggleable `MODULES`
+  registry and not inside the `is_admin()` branch) because REST requests aren't
+  admin context — verified with a stubbed harness that `rest_api_init` still
+  fires and the route registers even when `is_admin()` returns false, and that
+  `admin/` is still never loaded on that same request. Rewrote
+  `admin/class-spfw-admin.php` to just register the menu, render a bare
+  `#spfw-admin-root` mount div, and enqueue `build/index.js`/`build/index.css`
+  (reading `build/index.asset.php` for deps/version, falling back to
+  `['wp-element','wp-api-fetch','wp-i18n']`/`SPFW_VERSION` if the asset file
+  doesn't exist yet, i.e. before the first `npm run build`) with
+  `spfwAdminData` (`restUrl`, a `wp_rest` nonce, and the current
+  `SPFW_Settings::get()` snapshot) localized onto it.
+  Added `package.json`/`webpack.config.js`/`postcss.config.js` mirroring the
+  sister plugin, plus `src/index.js`, `src/styles/index.css`
+  (`.spfw-admin-isolated`-scoped), and components `App.jsx`, `SettingsTabs.jsx`
+  (generic tablist/tabpanel with arrow-key nav, copied near-verbatim — it's
+  settings-shape-agnostic), `Toggle.jsx` and `SettingsRow.jsx` (small shared
+  pieces factored out for reuse by Steps 6–8's components — the toggle-switch
+  and title/description/control row markup would otherwise be copy-pasted four
+  times), and `CoreSettings.jsx` (every Step 4 `core` setting). `App.jsx` renders
+  `restapi`/`hardening`/`fonts` as a placeholder "not available yet" body until
+  each step's component exists.
+  **Toolchain gotcha, fixed:** a fresh `npm install` (no inherited lockfile)
+  resolved `typescript@7.0.2` transitively, which crashes
+  `@typescript-eslint@6.21`'s internals (`ts-api-utils`) with `Cannot read
+  properties of undefined (reading 'Intrinsic')` — confirmed by diffing against
+  the sister plugin's `node_modules`, which resolves `typescript@6.0.3` only
+  because its committed `package-lock.json` pins it. Fixed by adding an explicit
+  `"typescript": "6.0.3"` devDependency pin in our `package.json` (matching the
+  sister plugin's resolved version) so `npm run lint:js` doesn't crash for future
+  contributors doing a clean install; `package-lock.json` is now committed for
+  the same reason (unlike `node_modules/`/`build/`, which stay gitignored).
+  Fixed 8 real `wp-scripts lint-js` findings (prettier formatting + two
+  `jsx-a11y/label-has-associated-control` violations, resolved via explicit
+  `htmlFor`/`id` pairs) — 6 were auto-fixed with `--fix`.
+  **Verified:** `npm install && npm run build` succeeds, producing
+  `build/index.js`/`index.css`/`index.asset.php`; `npm run lint:js` and
+  `npm run lint:css` both clean; REST controller behavior confirmed with a
+  stubbed harness (route registers with GET+POST, permission_callback rejects
+  non-`manage_options`, GET returns the full settings snapshot, POST persists a
+  partial update while preserving untouched keys).
 
 ## Open questions / blockers
 

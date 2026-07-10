@@ -1,0 +1,20 @@
+{
+  "name": "simple-performance-for-wordpress",
+  "version": "1.0.0",
+  "description": "Ultra-lightweight performance, REST API, and hardening toolkit for OpenLiteSpeed + LiteSpeed Cache.",
+  "main": "build/index.js",
+  "scripts": {
+    "start": "wp-scripts start",
+    "build": "wp-scripts build",
+    "lint:css": "wp-scripts lint-style",
+    "lint:js": "wp-scripts lint-js"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^27.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.4.31",
+    "autoprefixer": "^10.4.16",
+    "typescript": "6.0.3"
+  }
+}

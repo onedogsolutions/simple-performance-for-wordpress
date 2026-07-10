@@ -59,6 +59,12 @@ class SPFW_Plugin {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 		require_once SPFW_PATH . 'includes/interface-spfw-module.php';
 
+		// REST requests are not admin context (is_admin() is false for
+		// /wp-json/), so the settings API must load unconditionally for its
+		// route to exist.
+		require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
+		new SPFW_Rest_Settings();
+
 		foreach ( self::MODULES as $class => $relative_path ) {
 			$file = SPFW_PATH . $relative_path;
 

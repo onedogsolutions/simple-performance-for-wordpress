@@ -2,7 +2,8 @@
 
 **Goal:** Whitelist-first REST gating: global auth requirement, per-namespace
 disabling (fully unregister to kill enumeration), and an essential-plugin whitelist.
-Plus the REST API admin tab.
+Plus the REST API admin tab (a React component — the admin UI is React/Tailwind
+per Step 5, not PHP form views).
 
 ## Shared context
 - Prefix `SPFW_`/`spfw_`. `ABSPATH` guard. WPCS.
@@ -11,11 +12,18 @@ Plus the REST API admin tab.
   (string[]).
 - **Anti-enumeration principle:** disabled endpoints return **404**, not 403 — no
   signal that the endpoint exists.
+- **Never block the plugin's own settings API:** `route_in_list()` (below) must
+  treat `spfw/v1` as always-whitelisted, in addition to whatever's in
+  `whitelist_routes` — this is what keeps the Settings screen itself usable even
+  with `require_auth` or namespace-disabling turned on (see Step 5's
+  self-whitelisting note).
 
 ## Deliverables
 1. `includes/modules/class-spfw-module-restapi.php` →
    `class SPFW_Module_RestApi implements SPFW_Module`.
-2. `admin/views/tab-restapi.php`.
+2. `src/components/RestApiSettings.jsx` (React tab component — replaces the old
+   `admin/views/tab-restapi.php` PHP-view plan from before the React pivot). Wire
+   it into `src/components/App.jsx`'s `restapi` tab slot.
 
 ### Runtime logic (`register()`)
 Read `$r = SPFW_Settings::group('restapi')`.
@@ -29,7 +37,7 @@ add_filter('rest_endpoints', function($endpoints) use ($r) {
     foreach ($r['disabled_namespaces'] as $ns) {
       if ($norm === $ns || strpos($norm, $ns . '/') === 0) {
         // don't unregister if this route is whitelisted
-        if ( ! spfw_route_in_list($norm, $r['whitelist_routes']) ) {
+        if ( ! route_in_list($norm, $r['whitelist_routes']) ) {
           unset($endpoints[$route]);
         }
       }
@@ -46,13 +54,13 @@ This removes them from the `/wp-json/` index entirely.
 add_filter('rest_authentication_errors', function($result) use ($r) {
   if (is_wp_error($result)) return $result;           // respect prior errors
   $route = ltrim($GLOBALS['wp']->query_vars['rest_route'] ?? '', '/'); // current route
-  if (spfw_route_in_list($route, $r['whitelist_routes'])) return $result; // always allow
+  if (route_in_list($route, $r['whitelist_routes'])) return $result; // always allow
   if ($r['require_auth'] && ! is_user_logged_in()) {
     return new WP_Error('spfw_rest_forbidden',
       __('REST API restricted to authenticated users.', ...),
       ['status' => 401]);
   }
-  if (spfw_route_in_list($route, $r['disabled_namespaces'])
+  if (route_in_list($route, $r['disabled_namespaces'])
       && ! current_user_can('manage_options')) {
     return new WP_Error('rest_no_route', __('No route was found matching the URL.', ...),
       ['status' => 404]);
@@ -61,23 +69,28 @@ add_filter('rest_authentication_errors', function($result) use ($r) {
 });
 ```
 
-**Helper** `spfw_route_in_list($route, $list)`: true if `$route` equals or is
-prefixed by any `"$item"` / `"$item/"` in `$list`. Keep it a private method or a
-prefixed function; guard against empty list.
+**Helper** `route_in_list($route, $list)`: true if `$route` equals or is prefixed
+by any `"$item"` / `"$item/"` in `$list`, **or** if `$route` is `spfw/v1` / starts
+with `spfw/v1/` (hardcoded, always-on — see Shared context above). Keep it a
+private method; guard against empty list.
 
-### `tab-restapi.php`
-- **Require auth** checkbox → `spfw[restapi][require_auth]`.
-- **Disable namespaces**: build the checkbox list from **live data** —
-  `rest_get_server()->get_namespaces()` — so admins pick real namespaces
-  (`wp/v2`, `oembed/1.0`, plugin namespaces...). Also allow finer per-route entries
-  via a textarea for advanced prefixes (`wp/v2/users`, `wp/v2/themes`). Persist as
-  the flat `disabled_namespaces` array. Field: `spfw[restapi][disabled_namespaces]`
-  (textarea, newline-separated) plus checkbox convenience that populates it.
-- **Whitelist**: textarea `spfw[restapi][whitelist_routes]` (newline-separated),
-  pre-seeded with CF7/WooCommerce examples; help text explaining these bypass both
-  the auth gate and namespace disabling.
-- Escape all output; the save handler (Step 5) already sanitizes via
-  `SPFW_Settings::sanitize()` (which trims/validates these arrays).
+### `RestApiSettings.jsx`
+Props: `{ settings, onChange }` (same contract as `CoreSettings.jsx` from Step 5;
+`onChange(key, value)` calls the parent's `handleChange('restapi', key, value)`).
+- **Require auth** toggle → `settings.restapi.require_auth`.
+- **Disable namespaces**: fetch the live namespace list once on mount via
+  `apiFetch({ path: '/' })` (the WP-JSON index response includes a `namespaces`
+  array) so admins pick real namespaces (`wp/v2`, `oembed/1.0`, plugin
+  namespaces...) as checkboxes, plus a free-text `<textarea>` (newline-separated)
+  for advanced per-route prefixes (`wp/v2/users`, `wp/v2/themes`). Both feed the
+  same flat `disabled_namespaces` array.
+- **Whitelist**: `<textarea>` (newline-separated) for `whitelist_routes`,
+  pre-seeded placeholder text showing the CF7/WooCommerce examples; help text
+  explaining these bypass both the auth gate and namespace disabling, and that
+  the plugin's own settings API (`spfw/v1`) is always exempt automatically.
+- Sanitization happens server-side in `SPFW_Settings::sanitize()` on save (Step
+  2) — the component doesn't need its own validation beyond basic textarea→array
+  splitting for display/round-trip.
 
 ## Design constraints
 - Whitelist is checked **before** every restriction in both filters A and B.
@@ -86,6 +99,9 @@ prefixed function; guard against empty list.
   logged-in users.
 - Do not touch `rest_authentication_errors` at all when both `require_auth` is false
   and `disabled_namespaces` is empty (zero overhead).
+- `spfw/v1` (this plugin's own settings API) must never be blockable by these
+  filters, regardless of user configuration — hardcode it in `route_in_list()`
+  rather than relying on the user having it in their whitelist textarea.
 
 ## Acceptance criteria
 - With defaults: `/wp-json/` index does **not** list `wp/v2/users` or
