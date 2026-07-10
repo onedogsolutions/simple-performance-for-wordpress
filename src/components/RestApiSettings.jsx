@@ -1,6 +1,7 @@
 import { useState, useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
+import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 
@@ -40,7 +41,13 @@ export default function RestApiSettings( { settings, onChange } ) {
 	};
 
 	return (
-		<div className="divide-y divide-gray-200">
+		<SettingsCard
+			title={ __( 'REST API', 'simple-performance-for-wordpress' ) }
+			description={ __(
+				'Restrict or disable REST API routes to reduce your attack surface and prevent user enumeration.',
+				'simple-performance-for-wordpress'
+			) }
+		>
 			<SettingsRow
 				title={ __(
 					'Require authentication',
@@ -150,6 +157,6 @@ export default function RestApiSettings( { settings, onChange } ) {
 					className={ textareaClass }
 				/>
 			</SettingsRow>
-		</div>
+		</SettingsCard>
 	);
 }

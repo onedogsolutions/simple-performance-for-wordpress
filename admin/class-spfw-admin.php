@@ -83,9 +83,10 @@ class SPFW_Admin {
 			'spfw-admin-js',
 			'spfwAdminData',
 			array(
-				'restUrl'  => esc_url_raw( rest_url( 'spfw/v1' ) ),
-				'nonce'    => wp_create_nonce( 'wp_rest' ),
-				'settings' => SPFW_Settings::get(),
+				'restUrl'            => esc_url_raw( rest_url( 'spfw/v1' ) ),
+				'nonce'              => wp_create_nonce( 'wp_rest' ),
+				'settings'           => SPFW_Settings::get(),
+				'woocommerceActive'  => class_exists( 'WooCommerce' ),
 			)
 		);
 	}

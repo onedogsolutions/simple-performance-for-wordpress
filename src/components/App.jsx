@@ -7,8 +7,9 @@ import CoreSettings from './CoreSettings';
 import RestApiSettings from './RestApiSettings';
 import HardeningSettings from './HardeningSettings';
 import FontsSettings from './FontsSettings';
+import WooCommerceSettings from './WooCommerceSettings';
 
-const TABS = [
+const BASE_TABS = [
 	{ id: 'core', label: __( 'Core', 'simple-performance-for-wordpress' ) },
 	{
 		id: 'restapi',
@@ -23,6 +24,20 @@ const TABS = [
 
 export default function App() {
 	const initialData = window.spfwAdminData || { settings: {} };
+	const wooActive = !! initialData.woocommerceActive;
+
+	const tabs = wooActive
+		? [
+				...BASE_TABS,
+				{
+					id: 'woocommerce',
+					label: __(
+						'WooCommerce',
+						'simple-performance-for-wordpress'
+					),
+				},
+		  ]
+		: BASE_TABS;
 
 	const [ settings, setSettings ] = useState( initialData.settings );
 	const [ isSaving, setIsSaving ] = useState( false );
@@ -177,7 +192,7 @@ export default function App() {
 
 			<form onSubmit={ handleSave } className="space-y-8">
 				<SettingsTabs
-					tabs={ TABS }
+					tabs={ tabs }
 					active={ activeTab }
 					onChange={ setActiveTab }
 				>
@@ -217,6 +232,20 @@ export default function App() {
 								onScan={ handleScanFonts }
 							/>
 						),
+						...( wooActive && {
+							woocommerce: (
+								<WooCommerceSettings
+									settings={ settings }
+									onChange={ ( key, value ) =>
+										handleChange(
+											'woocommerce',
+											key,
+											value
+										)
+									}
+								/>
+							),
+						} ),
 					} }
 				</SettingsTabs>
 

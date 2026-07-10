@@ -1,9 +1,20 @@
 # Step 10 — Perfmatters feature parity (quick toggles) + WooCommerce tab
 
-**Status:** ⬜ Not started (this file is the plan only — no code yet)
+**Status:** ✅ Implemented (v1.1.0)
 **Branch:** `claude/feature-parity-quick-toggles-sf64kt`
 **Depends on:** Phase 1 complete (Steps 1–9). Extends the existing single-option
 React + REST architecture — no new architectural patterns.
+
+**Decisions applied during build:**
+- **Change Login URL — excluded.** Not implemented (security, not performance).
+- **Heartbeat + post options — matched to Perfmatters.** Heartbeat is now two
+  controls (`heartbeat_control`: default | disable | allow_posts; and a separate
+  `heartbeat_frequency` select) rather than the old mode+interval. `post_revisions`
+  (default | disable | 1–30) and `autosave_interval` (default | 1–5 min) mirror
+  Perfmatters' dropdowns. Autosave is applied by defining `AUTOSAVE_INTERVAL` on
+  `plugins_loaded`, which runs before `wp_functionality_constants()`, so it wins.
+- **Google Maps — included**, via a `template_redirect` output buffer that strips
+  external Maps scripts and map iframes (skips admin/REST/AJAX/feed/robots).
 
 ---
 
@@ -317,12 +328,34 @@ outstanding human step (as noted for Phase 1).
 
 ---
 
-## 9. Open scope decisions (resolve before building)
-1. **`autosave_interval`** — keep only if a reliable, side-effect-free override is
-   confirmed during build; otherwise ship `limit_revisions` alone (§4).
-2. **`login_url` (Change Login URL)** — include as a Hardening-tab stretch item, or
-   defer? It's security, not performance, and carries lockout risk (§4).
-3. **`disable_google_maps` implementation** — enqueue-dequeue only (lean, may miss
-   hard-coded embeds) vs. output-buffer fallback (heavier, LSCache caveats) (§4/§6).
+## 9. Scope decisions — resolved
+1. **`autosave_interval`** — shipped. Reliable override confirmed by defining
+   `AUTOSAVE_INTERVAL` on `plugins_loaded` (before `wp_functionality_constants()`).
+2. **`login_url` (Change Login URL)** — excluded. Not built.
+3. **`disable_google_maps`** — shipped as a `template_redirect` output buffer
+   (Perfmatters-style) that strips external Maps scripts and map iframes; the
+   scrubbed HTML is what LSCache stores, so removed maps stay removed in cache.
 
-These are the only judgment calls; everything else follows existing patterns.
+## 10. What actually shipped
+- `SPFW_Settings`: `core` gained `hide_wp_version`, `remove_shortlink`,
+  `remove_rest_api_links`, `remove_feed_links`, `disable_self_pingbacks`,
+  `disable_google_maps`, `disable_password_meter`, `disable_comments`,
+  `remove_comment_urls`, `blank_favicon`, `heartbeat_control`,
+  `heartbeat_frequency`, `post_revisions`, `autosave_interval` (replacing the old
+  `heartbeat_mode`/`heartbeat_interval`); new `woocommerce` group. Sanitizer
+  extended (whitelists + clamps). `hide_wp_version`/`remove_shortlink`/
+  `disable_self_pingbacks` default **on** (harmless cleanup, matching the plugin's
+  opinionated defaults); all other new toggles default **off**.
+- `SPFW_Module_Core`: hooks + helpers for every new toggle.
+- `SPFW_Module_WooCommerce`: new module (no-ops without WooCommerce), added to
+  `SPFW_Plugin::MODULES`.
+- Admin localizes `woocommerceActive`; REST save fires `litespeed_purge_all`.
+- React: `SettingsCard` wrapper; `CoreSettings` split into 5 cards; REST/Hardening/
+  Fonts wrapped in a card each; new `WooCommerceSettings` tab gated on
+  `woocommerceActive`.
+- Verified: `php -l` clean; stubbed PHP harness green (sanitize whitelists/clamps,
+  default vs all-on hook wiring, WooCommerce no-op-without-Woo, and the pure
+  helpers — self-pingback stripping, Maps HTML scrub, revisions filter, version-arg
+  strip, comment-URL removal); `npm run build` + `lint:js` + `lint:css` all clean.
+- Outstanding (human/packaging): regenerate `languages/*.pot`, and manual QA on a
+  live OpenLiteSpeed + WooCommerce install.
