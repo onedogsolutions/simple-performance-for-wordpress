@@ -43,6 +43,14 @@ class SPFW_Module_RestApi implements SPFW_Module {
 	 * @return array
 	 */
 	public function unregister_disabled_namespaces( $endpoints ) {
+		// Never strip routes for logged-in users who can edit content — the
+		// restriction is an anti-enumeration measure aimed at anonymous
+		// visitors, and stripping the index here would also hide namespaces
+		// from the admin settings screen (which reads the /wp-json/ index).
+		if ( $this->user_is_exempt() ) {
+			return $endpoints;
+		}
+
 		$r = SPFW_Settings::group( 'restapi' );
 
 		foreach ( $endpoints as $route => $handlers ) {
@@ -86,7 +94,7 @@ class SPFW_Module_RestApi implements SPFW_Module {
 			);
 		}
 
-		if ( $this->route_in_list( $route, $r['disabled_namespaces'] ) && ! current_user_can( 'manage_options' ) ) {
+		if ( $this->route_in_list( $route, $r['disabled_namespaces'] ) && ! $this->user_is_exempt() ) {
 			return new WP_Error(
 				'rest_no_route',
 				__( 'No route was found matching the URL and request method.', 'simple-performance-for-wordpress' ),
@@ -95,6 +103,17 @@ class SPFW_Module_RestApi implements SPFW_Module {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Whether the current user is exempt from all REST restrictions. Logged-in
+	 * users who can edit content are never restricted — the disabling is only
+	 * meant to keep anonymous scanners from enumerating routes.
+	 *
+	 * @return bool
+	 */
+	private function user_is_exempt() {
+		return is_user_logged_in() && current_user_can( 'edit_posts' );
 	}
 
 	/**
