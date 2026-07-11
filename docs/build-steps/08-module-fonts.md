@@ -41,11 +41,39 @@ external Google requests. Two phases: **discover** (admin AJAX, cached) and **se
 - Triggered by the `spfw/v1/settings/scan-fonts` REST route (cap
   `manage_options`, registered on `SPFW_Rest_Settings` per the Deliverables
   above — not `admin-ajax.php`).
-- **Find Google references:**
-  1. Fetch the homepage: `wp_remote_get( home_url('/'), [timeout=>15] )`.
-  2. Regex-scan the HTML for `href`/`@import`/`url()` matching
-     `fonts.googleapis.com/css` (v1 and `css2`). Collect the full Google CSS URLs.
-     (Also capture inline `<style>` and enqueued `<link>`s.)
+- **Find Google references (enqueue capture + broadened fallback).** A pure
+  regex-on-loopback-HTML approach is unreliable — it misses protocol-relative
+  and `@import`-based references and depends on getting a font-bearing render
+  back. So discovery works in layers:
+  1. **Instrumented loopback render (primary).** `scan()` mints a one-time token
+     (stored in the `spfw_font_scan_token` transient) and requests the homepage
+     with that token as a query arg plus a cache-buster. In
+     `SPFW_Module_Fonts::register()` (which runs on every request), a tightly
+     gated path — active **only** when the request carries a query-arg token that
+     `hash_equals()` the stored transient, and never in `is_admin()` — attaches a
+     `style_loader_src` filter that records every stylesheet whose src contains
+     `//fonts.googleapis.com/css` into the `spfw_font_scan_urls` transient
+     (flushed on `shutdown`). Because this runs inside WordPress's real style
+     pipeline, it catches enqueued Google Fonts regardless of protocol form,
+     `css`/`css2` version, or the handle a theme registered them under. `scan()`
+     reads that transient back after the (blocking) loopback returns, then
+     deletes both transients.
+  2. **Broadened HTML regex (fallback).** Regex-scan the returned HTML for
+     `(?:https?:)?//fonts.googleapis.com/css(2)?\?…` (https, http, and
+     protocol-relative; v1 and v2; entity-decoded) to catch hard-coded `<link>`s
+     and inline `@import`/`url()` that never went through the enqueue system.
+  3. **Same-origin CSS following (fallback).** Extract same-origin
+     `<link rel="stylesheet">` hrefs, fetch a capped number (`MAX_LINKED_CSS`),
+     and scan each body for Google references — catches themes that `@import`
+     Google Fonts inside their own compiled stylesheet.
+  All three sources are unioned and normalized (protocol-relative/http → https,
+  deduped) before fetching.
+- **Loopback hardening:** browser UA, `timeout` 20, `redirection` 5, and a retry
+  with `sslverify => false` on `WP_Error` (self-signed/mismatched loopback certs
+  are common). Distinguish "could not load homepage" (loopback failed **and**
+  nothing captured → `WP_Error`) from "loaded fine, no Google Fonts found" (soft
+  success with a message; existing `discovered` is left intact so a transient
+  blip never wipes working fonts).
 - **Fetch & parse each Google CSS URL** with a browser-like `User-Agent` header
   (Google returns `.woff2` only when the UA supports it — send a modern Chrome UA):
   - `wp_remote_get($cssUrl, ['user-agent' => '<modern chrome UA>'])`.
