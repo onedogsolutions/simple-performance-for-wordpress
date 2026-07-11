@@ -69,6 +69,10 @@ class SPFW_Settings {
 				'disable_file_editing'  => false,
 				'block_author_enum'     => false,
 				'security_headers'      => false,
+				'csp_enabled'           => false,
+				'csp_report_only'       => true,
+				'csp_exclude_logged_in' => true,
+				'csp_policy'            => '',
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -288,6 +292,9 @@ class SPFW_Settings {
 			'disable_file_editing',
 			'block_author_enum',
 			'security_headers',
+			'csp_enabled',
+			'csp_report_only',
+			'csp_exclude_logged_in',
 		);
 
 		foreach ( $hardening_bools as $key ) {
@@ -299,6 +306,17 @@ class SPFW_Settings {
 
 		$uploads_hash                                = isset( $hardening['uploads_htaccess_hash'] ) ? sanitize_text_field( $hardening['uploads_htaccess_hash'] ) : '';
 		$clean['hardening']['uploads_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $uploads_hash ) ? $uploads_hash : '';
+
+		// CSP policy: a single header value. Flatten any line breaks (the UI
+		// uses a textarea for readability), collapse the runs of whitespace
+		// they leave behind, strip control characters, and cap the length. Do
+		// NOT run sanitize_text_field() here — it would strip the single quotes
+		// around CSP keywords like 'self'/'unsafe-inline' that the policy needs.
+		$csp_policy                        = isset( $hardening['csp_policy'] ) ? (string) $hardening['csp_policy'] : '';
+		$csp_policy                        = preg_replace( '/[\r\n\t]+/', ' ', $csp_policy );
+		$csp_policy                        = preg_replace( '/[\x00-\x1F\x7F]/', '', $csp_policy );
+		$csp_policy                        = trim( preg_replace( '/ {2,}/', ' ', $csp_policy ) );
+		$clean['hardening']['csp_policy']  = substr( $csp_policy, 0, 2000 );
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 

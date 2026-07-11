@@ -84,6 +84,7 @@ class SPFW_Rest_Settings {
 		$settings                             = SPFW_Settings::get();
 		$settings['hardening_status']         = SPFW_Htaccess::status( 'plugins' );
 		$settings['uploads_hardening_status'] = SPFW_Htaccess::status( 'uploads' );
+		$settings['csp_default']              = SPFW_Module_Hardening::DEFAULT_CSP;
 
 		return new WP_REST_Response( $settings, 200 );
 	}

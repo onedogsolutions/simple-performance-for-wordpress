@@ -11,13 +11,14 @@ the authoritative record.)
 
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.3.0
+- **Plugin version target:** 1.4.0
 - **Last updated:** 2026-07-11
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Hardening-toggle write bug fixed + hardening options expanded (branch
-  `claude/toggle-htaccess-plan-fsl3p0`)
+  `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
+  with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`)
 
 ## Shared project facts (true for every step)
 
@@ -725,6 +726,51 @@ follow-ups deferred. Keep entries dated and terse.
   entry and expanded its hardening section. Produced a test ZIP
   (`simple-performance-for-wordpress-1.3.0.zip`) from a fresh `npm run build`,
   packaged per `.distignore`.
+
+- 2026-07-11 (Content-Security-Policy header, branch
+  `claude/state-md-missing-header-pbhit2`, version → 1.4.0): added the last
+  missing security header flagged by an external scan (all others —
+  X-Content-Type-Options / X-Frame-Options / Referrer-Policy /
+  Permissions-Policy / HSTS — already pass; only CSP was red). CSP is the one
+  header that routinely breaks sites, so it is a **separate** opt-in toggle from
+  the existing `security_headers` set, with safety/exclusion controls rather
+  than a single always-on line.
+  **Schema (`hardening` group, all safe defaults):** `csp_enabled` (false),
+  `csp_report_only` (**true** — first enables `Content-Security-Policy-Report-Only`
+  so violations are logged in the console without blocking; admin flips it off to
+  enforce), `csp_exclude_logged_in` (**true** — skips the header for logged-in
+  users so the block editor / customizer / admin bar, all heavy inline JS, never
+  break), `csp_policy` ('' — the full policy string; empty ⇒ the shipped
+  recommended default is used). Sanitizer for `csp_policy` deliberately does
+  **not** use `sanitize_text_field()` (it would strip the `'self'`/`'unsafe-inline'`
+  single quotes CSP requires) — instead it flattens line breaks (UI uses a
+  textarea for readability), collapses whitespace, strips control chars, caps at
+  2000 chars.
+  **PHP (`SPFW_Module_Hardening`):** `DEFAULT_CSP` constant — a pragmatic
+  WP-safe baseline (`default-src 'self'`; `'unsafe-inline'` + `https:` for
+  style/script since WP/themes emit inline styles+scripts; `data:` images/fonts;
+  `object-src 'none'`; `base-uri 'self'`; `frame-ancestors 'self'`). Registered
+  on `send_headers` (never fires in wp-admin ⇒ dashboard auto-excluded), gated on
+  `csp_enabled`, independent of the `security_headers` hook. `add_csp_header()`
+  bails on `headers_sent()`, bails for logged-in users when
+  `csp_exclude_logged_in`, picks the report-only vs enforcing header name by
+  toggle, uses `csp_policy` or falls back to `DEFAULT_CSP`.
+  **REST:** `get_settings()` now also returns read-only `csp_default`
+  (= `SPFW_Module_Hardening::DEFAULT_CSP`) so the React "Load recommended
+  policy" button and the textarea placeholder can show it without hardcoding the
+  policy in JS. No new route (generic settings POST persists the new keys).
+  **React (`HardeningSettings.jsx`):** new "Content-Security-Policy" card in the
+  Hardening tab — master toggle; when on, reveals Report-Only toggle,
+  do-not-apply-to-logged-in toggle, and an editable mono policy textarea
+  (placeholder = recommended default) with a "Load recommended policy" button.
+  Prominent copy: test in Report-Only until the console is clean before
+  enforcing. Updated the `security_headers` row copy (no longer says CSP is
+  omitted). **Verified:** `php -l` clean on the 3 changed PHP files;
+  `npm run build` succeeds; `wp-scripts lint-js` clean on `HardeningSettings.jsx`;
+  `npm run lint:css` clean. **Outstanding (unchanged):** live QA on a real
+  OLS + WP install (confirm the CSP header appears on front-end responses, is
+  absent in wp-admin and for logged-in users when excluded, and Report-Only vs
+  enforce switch correctly); regenerate `.pot` for the new strings.
 
 ## Open questions / blockers
 

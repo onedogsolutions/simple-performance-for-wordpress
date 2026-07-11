@@ -3,6 +3,9 @@ import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 
+const textareaClass =
+	'block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 text-sm font-mono';
+
 const STATUS_STYLES = {
 	ok: {
 		label: __( 'Active', 'simple-performance-for-wordpress' ),
@@ -175,7 +178,7 @@ export default function HardeningSettings( {
 						'simple-performance-for-wordpress'
 					) }
 					description={ __(
-						'Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, and a restrictive Permissions-Policy to front-end responses. Conservative defaults that do not include HSTS or a Content-Security-Policy.',
+						'Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, and a restrictive Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below.',
 						'simple-performance-for-wordpress'
 					) }
 				>
@@ -184,6 +187,118 @@ export default function HardeningSettings( {
 						onChange={ ( v ) => onChange( 'security_headers', v ) }
 					/>
 				</SettingsRow>
+			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
+					'Content-Security-Policy',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'A Content-Security-Policy restricts where scripts, styles, images, and other resources may load from — the strongest defense against cross-site scripting (XSS). It is powerful but can break your front end if a resource is not allowed, so start in Report-Only mode and only enforce once your browser console is free of CSP violations.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<SettingsRow
+					title={ __(
+						'Send Content-Security-Policy header',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Emits the header on front-end responses (never in wp-admin). Test thoroughly before enforcing.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.csp_enabled }
+						onChange={ ( v ) => onChange( 'csp_enabled', v ) }
+					/>
+				</SettingsRow>
+
+				{ !! hardening.csp_enabled && (
+					<>
+						<SettingsRow
+							title={ __(
+								'Report-Only mode',
+								'simple-performance-for-wordpress'
+							) }
+							description={ __(
+								'Sends Content-Security-Policy-Report-Only, which logs violations in the browser console without blocking anything. Keep this on until the console is clean, then turn it off to enforce the policy.',
+								'simple-performance-for-wordpress'
+							) }
+						>
+							<Toggle
+								checked={ !! hardening.csp_report_only }
+								onChange={ ( v ) =>
+									onChange( 'csp_report_only', v )
+								}
+							/>
+						</SettingsRow>
+
+						<SettingsRow
+							title={ __(
+								'Do not apply to logged-in users',
+								'simple-performance-for-wordpress'
+							) }
+							description={ __(
+								'Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block.',
+								'simple-performance-for-wordpress'
+							) }
+						>
+							<Toggle
+								checked={ !! hardening.csp_exclude_logged_in }
+								onChange={ ( v ) =>
+									onChange( 'csp_exclude_logged_in', v )
+								}
+							/>
+						</SettingsRow>
+
+						<div className="pt-2">
+							<div className="flex items-center justify-between">
+								<label
+									htmlFor="spfw-csp-policy"
+									className="block text-sm font-medium text-gray-900"
+								>
+									{ __(
+										'Policy',
+										'simple-performance-for-wordpress'
+									) }
+								</label>
+								<button
+									type="button"
+									onClick={ () =>
+										onChange(
+											'csp_policy',
+											settings.csp_default || ''
+										)
+									}
+									className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+								>
+									{ __(
+										'Load recommended policy',
+										'simple-performance-for-wordpress'
+									) }
+								</button>
+							</div>
+							<p className="mt-1 mb-2 text-sm text-gray-500">
+								{ __(
+									'The full policy directive string. Leave blank to use the recommended WordPress-friendly default shown as the placeholder.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+							<textarea
+								id="spfw-csp-policy"
+								rows={ 4 }
+								value={ hardening.csp_policy || '' }
+								placeholder={ settings.csp_default || '' }
+								onChange={ ( e ) =>
+									onChange( 'csp_policy', e.target.value )
+								}
+								className={ textareaClass }
+							/>
+						</div>
+					</>
+				) }
 			</SettingsCard>
 		</div>
 	);
