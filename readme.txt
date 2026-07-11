@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -40,10 +40,12 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * A whitelist keeps essential integrations (Contact Form 7, WooCommerce, etc.) working even with the above restrictions on
 * The plugin's own settings API is always exempt automatically, so you can never lock yourself out of the settings screen
 
-= Directory-Level Security Hardening =
-* Drops a deny-PHP .htaccess into /wp-content/plugins/ to block direct execution of plugin PHP files
-* Verifies the file's integrity on every admin page load and flags it if it's missing or has been altered, with a one-click restore
-* Never overwrites or deletes a pre-existing, unrecognized .htaccess
+= Security Hardening =
+* Drops a deny-PHP .htaccess into /wp-content/plugins/ and (optionally) /wp-content/uploads/ to block direct execution of PHP files where none should run
+* Verifies each file's integrity on every admin page load and flags it if it's missing or has been altered, with a one-click restore — and never overwrites or deletes a pre-existing, unrecognized .htaccess
+* Disable the built-in theme/plugin file editor (DISALLOW_FILE_EDIT) so a compromised admin account can't edit PHP from the dashboard
+* Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
+* Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
 
 = Google Fonts Localizer & Discovery =
 * Scans your homepage for Google Fonts references and downloads the .woff2 files to your own server
@@ -64,6 +66,8 @@ The settings screen is a small React application (built on WordPress's own bundl
 2. Activate the plugin.
 3. Navigate to **Settings → Simple Performance** to configure Core, REST API, Hardening, Fonts, and (when WooCommerce is active) WooCommerce.
 
+All hardening options are opt-in (off by default) — enable the ones that suit your site.
+
 == Frequently Asked Questions ==
 
 = Does this work on hosts other than OpenLiteSpeed? =
@@ -82,6 +86,14 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.3.0 =
+* Fixed the plugins-directory hardening toggle not taking effect: enabling it silently reverted and never wrote the .htaccess, caused by a settings-cache issue when the file-writing hook re-saved during the same request. The toggle now writes and removes the file reliably.
+* The Hardening restore action now reports a real error when the server can't write the file (e.g. no direct filesystem access) instead of showing a false success.
+* Added: block direct PHP execution in the uploads directory (a second, independent deny-PHP .htaccess with its own status/restore).
+* Added: disable the theme/plugin file editor (DISALLOW_FILE_EDIT).
+* Added: block author enumeration (anonymous ?author=N and /author/slug/ probes redirect to the home page).
+* Added: send conservative security headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy). All new hardening options are opt-in.
 
 = 1.2.1 =
 * Fixed the self-hosted Google Fonts scan reliably finding no fonts. Discovery now captures the fonts your theme and plugins actually enqueue while your homepage renders, instead of only pattern-matching the page HTML, so it detects fonts loaded over any protocol, via either Google Fonts API version, or imported inside a stylesheet.

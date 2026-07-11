@@ -2,10 +2,12 @@
 
 **Single source of truth for build progress AND the step-by-step implementation
 plan.** Every build session MUST update this file as its final action (see "Update
-protocol" below). Read this first before starting any step. Full-detail specs (with
-exact hook lists, pseudo-code, and design rationale) live in `docs/build-steps/`;
-this file inlines the condensed version of each so progress and plan travel
-together in one top-level document.
+protocol" below). Read this first before starting any step. This file inlines the
+condensed version of each build step so progress and plan travel together in one
+top-level document. (The original full-detail per-step specs that once lived in
+`docs/build-steps/` and the `IMPLEMENTATION_PLAN.md` blueprint were removed after
+Phase 1 shipped — the condensed steps below plus the dated decisions log are now
+the authoritative record.)
 
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
@@ -712,6 +714,17 @@ follow-ups deferred. Keep entries dated and terse.
   (confirm both .htaccess files land and are honored with Allow Override on;
   confirm the file editor disappears, `?author=1` redirects home, and the
   security headers appear in responses); regenerate `.pot` for the new strings.
+
+- 2026-07-11 (release housekeeping): merged `claude/toggle-htaccess-plan-fsl3p0`
+  into `main` (fast-forward — `main` previously held only the initial commit, so
+  this brings the entire built plugin onto `main` for the first time). Deleted the
+  historical `docs/build-steps/` per-step spec files (Phase 1 is shipped; the
+  condensed steps + decisions log in this file are now the authoritative record)
+  and pruned the matching stale `docs`/`IMPLEMENTATION_PLAN.md` entries from
+  `.distignore`. Bumped `readme.txt` to `Stable tag: 1.3.0` with a 1.3.0 changelog
+  entry and expanded its hardening section. Produced a test ZIP
+  (`simple-performance-for-wordpress-1.3.0.zip`) from a fresh `npm run build`,
+  packaged per `.distignore`.
 
 ## Open questions / blockers
 
