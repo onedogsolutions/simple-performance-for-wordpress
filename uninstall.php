@@ -52,7 +52,21 @@ function spfw_uninstall_cleanup_site() {
 	}
 
 	$upload_dir = wp_upload_dir();
-	$fonts_dir  = untrailingslashit( $upload_dir['basedir'] ) . '/ods-fonts';
+
+	$uploads_hash          = ( is_array( $settings ) && isset( $settings['hardening']['uploads_htaccess_hash'] ) )
+		? $settings['hardening']['uploads_htaccess_hash']
+		: '';
+	$uploads_htaccess_path = trailingslashit( $upload_dir['basedir'] ) . '.htaccess';
+
+	if ( '' !== $uploads_hash && file_exists( $uploads_htaccess_path ) && sha1_file( $uploads_htaccess_path ) === $uploads_hash ) {
+		$fs = spfw_uninstall_filesystem();
+
+		if ( $fs ) {
+			$fs->delete( $uploads_htaccess_path );
+		}
+	}
+
+	$fonts_dir = untrailingslashit( $upload_dir['basedir'] ) . '/ods-fonts';
 
 	if ( is_dir( $fonts_dir ) ) {
 		$fs = spfw_uninstall_filesystem();

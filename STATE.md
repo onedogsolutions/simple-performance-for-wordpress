@@ -9,11 +9,13 @@ together in one top-level document.
 
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.1.0
+- **Plugin version target:** 1.3.0
 - **Last updated:** 2026-07-11
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
-  reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`)
+  reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
+  Hardening-toggle write bug fixed + hardening options expanded (branch
+  `claude/toggle-htaccess-plan-fsl3p0`)
 
 ## Shared project facts (true for every step)
 
@@ -60,8 +62,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Google Fonts discovery reliability fix is implemented** (see the dated entry in
-Decisions & deviations below). Remaining before a 1.1.0 release: regenerate
+**Hardening-toggle write bug is fixed and hardening options expanded** (see the
+latest dated entry in Decisions & deviations below). Remaining before release:
+regenerate
 `languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
 fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
@@ -644,6 +647,71 @@ follow-ups deferred. Keep entries dated and terse.
   empty (soft result, `discovered` preserved, `last_scan` refreshed), and
   fetch-fail (`WP_Error`). **Live end-to-end QA against a real Google-Fonts
   theme still outstanding** (no running WP in this environment).
+
+- 2026-07-11 (Hardening toggle write bug + expanded hardening options, branch
+  `claude/toggle-htaccess-plan-fsl3p0`, version → 1.3.0):
+  **Root cause of "the toggle does nothing / nothing written to .htaccess":**
+  a re-entrancy / stale-static-cache defect in `SPFW_Settings::update()`. It
+  called `update_option()` (which fires `update_option_{$option}`
+  **synchronously**, before control returns) and only invalidated the static
+  cache on the *next* line. The hardening module's `update_option_*` listener
+  writes the .htaccess and then calls `SPFW_Settings::update()` again to store
+  the file hash; that nested `update()` read the **still-stale** cache (holding
+  the pre-save `plugins_htaccess = false`), merged the hash onto the old
+  toggle value, and persisted `plugins_htaccess = false` — silently reverting
+  the user's ON toggle and re-firing the hook so `remove()` ran. Net effect:
+  DB ended false, REST echoed false, UI snapped the toggle back off, status
+  `disabled`. The old Step 7 log note (this nested pass "harmlessly no-ops")
+  was wrong precisely because of the stale cache. **Fix:** seed
+  `self::$cache = $clean` **before** the `update_option()` call (and drop the
+  trailing `self::$cache = null`), so every re-entrant `get()` during the hook
+  is consistent with what's being written. Verified with a scratch harness
+  that fires the real `update_option_*` hook: the fixed code persists the
+  toggle + hash + on-disk file (`ok`); reverting to the old ordering makes the
+  same harness fail exactly as reported (toggle → false, status not `ok`).
+  Also hardened the failure path: `restore_htaccess` (REST) now returns a 500
+  with an actionable message when the filesystem write fails (previously the
+  boolean was ignored and the UI showed a false success), so hosts without
+  direct `WP_Filesystem` write access get real feedback.
+  **Expanded hardening (Hardening tab, per user request):**
+  - `SPFW_Htaccess` generalized from a single hardcoded plugins target to a
+    `plugins`/`uploads` target map (per-target path/toggle/hash). New
+    **"Block PHP execution in uploads"** drops the same `<Files *.php>` deny
+    file into `wp-content/uploads/` (uploads is the top malware landing spot).
+  - New `SPFW_Module_Hardening` runtime toggles (no .htaccess, so
+    OLS-override-independent): **Disable theme/plugin file editor**
+    (`DISALLOW_FILE_EDIT` define, guarded so wp-config.php always wins);
+    **Block author enumeration** (`template_redirect` priority 1 — before
+    `redirect_canonical` can leak a username — redirects anonymous `?author=N`
+    / `/author/slug/` to home); **Send security headers** (`send_headers`:
+    `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, a restrictive
+    `Permissions-Policy`; deliberately no HSTS/CSP).
+  - Schema: `hardening` gains `uploads_htaccess`, `uploads_htaccess_hash`,
+    `disable_file_editing`, `block_author_enum`, `security_headers` (all
+    default **false** — opt-in). No migration needed: `merge_recursive` fills
+    the new keys from defaults for existing installs.
+  - `activate()`/`deactivate()` and `uninstall.php` now handle both .htaccess
+    targets (uninstall still hash-gated per target — never removes a foreign
+    file). REST `get_settings` adds `uploads_hardening_status`;
+    `restore-htaccess` accepts a `{target}` body param.
+  - `HardeningSettings.jsx` restructured into two cards (Directory Hardening:
+    plugins + uploads file toggles with per-file status/Restore; Site
+    Hardening: the three runtime toggles). `App.jsx` restore handler takes a
+    target.
+  **Deliberate choice:** the .htaccess payload stays `<Files *.php>`-only — I
+  did **not** add `Options -Indexes` (directory-browsing block), because
+  `Options` in .htaccess requires `AllowOverride Options` and 500s an Apache
+  vhost that lacks it; too risky for the uploads dir especially. Payload
+  comment genericized to "this directory"; existing plugins files keep their
+  stored hash and stay `ok` until the next write (no false `altered`).
+  **Verified:** `php -l` clean on all changed PHP; `npm run build` +
+  `lint:js` (changed files) + `lint:css` clean; scratch harness (16 checks:
+  toggle-on persists, dual independent targets, altered-detect + restore,
+  foreign-file protection, toggle-off removal) green, and proven to fail on the
+  pre-fix ordering. **Outstanding:** live QA on a real OLS + WP install
+  (confirm both .htaccess files land and are honored with Allow Override on;
+  confirm the file editor disappears, `?author=1` redirects home, and the
+  security headers appear in responses); regenerate `.pot` for the new strings.
 
 ## Open questions / blockers
 

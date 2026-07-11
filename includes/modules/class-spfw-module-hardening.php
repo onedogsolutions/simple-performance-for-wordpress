@@ -1,6 +1,6 @@
 <?php
 /**
- * Module 3: directory-level security hardening.
+ * Module 3: directory-level and site security hardening.
  *
  * @package Simple_Performance_For_WordPress
  */
@@ -8,40 +8,75 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Surfaces an admin notice when the plugins-directory hardening file is
- * missing or altered, and keeps it in sync with the setting toggle.
+ * Applies the runtime hardening toggles (file-editing lockdown, author
+ * enumeration blocking, security headers), surfaces an admin notice when a
+ * plugins/uploads hardening file is missing or altered, and keeps those files
+ * in sync with their setting toggles.
  */
 class SPFW_Module_Hardening implements SPFW_Module {
 
 	/**
-	 * Attach hooks: an admin-only integrity check, and a settings-change
-	 * listener that writes/removes the file when the toggle flips.
+	 * .htaccess targets managed by this module, mapped to their toggle key.
+	 *
+	 * @var array<string,string>
+	 */
+	const HTACCESS_TARGETS = array(
+		'plugins' => 'plugins_htaccess',
+		'uploads' => 'uploads_htaccess',
+	);
+
+	/**
+	 * Attach hooks: an admin-only integrity check, a settings-change listener
+	 * that writes/removes the .htaccess files when a toggle flips, and the
+	 * runtime hardening behaviors for the currently enabled toggles.
 	 */
 	public function register() {
 		add_action( 'admin_init', array( $this, 'maybe_show_notice' ) );
 		add_action( 'update_option_' . SPFW_Settings::OPTION_KEY, array( $this, 'handle_settings_change' ), 10, 2 );
-	}
 
-	/**
-	 * Queue an admin notice if the hardening file is missing or altered.
-	 */
-	public function maybe_show_notice() {
-		$status = SPFW_Htaccess::status();
+		$h = SPFW_Settings::group( 'hardening' );
 
-		if ( in_array( $status, array( 'missing', 'altered' ), true ) ) {
-			add_action( 'admin_notices', array( $this, 'render_notice' ) );
+		// Remove the wp-admin theme/plugin code editor. DISALLOW_FILE_EDIT is
+		// read when the editor screens load, well after `plugins_loaded`, so
+		// defining it here (guarded, so wp-config.php always wins) is enough.
+		if ( ! empty( $h['disable_file_editing'] ) && ! defined( 'DISALLOW_FILE_EDIT' ) ) {
+			define( 'DISALLOW_FILE_EDIT', true );
+		}
+
+		// Block ?author=N / /author/slug/ username enumeration for anonymous
+		// visitors. Priority 1 so it runs before redirect_canonical (which
+		// would otherwise 301 ?author=1 to /author/slug/ and leak the login).
+		if ( ! empty( $h['block_author_enum'] ) && ! is_admin() ) {
+			add_action( 'template_redirect', array( $this, 'block_author_enumeration' ), 1 );
+		}
+
+		// Emit conservative security response headers on front-end / REST
+		// responses (send_headers does not fire in wp-admin).
+		if ( ! empty( $h['security_headers'] ) ) {
+			add_action( 'send_headers', array( $this, 'add_security_headers' ) );
 		}
 	}
 
 	/**
-	 * Render the missing/altered admin notice, pointing at the Hardening
-	 * tab (where the Restore action lives, via the REST controller).
+	 * Queue an admin notice if any managed hardening file is missing or
+	 * altered.
+	 */
+	public function maybe_show_notice() {
+		foreach ( array_keys( self::HTACCESS_TARGETS ) as $target ) {
+			if ( in_array( SPFW_Htaccess::status( $target ), array( 'missing', 'altered' ), true ) ) {
+				add_action( 'admin_notices', array( $this, 'render_notice' ) );
+
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Render the missing/altered admin notice, pointing at the Hardening tab
+	 * (where the Restore action lives, via the REST controller).
 	 */
 	public function render_notice() {
-		$status  = SPFW_Htaccess::status();
-		$message = ( 'missing' === $status )
-			? __( 'Simple Performance: the plugins-directory hardening file is missing.', 'simple-performance-for-wordpress' )
-			: __( 'Simple Performance: the plugins-directory hardening file has been modified.', 'simple-performance-for-wordpress' );
+		$message = __( 'Simple Performance: a directory hardening file is missing or has been modified.', 'simple-performance-for-wordpress' );
 
 		$url = add_query_arg(
 			array(
@@ -60,19 +95,57 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Write or remove the hardening file when its toggle changes.
+	 * Write or remove the plugins/uploads hardening files when their toggles
+	 * change.
 	 *
 	 * @param array $old_value Previous full settings array.
 	 * @param array $new_value New full settings array.
 	 */
 	public function handle_settings_change( $old_value, $new_value ) {
-		$was_on = ! empty( $old_value['hardening']['plugins_htaccess'] );
-		$is_on  = ! empty( $new_value['hardening']['plugins_htaccess'] );
+		foreach ( self::HTACCESS_TARGETS as $target => $toggle ) {
+			$was_on = ! empty( $old_value['hardening'][ $toggle ] );
+			$is_on  = ! empty( $new_value['hardening'][ $toggle ] );
 
-		if ( $is_on && ! $was_on ) {
-			SPFW_Htaccess::write();
-		} elseif ( $was_on && ! $is_on ) {
-			SPFW_Htaccess::remove();
+			if ( $is_on && ! $was_on ) {
+				SPFW_Htaccess::write( $target );
+			} elseif ( $was_on && ! $is_on ) {
+				SPFW_Htaccess::remove( $target );
+			}
 		}
+	}
+
+	/**
+	 * Redirect anonymous author-enumeration probes to the home page before
+	 * WordPress can reveal a username via the canonical redirect.
+	 */
+	public function block_author_enumeration() {
+		if ( is_admin() || is_user_logged_in() ) {
+			return;
+		}
+
+		$query_string = isset( $_SERVER['QUERY_STRING'] )
+			? sanitize_text_field( wp_unslash( $_SERVER['QUERY_STRING'] ) )
+			: '';
+
+		$is_probe = is_author() || preg_match( '/(^|&)author=\d/i', $query_string );
+
+		if ( $is_probe ) {
+			wp_safe_redirect( home_url( '/' ), 301 );
+			exit;
+		}
+	}
+
+	/**
+	 * Send a conservative set of security response headers.
+	 */
+	public function add_security_headers() {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'X-Frame-Options: SAMEORIGIN' );
+		header( 'Referrer-Policy: strict-origin-when-cross-origin' );
+		header( 'Permissions-Policy: geolocation=(), microphone=(), camera=()' );
 	}
 }
