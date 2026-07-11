@@ -14,9 +14,7 @@
 
 node_modules
 src
-docs
 
-IMPLEMENTATION_PLAN.md
 STATE.md
 README.md
 
