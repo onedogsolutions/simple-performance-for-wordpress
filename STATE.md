@@ -12,7 +12,8 @@ together in one top-level document.
 - **Plugin version target:** 1.1.0
 - **Last updated:** 2026-07-11
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
-  quick-toggle parity + WooCommerce tab) implemented
+  quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
+  reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`)
 
 ## Shared project facts (true for every step)
 
@@ -59,11 +60,14 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Step 10 is implemented** (see `docs/build-steps/10-feature-parity-quick-toggles-and-woocommerce.md`
-for the full spec and "what shipped"). Remaining before a 1.1.0 release:
-regenerate `languages/simple-performance-for-wordpress.pot` (new strings not yet
-extracted), and manual QA on a live WordPress + OpenLiteSpeed + WooCommerce
-install. Phase 1 (Steps 1–9) remains complete.
+**Google Fonts discovery reliability fix is implemented** (see the dated entry in
+Decisions & deviations below). Remaining before a 1.1.0 release: regenerate
+`languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
+fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
+WooCommerce install — including an end-to-end fonts scan against a theme that
+enqueues Google Fonts (confirm `.woff2` land in `uploads/ods-fonts/`, families
+list, and the rendered frontend makes no `fonts.googleapis.com`/`fonts.gstatic.com`
+requests). Phase 1 (Steps 1–9) and Step 10 remain complete.
 
 ---
 
@@ -593,6 +597,53 @@ follow-ups deferred. Keep entries dated and terse.
   clean on the changed `RestApiSettings.jsx` (2 pre-existing
   `CoreSettings.jsx:476` a11y errors are untouched and out of scope);
   `npm run lint:css` clean.
+
+- 2026-07-11 (Google Fonts discovery fix, branch
+  `claude/google-fonts-discovery-plan-tjsdwr`): the fonts localizer reliably
+  discovered **zero** fonts on real sites. Root cause: discovery was a single
+  loopback fetch of the homepage HTML + a narrow regex
+  (`#https://fonts\.googleapis\.com/css2?\?…#`) that only matched `https://`
+  URLs with the query starting immediately — so protocol-relative
+  (`//fonts.googleapis.com/…`), v1 `css?` used inside theme CSS, `@import`ed
+  fonts, and any font not literally in the homepage markup were all missed, and
+  a blocked/cached/redirected loopback returned no fonts at all.
+  **Fix (in `class-spfw-module-fonts.php`):** discovery now captures fonts from
+  WordPress's own style pipeline during an instrumented loopback render. `scan()`
+  mints a one-time token (stored in the `spfw_font_scan_token` transient) and
+  loads the homepage with that token + a cache-buster; `register()` — on the
+  loopback request only, gated by `hash_equals()` against the transient and never
+  in `is_admin()` — attaches a `style_loader_src` filter that records every
+  `//fonts.googleapis.com/css` src into the `spfw_font_scan_urls` transient
+  (flushed on `shutdown`), which `scan()` reads back. This catches enqueued
+  Google Fonts regardless of protocol/version/handle — the primary reliability
+  win. Two fallbacks union in alongside it: a **broadened** regex
+  (`(?:https?:)?//…/css2?\?…`, entity-decoded) over the returned HTML, and
+  **same-origin CSS following** (fetch up to `MAX_LINKED_CSS=10` linked
+  stylesheets and scan them for `@import`ed Google Fonts). Loopback hardened
+  (browser UA, `timeout` 20, `redirection` 5, `sslverify=>false` retry on
+  `WP_Error`). `scan()` now distinguishes a real fetch failure (→ `WP_Error`
+  with an actionable "server may block loopback" message) from "loaded fine, no
+  fonts found" (→ soft result; **existing `discovered` is left intact** so a
+  transient blip never wipes working fonts — only `last_scan` refreshes).
+  `parse_font_faces()` hardened: dedupe by src URL, keep `font-style`
+  (italic → `:400i` label suffix) and weight ranges (`font-weight: 100 900`).
+  The `scan-fonts` REST route returns a `scan_result` summary
+  (`{families, files, message}`); `FontsSettings.jsx` shows a family/file count,
+  a "No Google Fonts detected" zero-state, and the scan message, and `App.jsx`
+  toasts that message (info vs success). **No reference to any third-party
+  plugin in code or docs.**
+  **Verified:** `php -l` clean on both changed PHP files; `npm run build` +
+  `lint:js` + `lint:css` clean on the changed files (2 pre-existing
+  `CoreSettings.jsx:476` a11y errors untouched/out of scope). Two scratch PHP
+  harnesses (reflection over private methods; not committed): (1) broadened URL
+  matching for protocol-relative/v1/v2/entity-encoded, normalize→https+dedupe,
+  parse dedupe+italic+weight-range, `capture_style_src` records Google-only, and
+  the token gate (no token / valid token / wrong token / admin context) all
+  behave correctly; (2) full `scan()` flow with mocked network+filesystem
+  confirms success (captured + HTML union → families/files/CSS persisted),
+  empty (soft result, `discovered` preserved, `last_scan` refreshed), and
+  fetch-fail (`WP_Error`). **Live end-to-end QA against a real Google-Fonts
+  theme still outstanding** (no running WP in this environment).
 
 ## Open questions / blockers
 
