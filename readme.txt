@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.2.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -82,6 +82,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.2.1 =
+* Fixed the self-hosted Google Fonts scan reliably finding no fonts. Discovery now captures the fonts your theme and plugins actually enqueue while your homepage renders, instead of only pattern-matching the page HTML, so it detects fonts loaded over any protocol, via either Google Fonts API version, or imported inside a stylesheet.
+* Hardened the scan: it now retries loopback requests that fail TLS verification, follows same-origin stylesheets for imported fonts, and clearly distinguishes "could not load your homepage" from "no Google Fonts found" (the latter no longer discards a previous successful scan).
+* The Fonts screen now shows a font/file count, a "no fonts detected" state, and the scan result message.
 
 = 1.1.1 =
 * Fixed textarea newline/onChange state handling and styled namespaces list using Toggle component.
