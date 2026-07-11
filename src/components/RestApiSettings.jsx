@@ -76,19 +76,23 @@ export default function RestApiSettings( { settings, onChange } ) {
 				/>
 			</SettingsRow>
 
-			<SettingsRow
-				title={ __(
-					'Disable namespaces',
-					'simple-performance-for-wordpress'
-				) }
-				description={ __(
-					'Unregisters matching routes entirely (404, not 403) to prevent user enumeration and scanning.',
-					'simple-performance-for-wordpress'
-				) }
-			>
-				<div className="w-full space-y-4">
+			<div className="py-6">
+				<h3 className="text-sm font-semibold text-gray-900">
+					{ __(
+						'Disable namespaces',
+						'simple-performance-for-wordpress'
+					) }
+				</h3>
+				<p className="mt-1 text-sm text-gray-500">
+					{ __(
+						'Unregisters matching routes entirely (404, not 403) for logged-out visitors, to prevent user enumeration and scanning. Logged-in users who can edit content are never restricted.',
+						'simple-performance-for-wordpress'
+					) }
+				</p>
+
+				<div className="mt-4 space-y-4">
 					{ namespaces.length > 0 && (
-						<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<div className="flex flex-wrap gap-3">
 							{ namespaces.map( ( ns ) => {
 								const inputId = `spfw-ns-${ ns.replace(
 									/[^a-zA-Z0-9]/g,
@@ -97,7 +101,7 @@ export default function RestApiSettings( { settings, onChange } ) {
 								return (
 									<div
 										key={ ns }
-										className="flex items-center justify-between gap-x-3 bg-gray-50 px-3 py-2.5 rounded-md border border-gray-200 shadow-sm"
+										className="flex grow basis-72 items-center justify-between gap-x-3 bg-gray-50 px-3 py-2.5 rounded-md border border-gray-200 shadow-sm"
 									>
 										<label
 											htmlFor={ inputId }
@@ -140,7 +144,7 @@ export default function RestApiSettings( { settings, onChange } ) {
 						/>
 					</div>
 				</div>
-			</SettingsRow>
+			</div>
 
 			<SettingsRow
 				title={ __(

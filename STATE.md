@@ -10,7 +10,7 @@ together in one top-level document.
 - **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
 - **Plugin version target:** 1.1.0
-- **Last updated:** 2026-07-10
+- **Last updated:** 2026-07-11
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented
 
@@ -563,6 +563,36 @@ follow-ups deferred. Keep entries dated and terse.
   WooCommerce no-op-without-Woo, self-pingback/Maps-scrub/revisions/version-arg/
   comment-URL helpers); `npm run build` + `lint:js` + `lint:css` clean. Harness
   scratch-only, not committed. **Outstanding:** regenerate `.pot`; live QA.
+
+- 2026-07-11 (REST tab fixes, branch `claude/toggles-404-routes-fix-zufbab`):
+  two UI/behavior corrections to the REST API tab.
+  **(1) Disable-namespaces layout** — the namespace toggles were a fixed
+  `grid grid-cols-1 sm:grid-cols-2` crammed into `SettingsRow`'s right-hand
+  control column, which handled poorly on sites with many registered routes.
+  Pulled the "Disable namespaces" section out of `SettingsRow` into a
+  full-width block inside the card: title/description on top, then the toggles
+  flowing **underneath** as a flexbox grid (`flex flex-wrap gap-3`, each chip
+  `grow basis-72`) so they wrap cleanly across the full card width regardless
+  of route count. The advanced textarea stays beneath.
+  **(2) 404 section only showed `users`** — `SPFW_Module_RestApi::unregister_disabled_namespaces()`
+  (hooked on `rest_endpoints`) stripped every disabled namespace from the route
+  table for **all** requests, including the admin loading the settings page.
+  The React checklist is built from `apiFetch('/')`'s `data.namespaces`, so
+  every currently-disabled namespace (defaults now disable users/themes/
+  comments/settings/taxonomies) had already vanished from the index the admin
+  fetched — gutting the checklist. Fix: added `user_is_exempt()`
+  (`is_user_logged_in() && current_user_can('edit_posts')` — "can edit content")
+  and early-return the endpoints untouched in `unregister_disabled_namespaces()`
+  when exempt, so admins/editors always see the full index (restriction still
+  applies to anonymous scanners). Also switched `authenticate_request()`'s 404
+  branch from `manage_options` to the same `user_is_exempt()` helper so editors
+  aren't inconsistently 404'd on routes the filter left registered for them.
+  Updated the tab's description copy to match the behavior ("…for logged-out
+  visitors… Logged-in users who can edit content are never restricted.").
+  **Verified:** `php -l` clean; `npm run build` succeeds; `npm run lint:js`
+  clean on the changed `RestApiSettings.jsx` (2 pre-existing
+  `CoreSettings.jsx:476` a11y errors are untouched and out of scope);
+  `npm run lint:css` clean.
 
 ## Open questions / blockers
 
