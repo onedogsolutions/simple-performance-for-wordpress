@@ -1,5 +1,5 @@
 import { useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
@@ -10,6 +10,11 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 	const families = Array.isArray( discovered.families )
 		? discovered.families
 		: [];
+	const fileCount = Array.isArray( discovered.files )
+		? discovered.files.length
+		: 0;
+	const scanResult = settings.scan_result || null;
+	const hasScanned = !! fonts.last_scan;
 	const [ isScanning, setIsScanning ] = useState( false );
 
 	const handleScan = () => {
@@ -51,7 +56,7 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					'simple-performance-for-wordpress'
 				) }
 				description={ __(
-					'Scans your homepage for Google Fonts references and downloads the .woff2 files locally. Fetches your homepage and Google’s stylesheet.',
+					'Loads your homepage and detects the Google Fonts your theme and plugins actually enqueue, then downloads the .woff2 files locally. Fetches your homepage and Google’s stylesheets.',
 					'simple-performance-for-wordpress'
 				) }
 			>
@@ -81,12 +86,40 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 						{ lastScanLabel }
 					</p>
 
-					{ families.length > 0 && (
-						<ul className="text-sm text-gray-700 list-disc list-inside">
-							{ families.map( ( family ) => (
-								<li key={ family }>{ family }</li>
-							) ) }
-						</ul>
+					{ scanResult && scanResult.message && (
+						<p className="text-xs text-gray-600">
+							{ scanResult.message }
+						</p>
+					) }
+
+					{ families.length > 0 ? (
+						<div className="w-full sm:text-right">
+							<p className="text-xs font-medium text-gray-700">
+								{ sprintf(
+									/* translators: 1: family count, 2: file count. */
+									__(
+										'%1$d families · %2$d files localized',
+										'simple-performance-for-wordpress'
+									),
+									families.length,
+									fileCount
+								) }
+							</p>
+							<ul className="mt-1 text-sm text-gray-700 list-disc list-inside">
+								{ families.map( ( family ) => (
+									<li key={ family }>{ family }</li>
+								) ) }
+							</ul>
+						</div>
+					) : (
+						hasScanned && (
+							<p className="text-sm text-gray-500">
+								{ __(
+									'No Google Fonts detected yet.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						)
 					) }
 				</div>
 			</SettingsRow>

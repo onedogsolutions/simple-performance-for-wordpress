@@ -107,12 +107,17 @@ export default function App() {
 		} )
 			.then( ( data ) => {
 				setSettings( data );
+				const found =
+					data.scan_result &&
+					Array.isArray( data.scan_result.families ) &&
+					data.scan_result.families.length > 0;
 				showToast(
-					__(
-						'Font scan complete.',
-						'simple-performance-for-wordpress'
-					),
-					'success'
+					( data.scan_result && data.scan_result.message ) ||
+						__(
+							'Font scan complete.',
+							'simple-performance-for-wordpress'
+						),
+					found ? 'success' : 'info'
 				);
 			} )
 			.catch( ( err ) => {
@@ -167,6 +172,9 @@ export default function App() {
 						) }
 						{ toast.type === 'error' && (
 							<span className="text-red-500 text-lg">✗</span>
+						) }
+						{ toast.type === 'info' && (
+							<span className="text-indigo-500 text-lg">ℹ</span>
 						) }
 						<p className="text-sm font-medium text-gray-900">
 							{ toast.message }

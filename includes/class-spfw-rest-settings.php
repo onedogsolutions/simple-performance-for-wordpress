@@ -124,7 +124,9 @@ class SPFW_Rest_Settings {
 
 	/**
 	 * POST callback: run the Google Fonts discovery/download scan and
-	 * return the refreshed state.
+	 * return the refreshed state plus a `scan_result` summary (families,
+	 * file count, and a human-readable message) so the React tab can show a
+	 * "no fonts found" state without a second round trip.
 	 *
 	 * @return WP_REST_Response
 	 */
@@ -135,6 +137,11 @@ class SPFW_Rest_Settings {
 			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), 500 );
 		}
 
-		return $this->get_settings();
+		$response                = $this->get_settings();
+		$data                    = $response->get_data();
+		$data['scan_result']     = $result;
+		$response->set_data( $data );
+
+		return $response;
 	}
 }
