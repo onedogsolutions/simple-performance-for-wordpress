@@ -26,6 +26,19 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	);
 
 	/**
+	 * Recommended baseline Content-Security-Policy. Deliberately permissive
+	 * enough not to break a typical WordPress front end: WordPress and most
+	 * themes/plugins emit inline <style>/<script> and data: images, so
+	 * 'unsafe-inline' and data: are allowed for those directives. It still
+	 * closes the highest-value holes — object-src 'none' (no Flash/plugins),
+	 * base-uri 'self' (blocks <base> hijacking), frame-ancestors 'self'
+	 * (clickjacking). Used whenever the admin has not supplied a custom policy.
+	 *
+	 * @var string
+	 */
+	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
+
+	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
 	 * that writes/removes the .htaccess files when a toggle flips, and the
 	 * runtime hardening behaviors for the currently enabled toggles.
@@ -54,6 +67,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// responses (send_headers does not fire in wp-admin).
 		if ( ! empty( $h['security_headers'] ) ) {
 			add_action( 'send_headers', array( $this, 'add_security_headers' ) );
+		}
+
+		// Content-Security-Policy is a separate, opt-in toggle because it is
+		// the one header that can break front-end rendering. send_headers does
+		// not fire in wp-admin, so the dashboard is never affected.
+		if ( ! empty( $h['csp_enabled'] ) ) {
+			add_action( 'send_headers', array( $this, 'add_csp_header' ) );
 		}
 	}
 
@@ -147,5 +167,37 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		header( 'X-Frame-Options: SAMEORIGIN' );
 		header( 'Referrer-Policy: strict-origin-when-cross-origin' );
 		header( 'Permissions-Policy: geolocation=(), microphone=(), camera=()' );
+	}
+
+	/**
+	 * Send the Content-Security-Policy header.
+	 *
+	 * Skipped for logged-in users when the exclusion toggle is on, since the
+	 * block editor, customizer, and admin bar rely heavily on inline scripts a
+	 * strict policy would block. Uses the report-only header while the admin is
+	 * still testing so violations are logged without blocking anything.
+	 */
+	public function add_csp_header() {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() ) {
+			return;
+		}
+
+		$policy = isset( $h['csp_policy'] ) ? trim( (string) $h['csp_policy'] ) : '';
+
+		if ( '' === $policy ) {
+			$policy = self::DEFAULT_CSP;
+		}
+
+		$header = ! empty( $h['csp_report_only'] )
+			? 'Content-Security-Policy-Report-Only'
+			: 'Content-Security-Policy';
+
+		header( $header . ': ' . $policy );
 	}
 }

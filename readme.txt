@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -46,6 +46,7 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Disable the built-in theme/plugin file editor (DISALLOW_FILE_EDIT) so a compromised admin account can't edit PHP from the dashboard
 * Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
 * Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
+* Add a Content-Security-Policy header with a recommended WordPress-friendly default (fully editable) — starts in Report-Only mode so you can test for breakage before enforcing, and can skip logged-in users so the block editor and admin bar keep working
 
 = Google Fonts Localizer & Discovery =
 * Scans your homepage for Google Fonts references and downloads the .woff2 files to your own server
@@ -86,6 +87,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.4.0 =
+* Added: Content-Security-Policy header (the one remaining security header). Ships a recommended WordPress-friendly default policy that you can edit or replace entirely.
+* Because CSP can break front-end rendering, it includes safety controls: a Report-Only mode (on by default) that logs violations in the browser console without blocking anything so you can test first, and an option (on by default) to skip the header for logged-in users so the block editor, customizer, and admin bar are never affected.
 
 = 1.3.0 =
 * Fixed the plugins-directory hardening toggle not taking effect: enabling it silently reverted and never wrote the .htaccess, caused by a settings-cache issue when the file-writing hook re-saved during the same request. The toggle now writes and removes the file reliably.
