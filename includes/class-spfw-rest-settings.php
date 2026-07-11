@@ -81,8 +81,9 @@ class SPFW_Rest_Settings {
 	 * @return WP_REST_Response
 	 */
 	public function get_settings() {
-		$settings                    = SPFW_Settings::get();
-		$settings['hardening_status'] = SPFW_Htaccess::status();
+		$settings                             = SPFW_Settings::get();
+		$settings['hardening_status']         = SPFW_Htaccess::status( 'plugins' );
+		$settings['uploads_hardening_status'] = SPFW_Htaccess::status( 'uploads' );
 
 		return new WP_REST_Response( $settings, 200 );
 	}
@@ -110,14 +111,29 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
-	 * POST callback: rewrite the plugins-directory hardening file and
+	 * POST callback: rewrite a hardening file (plugins or uploads) and
 	 * return the refreshed state (used by the Hardening tab's Restore
-	 * button — no page reload needed).
+	 * button — no page reload needed). Surfaces a 500 when the write fails
+	 * (e.g. the server has no direct filesystem write access) so the button
+	 * shows an actionable error instead of a false success.
 	 *
+	 * @param WP_REST_Request $request Incoming request.
 	 * @return WP_REST_Response
 	 */
-	public function restore_htaccess() {
-		SPFW_Htaccess::write();
+	public function restore_htaccess( $request ) {
+		$params = $request->get_json_params();
+		$target = ( is_array( $params ) && isset( $params['target'] ) && 'uploads' === $params['target'] )
+			? 'uploads'
+			: 'plugins';
+
+		if ( ! SPFW_Htaccess::write( $target ) ) {
+			return new WP_REST_Response(
+				array(
+					'message' => __( 'Could not write the hardening file. The web server may not have direct write access to this directory.', 'simple-performance-for-wordpress' ),
+				),
+				500
+			);
+		}
 
 		return $this->get_settings();
 	}

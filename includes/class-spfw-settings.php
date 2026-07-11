@@ -62,8 +62,13 @@ class SPFW_Settings {
 				'whitelist_routes'    => array( 'contact-form-7/v1', 'wc/v3', 'wc/store' ),
 			),
 			'hardening'   => array(
-				'plugins_htaccess' => false,
-				'htaccess_hash'    => '',
+				'plugins_htaccess'      => false,
+				'htaccess_hash'         => '',
+				'uploads_htaccess'      => false,
+				'uploads_htaccess_hash' => '',
+				'disable_file_editing'  => false,
+				'block_author_enum'     => false,
+				'security_headers'      => false,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -147,10 +152,19 @@ class SPFW_Settings {
 		$merged  = self::merge_recursive( $current, $new );
 		$clean   = self::sanitize( $merged );
 
-		$result      = update_option( self::OPTION_KEY, $clean );
-		self::$cache = null;
+		// Seed the static cache with the sanitized result *before*
+		// update_option() fires its synchronous `update_option_{$option}`
+		// hook. Listeners on that hook (notably SPFW_Module_Hardening, which
+		// writes the .htaccess and then calls update() again to store its
+		// hash) may re-enter update() before this method returns. If the
+		// cache still held the pre-save state, that nested update would merge
+		// its change onto stale values and silently revert the toggle we are
+		// persisting here — the root cause of the hardening toggle not
+		// sticking. Seeding the cache first keeps every re-entrant get()
+		// consistent with what we are about to write.
+		self::$cache = $clean;
 
-		return $result;
+		return update_option( self::OPTION_KEY, $clean );
 	}
 
 	/**
@@ -268,10 +282,23 @@ class SPFW_Settings {
 
 		$hardening = isset( $input['hardening'] ) && is_array( $input['hardening'] ) ? $input['hardening'] : array();
 
-		$clean['hardening']['plugins_htaccess'] = self::to_bool( $hardening, 'plugins_htaccess', $defaults['hardening']['plugins_htaccess'] );
+		$hardening_bools = array(
+			'plugins_htaccess',
+			'uploads_htaccess',
+			'disable_file_editing',
+			'block_author_enum',
+			'security_headers',
+		);
+
+		foreach ( $hardening_bools as $key ) {
+			$clean['hardening'][ $key ] = self::to_bool( $hardening, $key, $defaults['hardening'][ $key ] );
+		}
 
 		$hash                                = isset( $hardening['htaccess_hash'] ) ? sanitize_text_field( $hardening['htaccess_hash'] ) : '';
 		$clean['hardening']['htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $hash ) ? $hash : '';
+
+		$uploads_hash                                = isset( $hardening['uploads_htaccess_hash'] ) ? sanitize_text_field( $hardening['uploads_htaccess_hash'] ) : '';
+		$clean['hardening']['uploads_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $uploads_hash ) ? $uploads_hash : '';
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 

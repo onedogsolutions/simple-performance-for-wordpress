@@ -110,7 +110,11 @@ class SPFW_Plugin {
 		}
 
 		if ( SPFW_Settings::value( 'hardening', 'plugins_htaccess', false ) ) {
-			SPFW_Htaccess::write();
+			SPFW_Htaccess::write( 'plugins' );
+		}
+
+		if ( SPFW_Settings::value( 'hardening', 'uploads_htaccess', false ) ) {
+			SPFW_Htaccess::write( 'uploads' );
 		}
 	}
 
@@ -122,6 +126,7 @@ class SPFW_Plugin {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 
-		SPFW_Htaccess::remove();
+		SPFW_Htaccess::remove( 'plugins' );
+		SPFW_Htaccess::remove( 'uploads' );
 	}
 }

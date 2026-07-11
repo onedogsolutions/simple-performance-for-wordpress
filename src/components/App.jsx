@@ -73,10 +73,11 @@ export default function App() {
 		} ) );
 	};
 
-	const handleRestoreHtaccess = () => {
+	const handleRestoreHtaccess = ( target = 'plugins' ) => {
 		apiFetch( {
 			path: '/spfw/v1/settings/restore-htaccess',
 			method: 'POST',
+			data: { target },
 		} )
 			.then( ( data ) => {
 				setSettings( data );
@@ -228,6 +229,9 @@ export default function App() {
 									handleChange( 'hardening', key, value )
 								}
 								hardeningStatus={ settings.hardening_status }
+								uploadsStatus={
+									settings.uploads_hardening_status
+								}
 								onRestore={ handleRestoreHtaccess }
 							/>
 						),
