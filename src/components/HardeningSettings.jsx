@@ -300,6 +300,132 @@ export default function HardeningSettings( {
 					</>
 				) }
 			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
+					'HTTP Strict Transport Security',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Tells browsers to only ever connect to your site over HTTPS for a set duration, protecting against protocol-downgrade attacks and cookie hijacking on insecure networks. Only sent when the request is actually HTTPS (including behind a reverse proxy). Once a browser has seen this header, it will refuse plain HTTP connections until max-age expires — make sure HTTPS works reliably before enabling.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<SettingsRow
+					title={ __(
+						'Send Strict-Transport-Security header',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Only sent on HTTPS responses. Do not enable if your site is not fully served over HTTPS.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.hsts_enabled }
+						onChange={ ( v ) => onChange( 'hsts_enabled', v ) }
+					/>
+				</SettingsRow>
+
+				{ !! hardening.hsts_enabled && (
+					<>
+						<SettingsRow
+							title={ __(
+								'Max age',
+								'simple-performance-for-wordpress'
+							) }
+							description={ __(
+								'How long browsers should remember to force HTTPS for this site.',
+								'simple-performance-for-wordpress'
+							) }
+						>
+							<select
+								value={ hardening.hsts_max_age || 31536000 }
+								onChange={ ( e ) =>
+									onChange(
+										'hsts_max_age',
+										parseInt( e.target.value, 10 )
+									)
+								}
+								className="rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 text-sm"
+							>
+								<option value={ 86400 }>
+									{ __(
+										'1 day',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+								<option value={ 604800 }>
+									{ __(
+										'1 week',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+								<option value={ 2592000 }>
+									{ __(
+										'1 month',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+								<option value={ 15768000 }>
+									{ __(
+										'6 months',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+								<option value={ 31536000 }>
+									{ __(
+										'1 year (recommended)',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+								<option value={ 63072000 }>
+									{ __(
+										'2 years',
+										'simple-performance-for-wordpress'
+									) }
+								</option>
+							</select>
+						</SettingsRow>
+
+						<SettingsRow
+							title={ __(
+								'Include subdomains',
+								'simple-performance-for-wordpress'
+							) }
+							description={ __(
+								'Applies the policy to every subdomain too. Only enable once you have confirmed every subdomain is served over HTTPS — otherwise those subdomains will become unreachable until max-age expires.',
+								'simple-performance-for-wordpress'
+							) }
+						>
+							<Toggle
+								checked={ !! hardening.hsts_include_subdomains }
+								onChange={ ( v ) =>
+									onChange( 'hsts_include_subdomains', v )
+								}
+							/>
+						</SettingsRow>
+
+						<SettingsRow
+							title={ __(
+								'Preload',
+								'simple-performance-for-wordpress'
+							) }
+							description={ __(
+								'Opts into browser HSTS preload lists (requires includeSubDomains, max-age of at least 1 year, and submission to hstspreload.org). This is very difficult to reverse — only enable if you are certain every subdomain, now and in the future, will be HTTPS-only.',
+								'simple-performance-for-wordpress'
+							) }
+						>
+							<Toggle
+								checked={ !! hardening.hsts_preload }
+								onChange={ ( v ) =>
+									onChange( 'hsts_preload', v )
+								}
+							/>
+						</SettingsRow>
+					</>
+				) }
+			</SettingsCard>
 		</div>
 	);
 }

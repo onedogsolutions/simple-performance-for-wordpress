@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -47,6 +47,7 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
 * Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
 * Add a Content-Security-Policy header with a recommended WordPress-friendly default (fully editable) — starts in Report-Only mode so you can test for breakage before enforcing, and can skip logged-in users so the block editor and admin bar keep working
+* Add an HTTP Strict Transport Security (HSTS) header with a configurable max-age, includeSubDomains, and preload — only sent on HTTPS responses, including behind a reverse proxy that terminates TLS at the edge (e.g. QUIC.cloud)
 
 = Google Fonts Localizer & Discovery =
 * Scans your homepage for Google Fonts references and downloads the .woff2 files to your own server
@@ -87,6 +88,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.5.0 =
+* Added: HTTP Strict Transport Security (HSTS) header — the last of the standard security headers a scanner checks for. Configurable max-age (1 day to 2 years, defaulting to 1 year), plus optional includeSubDomains and preload toggles.
+* HSTS is only ever sent on an HTTPS request. Detection works behind a reverse proxy that terminates TLS at the edge (checks X-Forwarded-Proto / X-Forwarded-SSL / X-Forwarded-Port in addition to is_ssl()), so the header is sent correctly whether or not the site sits behind QUIC.cloud or a similar proxy.
+* Off by default, like every other hardening toggle — enabling it tells browsers to refuse plain HTTP for the configured duration, so confirm HTTPS works reliably first.
 
 = 1.4.0 =
 * Added: Content-Security-Policy header (the one remaining security header). Ships a recommended WordPress-friendly default policy that you can edit or replace entirely.

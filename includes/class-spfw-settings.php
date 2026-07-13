@@ -69,10 +69,14 @@ class SPFW_Settings {
 				'disable_file_editing'  => false,
 				'block_author_enum'     => false,
 				'security_headers'      => false,
-				'csp_enabled'           => false,
-				'csp_report_only'       => true,
-				'csp_exclude_logged_in' => true,
-				'csp_policy'            => '',
+				'csp_enabled'             => false,
+				'csp_report_only'         => true,
+				'csp_exclude_logged_in'   => true,
+				'csp_policy'              => '',
+				'hsts_enabled'            => false,
+				'hsts_max_age'            => 31536000,
+				'hsts_include_subdomains' => false,
+				'hsts_preload'            => false,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -295,6 +299,9 @@ class SPFW_Settings {
 			'csp_enabled',
 			'csp_report_only',
 			'csp_exclude_logged_in',
+			'hsts_enabled',
+			'hsts_include_subdomains',
+			'hsts_preload',
 		);
 
 		foreach ( $hardening_bools as $key ) {
@@ -317,6 +324,12 @@ class SPFW_Settings {
 		$csp_policy                        = preg_replace( '/[\x00-\x1F\x7F]/', '', $csp_policy );
 		$csp_policy                        = trim( preg_replace( '/ {2,}/', ' ', $csp_policy ) );
 		$clean['hardening']['csp_policy']  = substr( $csp_policy, 0, 2000 );
+
+		// HSTS max-age: whitelist to the durations offered in the UI.
+		$hsts_max_age                       = isset( $hardening['hsts_max_age'] ) ? absint( $hardening['hsts_max_age'] ) : $defaults['hardening']['hsts_max_age'];
+		$clean['hardening']['hsts_max_age'] = in_array( $hsts_max_age, array( 86400, 604800, 2592000, 15768000, 31536000, 63072000 ), true )
+			? $hsts_max_age
+			: $defaults['hardening']['hsts_max_age'];
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
