@@ -9,16 +9,19 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/simple-performance-wordpress-plugin-6qbso2` (Step 10 on
+- **Branch:** `claude/missing-security-headers-x8gyp9` (HSTS header, prior work
+  on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.4.0
-- **Last updated:** 2026-07-11
+- **Plugin version target:** 1.5.0
+- **Last updated:** 2026-07-13
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Hardening-toggle write bug fixed + hardening options expanded (branch
   `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
-  with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`)
+  with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`);
+  ✅ Strict-Transport-Security (HSTS) header added, proxy-aware (branch
+  `claude/missing-security-headers-x8gyp9`)
 
 ## Shared project facts (true for every step)
 
@@ -771,6 +774,61 @@ follow-ups deferred. Keep entries dated and terse.
   OLS + WP install (confirm the CSP header appears on front-end responses, is
   absent in wp-admin and for logged-in users when excluded, and Report-Only vs
   enforce switch correctly); regenerate `.pot` for the new strings.
+
+- 2026-07-13 (Strict-Transport-Security header, branch
+  `claude/missing-security-headers-x8gyp9`, version → 1.5.0): an external
+  Security Headers scan (securityheaders.com) flagged `hayeswindows.com` at
+  grade B — Strict-Transport-Security was the only actually-missing header;
+  the plugin had no code emitting it anywhere. (Content-Security-Policy was
+  also flagged, but that's expected/by-design: the site had CSP enabled in
+  Report-Only mode, which the scanner doesn't count as the enforced header —
+  not a bug, just the deliberate default from the 1.4.0 CSP work.) Same gap
+  applies whether or not the site sits behind a QUIC.cloud reverse proxy.
+  **PHP (`SPFW_Module_Hardening`):** new `add_hsts_header()`, hooked on
+  `send_headers` like CSP — a **separate opt-in toggle** (`hsts_enabled`),
+  not folded into the existing `security_headers` toggle, because HSTS is
+  sticky: once a browser sees it, it refuses plain HTTP for `max-age`
+  regardless of later settings changes, so it deserves its own explicit
+  consent exactly like CSP already does. Bails on `headers_sent()` and on a
+  new `is_https_request()` check. **`is_https_request()` is the key fix for
+  proxied sites:** LiteSpeed/QUIC.cloud (and most reverse proxies) terminate
+  TLS at the edge, so `is_ssl()` alone sees only the plain-HTTP connection to
+  the origin and would never fire HSTS on an HTTPS site sitting behind such a
+  proxy. The helper additionally accepts `X-Forwarded-Proto: https`,
+  `X-Forwarded-Ssl: on`, or `X-Forwarded-Port: 443` — standard reverse-proxy
+  signals — so the header fires correctly with or without a proxy in front.
+  Header value assembled from three settings: `hsts_max_age` (whitelisted to
+  1 day/1 week/1 month/6 months/1 year/2 years, default 1 year — matches
+  Security Headers' own recommended value),
+  `hsts_include_subdomains` (adds `; includeSubDomains`), `hsts_preload`
+  (adds `; preload`).
+  **Schema (`hardening` group, all safe defaults):** `hsts_enabled` (false),
+  `hsts_max_age` (31536000), `hsts_include_subdomains` (false), `hsts_preload`
+  (false). Sanitizer whitelists `hsts_max_age` against the six UI-offered
+  durations, falling back to the 1-year default for anything else. No new
+  REST route — HSTS persists through the same generic settings POST as every
+  other hardening toggle. No migration needed (new keys fill in via
+  `merge_recursive`/`sanitize` fallbacks for existing installs, same pattern
+  as every prior hardening addition).
+  **React (`HardeningSettings.jsx`):** new "HTTP Strict Transport Security"
+  card after the CSP card — master toggle with an explicit warning that HSTS
+  forces HTTPS for the chosen duration; when on, reveals a max-age `<select>`,
+  an "Include subdomains" toggle (with a warning to only enable once every
+  subdomain is confirmed HTTPS-ready), and a "Preload" toggle (with a warning
+  that hstspreload.org submission is very hard to reverse).
+  **Verified:** `php -l` clean on all 3 changed PHP files; a scratch PHP
+  harness (not committed) exercised the `hsts_max_age` whitelist/fallback
+  logic, the `is_https_request()` proxy-header matrix (direct HTTPS, plain
+  HTTP, `X-Forwarded-Proto: https`/`HTTPS`, `X-Forwarded-Ssl: on`,
+  `X-Forwarded-Port: 443`, and a proxy explicitly forwarding `http` which
+  must NOT trigger HSTS), and the assembled header string for all three
+  toggle combinations — all passed. `npm install && npm run build` succeeds;
+  `wp-scripts lint-js --fix` cleaned 6 prettier-only formatting findings on
+  the new `<select>` options in `HardeningSettings.jsx` (no logic changes);
+  `npm run lint:css` clean. **Outstanding:** live QA on a real HTTPS install
+  (confirm the header appears on front-end HTTPS responses, is absent over
+  plain HTTP, and correctly appears when simulating `X-Forwarded-Proto`
+  behind a proxy); regenerate `.pot` for the new strings.
 
 ## Open questions / blockers
 

@@ -75,6 +75,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		if ( ! empty( $h['csp_enabled'] ) ) {
 			add_action( 'send_headers', array( $this, 'add_csp_header' ) );
 		}
+
+		// HSTS is a separate, opt-in toggle: once a browser sees it, it
+		// enforces HTTPS for max-age seconds even if the admin later
+		// disables it, so it warrants its own explicit consent like CSP.
+		if ( ! empty( $h['hsts_enabled'] ) ) {
+			add_action( 'send_headers', array( $this, 'add_hsts_header' ) );
+		}
 	}
 
 	/**
@@ -199,5 +206,61 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			: 'Content-Security-Policy';
 
 		header( $header . ': ' . $policy );
+	}
+
+	/**
+	 * Send the Strict-Transport-Security header.
+	 *
+	 * Skipped entirely over plain HTTP: HSTS instructs the browser to force
+	 * HTTPS for the given duration, so sending it on an HTTP response would
+	 * be meaningless at best and a foot-gun at worst.
+	 */
+	public function add_hsts_header() {
+		if ( headers_sent() || ! self::is_https_request() ) {
+			return;
+		}
+
+		$h = SPFW_Settings::group( 'hardening' );
+
+		$max_age = isset( $h['hsts_max_age'] ) ? absint( $h['hsts_max_age'] ) : 31536000;
+		$value   = 'max-age=' . $max_age;
+
+		if ( ! empty( $h['hsts_include_subdomains'] ) ) {
+			$value .= '; includeSubDomains';
+		}
+
+		if ( ! empty( $h['hsts_preload'] ) ) {
+			$value .= '; preload';
+		}
+
+		header( 'Strict-Transport-Security: ' . $value );
+	}
+
+	/**
+	 * Whether the current request is HTTPS, including behind a reverse proxy
+	 * (QUIC.cloud, Cloudflare, etc.) that terminates TLS at the edge — where
+	 * is_ssl() alone sees only the plain-HTTP connection to the origin and
+	 * would otherwise never let HSTS fire on a proxied site.
+	 *
+	 * @return bool
+	 */
+	private static function is_https_request() {
+		if ( is_ssl() ) {
+			return true;
+		}
+
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) ) ) {
+			return true;
+		}
+
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_SSL'] ) && 'on' === strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_SSL'] ) ) ) ) {
+			return true;
+		}
+
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_PORT'] ) && '443' === sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PORT'] ) ) ) {
+			return true;
+		}
+
+		return false;
 	}
 }
