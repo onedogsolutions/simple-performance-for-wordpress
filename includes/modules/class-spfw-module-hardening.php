@@ -39,6 +39,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
+	 * Reporting group name shared between the CSP `report-to` directive and
+	 * the `Reporting-Endpoints` response header.
+	 *
+	 * @var string
+	 */
+	const CSP_REPORT_GROUP = 'spfw-csp';
+
+	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
 	 * that writes/removes the .htaccess files when a toggle flips, and the
 	 * runtime hardening behaviors for the currently enabled toggles.
@@ -183,6 +191,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * block editor, customizer, and admin bar rely heavily on inline scripts a
 	 * strict policy would block. Uses the report-only header while the admin is
 	 * still testing so violations are logged without blocking anything.
+	 *
+	 * In Report-Only mode the policy also carries `report-uri`/`report-to`
+	 * pointing at the plugin's violation-report endpoint, so blocked resources
+	 * are collected centrally and surfaced in the admin. Enforcing (Report-Only
+	 * off) sends no reporting directives — collection is a testing-phase
+	 * behavior only.
 	 */
 	public function add_csp_header() {
 		if ( headers_sent() ) {
@@ -195,17 +209,151 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return;
 		}
 
-		$policy = isset( $h['csp_policy'] ) ? trim( (string) $h['csp_policy'] ) : '';
+		$mode = isset( $h['csp_mode'] ) ? $h['csp_mode'] : 'builder';
+
+		if ( 'custom' === $mode ) {
+			$policy = isset( $h['csp_policy'] ) ? trim( (string) $h['csp_policy'] ) : '';
+		} else {
+			$directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
+			$policy     = self::build_policy_from_directives( $directives );
+		}
 
 		if ( '' === $policy ) {
 			$policy = self::DEFAULT_CSP;
 		}
 
-		$header = ! empty( $h['csp_report_only'] )
+		$report_only = ! empty( $h['csp_report_only'] );
+
+		// Only Report-Only mode collects violations: append the reporting
+		// directives and open the endpoint via the header the browser needs.
+		if ( $report_only ) {
+			$report_url = self::csp_report_url();
+
+			if ( '' !== $report_url ) {
+				$policy  = rtrim( $policy );
+				$policy .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
+				$policy .= ' report-uri ' . $report_url . '; report-to ' . self::CSP_REPORT_GROUP . ';';
+
+				header( 'Reporting-Endpoints: ' . self::CSP_REPORT_GROUP . '="' . $report_url . '"' );
+			}
+		}
+
+		$header = $report_only
 			? 'Content-Security-Policy-Report-Only'
 			: 'Content-Security-Policy';
 
 		header( $header . ': ' . $policy );
+	}
+
+	/**
+	 * Full URL of the CSP violation-report REST endpoint.
+	 *
+	 * @return string
+	 */
+	private static function csp_report_url() {
+		return esc_url_raw( rest_url( 'spfw/v1/csp-report' ) );
+	}
+
+	/**
+	 * Serialize a structured directive map into a policy string.
+	 *
+	 * Empty directives are dropped entirely; a directive containing 'none'
+	 * collapses to just 'none' (any other source there is meaningless).
+	 *
+	 * @param array<string,string[]> $directives Directive => list of source tokens.
+	 * @return string
+	 */
+	public static function build_policy_from_directives( array $directives ) {
+		$out = array();
+
+		foreach ( $directives as $directive => $tokens ) {
+			$directive = trim( (string) $directive );
+
+			if ( '' === $directive || ! is_array( $tokens ) ) {
+				continue;
+			}
+
+			$tokens = array_values(
+				array_filter(
+					array_map( 'trim', $tokens ),
+					static function ( $t ) {
+						return '' !== $t;
+					}
+				)
+			);
+
+			if ( empty( $tokens ) ) {
+				continue;
+			}
+
+			if ( in_array( "'none'", $tokens, true ) ) {
+				$tokens = array( "'none'" );
+			}
+
+			$out[] = $directive . ' ' . implode( ' ', $tokens );
+		}
+
+		return empty( $out ) ? '' : implode( '; ', $out ) . ';';
+	}
+
+	/**
+	 * Parse a policy string back into a structured directive map. Best-effort:
+	 * used to seed the builder from DEFAULT_CSP and to import a hand-written
+	 * policy when the admin switches from Advanced (raw) back to Builder mode.
+	 *
+	 * @param string $policy Policy string.
+	 * @return array<string,string[]>
+	 */
+	public static function parse_policy_to_directives( $policy ) {
+		$result = array();
+
+		foreach ( explode( ';', (string) $policy ) as $chunk ) {
+			$chunk = trim( $chunk );
+
+			if ( '' === $chunk ) {
+				continue;
+			}
+
+			$parts     = preg_split( '/\s+/', $chunk );
+			$directive = strtolower( array_shift( $parts ) );
+
+			if ( '' === $directive ) {
+				continue;
+			}
+
+			// Drop the reporting directives — they are managed automatically,
+			// never surfaced as editable builder rows.
+			if ( in_array( $directive, array( 'report-uri', 'report-to' ), true ) ) {
+				continue;
+			}
+
+			$result[ $directive ] = array_values(
+				array_filter(
+					$parts,
+					static function ( $t ) {
+						return '' !== $t;
+					}
+				)
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * The recommended default policy expressed as a structured directive map
+	 * (derived from DEFAULT_CSP so the two can never drift). Cached per request.
+	 *
+	 * @return array<string,string[]>
+	 */
+	public static function default_csp_directives() {
+		static $cache = null;
+
+		if ( null === $cache ) {
+			$cache = self::parse_policy_to_directives( self::DEFAULT_CSP );
+		}
+
+		return $cache;
 	}
 
 	/**

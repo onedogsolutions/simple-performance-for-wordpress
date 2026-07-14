@@ -101,6 +101,31 @@ export default function App() {
 			} );
 	};
 
+	const handleRefreshCspReports = () => {
+		return apiFetch( { path: '/spfw/v1/csp-report' } )
+			.then( ( data ) =>
+				setSettings( ( prev ) => ( {
+					...prev,
+					csp_reports: data.csp_reports || [],
+				} ) )
+			)
+			.catch( () => {} );
+	};
+
+	const handleClearCspReports = () => {
+		return apiFetch( {
+			path: '/spfw/v1/csp-report',
+			method: 'DELETE',
+		} )
+			.then( ( data ) =>
+				setSettings( ( prev ) => ( {
+					...prev,
+					csp_reports: data.csp_reports || [],
+				} ) )
+			)
+			.catch( () => {} );
+	};
+
 	const handleScanFonts = () => {
 		return apiFetch( {
 			path: '/spfw/v1/settings/scan-fonts',
@@ -233,6 +258,9 @@ export default function App() {
 									settings.uploads_hardening_status
 								}
 								onRestore={ handleRestoreHtaccess }
+								cspReports={ settings.csp_reports }
+								onRefreshCspReports={ handleRefreshCspReports }
+								onClearCspReports={ handleClearCspReports }
 							/>
 						),
 						fonts: (

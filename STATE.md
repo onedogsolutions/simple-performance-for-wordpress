@@ -12,8 +12,8 @@ the authoritative record.)
 - **Branch:** `claude/missing-security-headers-x8gyp9` (HSTS header, prior work
   on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.5.0
-- **Last updated:** 2026-07-13
+- **Plugin version target:** 1.6.0
+- **Last updated:** 2026-07-14
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -21,7 +21,8 @@ the authoritative record.)
   `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
   with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`);
   ✅ Strict-Transport-Security (HSTS) header added, proxy-aware (branch
-  `claude/missing-security-headers-x8gyp9`)
+  `claude/missing-security-headers-x8gyp9`); ✅ CSP visual policy builder +
+  live violation-report warnings (branch `claude/missing-security-headers-x8gyp9`)
 
 ## Shared project facts (true for every step)
 
@@ -829,6 +830,60 @@ follow-ups deferred. Keep entries dated and terse.
   (confirm the header appears on front-end HTTPS responses, is absent over
   plain HTTP, and correctly appears when simulating `X-Forwarded-Proto`
   behind a proxy); regenerate `.pot` for the new strings.
+
+- 2026-07-14 (CSP visual builder + live violation warnings, branch
+  `claude/missing-security-headers-x8gyp9`, version → 1.6.0): two-part feature
+  on top of the 1.4.0 CSP header. **Part 1 — toggle builder.** The single raw
+  `csp_policy` string is replaced (for new/default installs) by a structured
+  `csp_directives` map edited via per-directive chips + an "additional hosts"
+  field, with a live-generated preview. `csp_mode` ('builder'|'custom') picks
+  the source: builder serializes `csp_directives`; custom (Advanced raw mode)
+  keeps the existing textarea for arbitrary directives. New PHP in
+  `SPFW_Module_Hardening`: `build_policy_from_directives()` (skips empty
+  directives, collapses 'none'), `parse_policy_to_directives()`, and
+  `default_csp_directives()` (derived by parsing `DEFAULT_CSP` so the string
+  and the structured default can never drift — single source of truth, verified
+  by a round-trip test). Sanitizer whitelists directive names
+  (`SPFW_Settings::CSP_DIRECTIVES`) and per-token charset, **rejecting any token
+  with whitespace/`;`/control chars** so a token can't inject a new directive,
+  and **preserves empty token-lists** (does not drop them) because the builder
+  submits a fixed row set — storing `[]` is what makes a cleared directive stick
+  instead of the default resurrecting on the next `merge_recursive`. Migration
+  to 1.6.0: an install that already had a non-empty `csp_policy` is pinned to
+  `csp_mode='custom'` (its hand-tuned policy stays authoritative); everyone else
+  defaults to the builder. **Part 2 — violation warnings, gated on Report-Only
+  mode** (per user amendment: no separate collect toggle). `add_csp_header()`
+  appends `report-uri` + `report-to` (with a `Reporting-Endpoints` header) **only
+  when `csp_report_only` is on**. New REST routes on `SPFW_Rest_Settings`: a
+  **public** `POST /spfw/v1/csp-report` whose callback is **closed (403, stores
+  nothing) unless `csp_enabled && csp_report_only`** — the plugin's first
+  intentionally public route; hardened with an 8 KB body cap, content-shape
+  parsing for both legacy `application/csp-report` and modern
+  `application/reports+json` batches, dedupe by (directive, blocked-origin) with
+  count bumping, a 50-entry cap with least-recently-seen eviction, and a 7-day
+  transient store (never the autoloaded option). Admin-only `GET`/`DELETE` view
+  and clear the log. `get_settings()` now also returns `csp_default_directives`
+  and `csp_reports`. **React:** extracted the CSP card into
+  `src/components/CspPolicyCard.jsx` (chips per directive, live preview,
+  Advanced raw toggle, per-directive amber warning boxes with one-click
+  "Allow", an "Other violations" bucket, Refresh/Clear, and a 20s poll while
+  Report-Only is on); `App.jsx` gained `handleRefreshCspReports`/
+  `handleClearCspReports` (functional `setSettings` so polling never clobbers
+  unsaved edits). Fixed a controlled-input trap where deriving the hosts field
+  value from parsed tokens on every keystroke stripped the trailing space
+  needed to type a second host — the field is now backed by local `hostText`
+  state, cleared per-directive on the discrete actions (Allow, 'none', reset)
+  that change hosts out-of-band. **Verified:** `php -l` clean on all changed
+  PHP; two scratch harnesses (27 checks total, not committed) covering
+  serializer/parser round-trip, sanitizer token-whitelist + injection rejection
+  + empty-preservation, full `sanitize()` integration, the 1.6.0 migration,
+  violation extraction (both report shapes), directive/origin normalization,
+  and dedup/eviction storage — all green. `npm run build` +
+  `wp-scripts lint-js` (changed files, incl. the new component) +
+  `lint-style` clean. **Outstanding:** live QA on a real HTTPS install (confirm
+  a blocked host in Report-Only surfaces on the right directive, "Allow" adds
+  it, enforcing removes `report-uri` and closes `POST /csp-report`); regenerate
+  `.pot` for the new strings.
 
 ## Open questions / blockers
 
