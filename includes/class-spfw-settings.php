@@ -72,6 +72,19 @@ class SPFW_Settings {
 				'csp_enabled'             => false,
 				'csp_report_only'         => true,
 				'csp_exclude_logged_in'   => true,
+				'csp_mode'                => 'builder',
+				'csp_directives'          => array(
+					'default-src'     => array( "'self'" ),
+					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:' ),
+					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
+					'img-src'         => array( "'self'", 'data:', 'https:' ),
+					'font-src'        => array( "'self'", 'data:', 'https:' ),
+					'connect-src'     => array( "'self'" ),
+					'media-src'       => array( "'self'" ),
+					'object-src'      => array( "'none'" ),
+					'base-uri'        => array( "'self'" ),
+					'frame-ancestors' => array( "'self'" ),
+				),
 				'csp_policy'              => '',
 				'hsts_enabled'            => false,
 				'hsts_max_age'            => 31536000,
@@ -113,6 +126,19 @@ class SPFW_Settings {
 		if ( version_compare( $stored_ver, '1.1.1', '<' ) ) {
 			self::run_migrations( $stored );
 			// Re-fetch stored options after migration.
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		// Migration to 1.6.0: the CSP builder replaced the single raw policy.
+		// An install that already stored a custom policy should keep using it,
+		// so pin csp_mode to 'custom' rather than silently switching them to the
+		// (possibly different) structured default. Only runs when csp_mode is
+		// still absent, so it never overrides a deliberate later choice.
+		if ( version_compare( $stored_ver, '1.6.0', '<' )
+			&& ! isset( $stored['hardening']['csp_mode'] )
+			&& ! empty( $stored['hardening']['csp_policy'] ) ) {
+			self::run_csp_mode_migration( $stored );
 			$stored = get_option( self::OPTION_KEY, array() );
 			$stored = is_array( $stored ) ? $stored : array();
 		}
@@ -325,6 +351,19 @@ class SPFW_Settings {
 		$csp_policy                        = trim( preg_replace( '/ {2,}/', ' ', $csp_policy ) );
 		$clean['hardening']['csp_policy']  = substr( $csp_policy, 0, 2000 );
 
+		// CSP mode: builder (structured toggles) or custom (raw policy above).
+		$csp_mode                       = isset( $hardening['csp_mode'] ) ? $hardening['csp_mode'] : $defaults['hardening']['csp_mode'];
+		$clean['hardening']['csp_mode'] = in_array( $csp_mode, array( 'builder', 'custom' ), true ) ? $csp_mode : 'builder';
+
+		// CSP directives: structured source of truth for builder mode. Whitelist
+		// directive names, filter each source token to a safe charset (dropping
+		// anything with ';', whitespace, or control chars so a token can never
+		// inject a new directive), keep the single quotes CSP keywords need,
+		// dedupe, and cap counts/length.
+		$clean['hardening']['csp_directives'] = self::sanitize_csp_directives(
+			isset( $hardening['csp_directives'] ) ? $hardening['csp_directives'] : $defaults['hardening']['csp_directives']
+		);
+
 		// HSTS max-age: whitelist to the durations offered in the UI.
 		$hsts_max_age                       = isset( $hardening['hsts_max_age'] ) ? absint( $hardening['hsts_max_age'] ) : $defaults['hardening']['hsts_max_age'];
 		$clean['hardening']['hsts_max_age'] = in_array( $hsts_max_age, array( 86400, 604800, 2592000, 15768000, 31536000, 63072000 ), true )
@@ -362,6 +401,86 @@ class SPFW_Settings {
 		}
 
 		return (bool) $group[ $key ];
+	}
+
+	/**
+	 * Directive names the builder is allowed to manage. Anything outside this
+	 * list is dropped (custom/exotic directives belong in Advanced raw mode).
+	 *
+	 * @var string[]
+	 */
+	const CSP_DIRECTIVES = array(
+		'default-src',
+		'script-src',
+		'style-src',
+		'img-src',
+		'font-src',
+		'connect-src',
+		'media-src',
+		'object-src',
+		'frame-src',
+		'frame-ancestors',
+		'base-uri',
+		'form-action',
+	);
+
+	/**
+	 * Sanitize a structured CSP directive map. Whitelists directive names,
+	 * filters each source token to a safe charset (rejecting anything with a
+	 * ';', whitespace, or control character so a token can never inject a new
+	 * directive), keeps the single quotes CSP keywords require, dedupes, and
+	 * caps counts/length.
+	 *
+	 * @param mixed $raw Directive => list of source tokens.
+	 * @return array<string,string[]>
+	 */
+	private static function sanitize_csp_directives( $raw ) {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$keywords = array( "'self'", "'none'", "'unsafe-inline'", "'unsafe-eval'", "'strict-dynamic'" );
+		$clean    = array();
+
+		foreach ( $raw as $directive => $tokens ) {
+			$directive = strtolower( trim( (string) $directive ) );
+
+			if ( ! in_array( $directive, self::CSP_DIRECTIVES, true ) || ! is_array( $tokens ) ) {
+				continue;
+			}
+
+			$valid = array();
+
+			foreach ( $tokens as $token ) {
+				$token = trim( (string) $token );
+
+				// Reject anything that could break out of the directive.
+				if ( '' === $token || preg_match( '/[\s;,\x00-\x1F\x7F]/', $token ) ) {
+					continue;
+				}
+
+				if ( in_array( $token, $keywords, true ) ) {
+					$valid[] = $token;
+					continue;
+				}
+
+				// Scheme sources (https:, data:, blob:, wss:, ...) and host
+				// sources (example.com, *.example.com, https://example.com).
+				if ( preg_match( '#^[A-Za-z][A-Za-z0-9+.-]*:$#', $token )
+					|| preg_match( '#^(https?://)?(\*\.)?[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$#', $token ) ) {
+					$valid[] = $token;
+				}
+			}
+
+			// Empty token-lists are preserved (not dropped): the builder shows a
+			// fixed set of rows and always submits every one, so storing a
+			// cleared directive as [] is what lets the deletion stick instead of
+			// the default value resurrecting on the next merge. Emit-time
+			// serialization skips empty directives.
+			$clean[ $directive ] = array_slice( array_values( array_unique( $valid ) ), 0, 15 );
+		}
+
+		return $clean;
 	}
 
 	/**
@@ -419,6 +538,26 @@ class SPFW_Settings {
 		$updated['version'] = '1.1.1';
 
 		// Sanitize and update directly to avoid any potential loops.
+		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Migration to 1.6.0: an install that already had a custom CSP policy
+	 * string keeps it by switching to 'custom' mode, so the builder defaults
+	 * never silently replace a hand-tuned policy.
+	 *
+	 * @param array $stored Currently stored settings.
+	 */
+	private static function run_csp_mode_migration( array $stored ) {
+		$updated = $stored;
+
+		if ( ! isset( $updated['hardening'] ) || ! is_array( $updated['hardening'] ) ) {
+			$updated['hardening'] = array();
+		}
+
+		$updated['hardening']['csp_mode'] = 'custom';
+
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );
 	}

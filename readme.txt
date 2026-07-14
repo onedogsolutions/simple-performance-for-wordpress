@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -46,7 +46,8 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Disable the built-in theme/plugin file editor (DISALLOW_FILE_EDIT) so a compromised admin account can't edit PHP from the dashboard
 * Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
 * Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
-* Add a Content-Security-Policy header with a recommended WordPress-friendly default (fully editable) — starts in Report-Only mode so you can test for breakage before enforcing, and can skip logged-in users so the block editor and admin bar keep working
+* Add a Content-Security-Policy header with a visual policy builder — toggle the allowed sources per directive (scripts, styles, images, fonts, …) and watch the policy string build itself, or switch to Advanced mode to edit the raw policy and add your own directives
+* See exactly what a policy would break: in Report-Only mode, blocked resources are collected and shown as warnings next to the directive that blocked them, with a one-click "Allow" to add the source — so you can clear every violation before you enforce, and can skip logged-in users so the block editor and admin bar keep working
 * Add an HTTP Strict Transport Security (HSTS) header with a configurable max-age, includeSubDomains, and preload — only sent on HTTPS responses, including behind a reverse proxy that terminates TLS at the edge (e.g. QUIC.cloud)
 
 = Google Fonts Localizer & Discovery =
@@ -88,6 +89,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.6.0 =
+* Added: a visual Content-Security-Policy builder. Instead of one raw text box, each directive (script-src, style-src, img-src, …) now has toggle chips for its common sources plus an "additional hosts" field, and the policy string builds itself live. An Advanced switch still exposes the raw editor for custom directives.
+* Added: CSP violation reporting. While in Report-Only mode the policy carries a report endpoint, and blocked resources are collected and shown as amber warnings next to the exact directive that blocked them — each with a one-click "Allow" that adds the source. This closes the test-and-refine loop before you enforce.
+* Violation collection is part of Report-Only mode: the public report endpoint accepts data only while Report-Only is on, and closes automatically the moment you switch to enforcing.
+* Existing installs with a hand-edited CSP keep it untouched — they open in Advanced (raw) mode so nothing changes until you choose the builder.
 
 = 1.5.0 =
 * Added: HTTP Strict Transport Security (HSTS) header — the last of the standard security headers a scanner checks for. Configurable max-age (1 day to 2 years, defaulting to 1 year), plus optional includeSubDomains and preload toggles.
