@@ -95,6 +95,8 @@ class SPFW_Settings {
 				'localize_google' => false,
 				'discovered'      => array(),
 				'last_scan'       => 0,
+				'manual_families' => array(),
+				'extra_scan_urls' => array(),
 			),
 			'woocommerce' => array(
 				'disable_cart_fragments' => false,
@@ -375,6 +377,12 @@ class SPFW_Settings {
 		$clean['fonts']['localize_google'] = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
 		$clean['fonts']['discovered']      = isset( $fonts['discovered'] ) && is_array( $fonts['discovered'] ) ? $fonts['discovered'] : array();
 		$clean['fonts']['last_scan']       = isset( $fonts['last_scan'] ) ? absint( $fonts['last_scan'] ) : 0;
+		$clean['fonts']['manual_families'] = self::sanitize_font_families(
+			isset( $fonts['manual_families'] ) ? $fonts['manual_families'] : $defaults['fonts']['manual_families']
+		);
+		$clean['fonts']['extra_scan_urls'] = self::sanitize_scan_urls(
+			isset( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : $defaults['fonts']['extra_scan_urls']
+		);
 
 		$woo = isset( $input['woocommerce'] ) && is_array( $input['woocommerce'] ) ? $input['woocommerce'] : array();
 
@@ -510,6 +518,115 @@ class SPFW_Settings {
 		}
 
 		return array_values( array_unique( $clean ) );
+	}
+
+	/**
+	 * Sanitize a list of manual Google Fonts declarations. Each entry is a
+	 * `Family:weights` spec (e.g. `Roboto Condensed:400,700` or, with italics,
+	 * `Roboto Condensed:400,400i,700`); a bare `Family` defaults to weight 400.
+	 * These let an admin declare exactly which weights to localize when the
+	 * automated homepage scan is blinded by proxy/CDN optimization — the reason
+	 * a used weight (e.g. 400) can be missing while another (700) is found.
+	 *
+	 * The output is normalized to `Family:w1,w2,...` strings so the fonts module
+	 * can build canonical `fonts.googleapis.com/css2` URLs from them.
+	 *
+	 * @param mixed $raw String (newline-separated) or array of specs.
+	 * @return string[]
+	 */
+	private static function sanitize_font_families( $raw ) {
+		$items = is_array( $raw ) ? $raw : preg_split( '/[\r\n]+/', (string) $raw );
+		$clean = array();
+
+		foreach ( $items as $item ) {
+			$item = trim( (string) $item );
+
+			if ( '' === $item ) {
+				continue;
+			}
+
+			$parts  = explode( ':', $item, 2 );
+			$family = trim( $parts[0] );
+
+			// Family names are letters/numbers/spaces/hyphens (matches Google's
+			// catalog); reject anything else so a spec can't smuggle URL syntax.
+			if ( '' === $family || ! preg_match( '/^[A-Za-z0-9][A-Za-z0-9 \-]*$/', $family ) ) {
+				continue;
+			}
+
+			$weights = array();
+
+			if ( isset( $parts[1] ) ) {
+				foreach ( preg_split( '/[,\s]+/', $parts[1] ) as $weight ) {
+					$weight = trim( $weight );
+
+					// 100–900, optional trailing `i` for the italic style.
+					if ( preg_match( '/^([1-9]00)(i?)$/', $weight, $m ) ) {
+						$weights[] = $m[1] . ( '' !== $m[2] ? 'i' : '' );
+					}
+				}
+			}
+
+			if ( empty( $weights ) ) {
+				$weights = array( '400' );
+			}
+
+			$weights = array_values( array_unique( $weights ) );
+			$clean[] = $family . ':' . implode( ',', $weights );
+		}
+
+		return array_slice( array_values( array_unique( $clean ) ), 0, 30 );
+	}
+
+	/**
+	 * Sanitize a list of extra page URLs to include in a font scan (beyond the
+	 * homepage), so weights only enqueued on inner templates — a single post,
+	 * a WooCommerce product, a custom page — are discovered too. Each entry may
+	 * be a root-relative path (`/shop/`) or an absolute same-origin URL; foreign
+	 * hosts are dropped and the list is capped.
+	 *
+	 * @param mixed $raw String (newline-separated) or array of URLs/paths.
+	 * @return string[]
+	 */
+	private static function sanitize_scan_urls( $raw ) {
+		$items = is_array( $raw ) ? $raw : preg_split( '/[\r\n]+/', (string) $raw );
+		$home  = wp_parse_url( home_url(), PHP_URL_HOST );
+		$clean = array();
+
+		foreach ( $items as $item ) {
+			$item = trim( (string) $item );
+
+			if ( '' === $item ) {
+				continue;
+			}
+
+			// Keep root-relative paths as-is; validate absolute URLs are same-origin.
+			if ( 0 === strpos( $item, '/' ) && 0 !== strpos( $item, '//' ) ) {
+				$path = esc_url_raw( $item );
+
+				if ( '' !== $path ) {
+					$clean[] = $path;
+				}
+
+				continue;
+			}
+
+			$url = esc_url_raw( $item );
+
+			if ( '' === $url ) {
+				continue;
+			}
+
+			$host = wp_parse_url( $url, PHP_URL_HOST );
+
+			if ( $home && $host && $host !== $home ) {
+				continue;
+			}
+
+			$clean[] = $url;
+		}
+
+		return array_slice( array_values( array_unique( $clean ) ), 0, 10 );
 	}
 
 	/**

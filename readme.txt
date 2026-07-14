@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.6.1
+Stable tag: 1.7.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -89,6 +89,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.7.0 =
+* Fixed: font discovery missed weights that a CDN/optimizer hid from the page. On OpenLiteSpeed + QUIC.cloud the scan could see only some weights (e.g. Roboto Condensed 700) while the site actually rendered another (400), so the missing weight fell back to a system font. The loopback scan now sends no-cache headers alongside the existing cache-buster so it gets a fresh, un-optimized render.
+* Added: multi-page discovery. The scan now covers your homepage plus your most recent post and page — and any extra URLs you list — so a weight enqueued only on inner templates is discovered too.
+* Added: manual font-weight declarations. When a proxy blinds automatic discovery, declare families and weights (e.g. "Roboto Condensed:400,700") and the exact weights are downloaded straight from Google, regardless of what the front end exposes.
+* Added: CDN-inlined @font-face blocks pointing at fonts.gstatic.com are now localized directly, even when the original Google stylesheet <link> has been stripped from the page.
 
 = 1.6.1 =
 * Fixed: CSP violation reports could fail to appear during testing. The policy emitted both report-uri and the newer report-to; when both are present Chrome ignores report-uri and uses the Reporting API, which batches reports and delays them by up to a minute. Now emits report-uri only, so violations are reported immediately.

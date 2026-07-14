@@ -4,6 +4,20 @@ import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 
+const textareaClass =
+	'block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 text-sm font-mono';
+
+function listToText( list ) {
+	return Array.isArray( list ) ? list.join( '\n' ) : '';
+}
+
+function textToList( text ) {
+	return text
+		.split( /[\r\n]+/ )
+		.map( ( line ) => line.trim() )
+		.filter( Boolean );
+}
+
 export default function FontsSettings( { settings, onChange, onScan } ) {
 	const fonts = settings.fonts || {};
 	const discovered = fonts.discovered || {};
@@ -123,6 +137,62 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					) }
 				</div>
 			</SettingsRow>
+
+			<div className="py-6">
+				<h3 className="text-sm font-semibold text-gray-900">
+					{ __(
+						'Manual font weights',
+						'simple-performance-for-wordpress'
+					) }
+				</h3>
+				<p className="mt-1 text-sm text-gray-500">
+					{ __(
+						'If a CDN or optimizer (e.g. QUIC.cloud) hides some weights from automatic discovery, declare them here. One family per line as “Family:weights”, e.g. “Roboto Condensed:400,700”. Append “i” for italics (400i). A bare family name defaults to 400. Declared weights are downloaded straight from Google on the next scan, regardless of what the front end exposes.',
+						'simple-performance-for-wordpress'
+					) }
+				</p>
+				<textarea
+					rows={ 3 }
+					placeholder={
+						'Roboto Condensed:400,700\nOpen Sans:400,600,700'
+					}
+					value={ listToText( fonts.manual_families ) }
+					onChange={ ( e ) =>
+						onChange(
+							'manual_families',
+							textToList( e.target.value )
+						)
+					}
+					className={ `${ textareaClass } mt-4` }
+				/>
+			</div>
+
+			<div className="py-6">
+				<h3 className="text-sm font-semibold text-gray-900">
+					{ __(
+						'Extra pages to scan',
+						'simple-performance-for-wordpress'
+					) }
+				</h3>
+				<p className="mt-1 text-sm text-gray-500">
+					{ __(
+						'The scan already checks your homepage plus your most recent post and page. Add any other URLs whose fonts differ — a shop page, landing page, or custom template. One per line, as a path (/shop/) or full URL on this site.',
+						'simple-performance-for-wordpress'
+					) }
+				</p>
+				<textarea
+					rows={ 3 }
+					placeholder={ '/shop/\n/landing/' }
+					value={ listToText( fonts.extra_scan_urls ) }
+					onChange={ ( e ) =>
+						onChange(
+							'extra_scan_urls',
+							textToList( e.target.value )
+						)
+					}
+					className={ `${ textareaClass } mt-4` }
+				/>
+			</div>
 		</SettingsCard>
 	);
 }
