@@ -66,9 +66,9 @@ class SPFW_Rest_Settings {
 
 		// CSP violation reports. The POST route is intentionally public —
 		// browsers send violation reports unauthenticated — but its callback
-		// stores nothing unless CSP is enabled AND in Report-Only mode, so the
-		// endpoint is effectively closed the rest of the time. GET/DELETE are
-		// admin-only (view / clear the collected log).
+		// stores nothing unless CSP is enabled, so the endpoint is effectively
+		// closed whenever CSP is off. GET/DELETE are admin-only (view / clear
+		// the collected log).
 		register_rest_route(
 			self::NAMESPACE_,
 			'/csp-report',
@@ -201,8 +201,8 @@ class SPFW_Rest_Settings {
 	/**
 	 * Public POST callback: ingest a browser CSP violation report.
 	 *
-	 * Closed unless CSP is enabled and in Report-Only mode, so the endpoint
-	 * accepts (and stores) reports only during the testing phase. Accepts both
+	 * Closed unless CSP is enabled, so the endpoint accepts (and stores)
+	 * reports whenever a policy is active (Report-Only or enforce). Accepts both
 	 * the legacy `application/csp-report` body and the modern Reporting API
 	 * `application/reports+json` batch, caps the body size, dedupes into a
 	 * bounded transient, and always answers 204 (browsers ignore the response).
@@ -213,7 +213,10 @@ class SPFW_Rest_Settings {
 	public function receive_csp_report( $request ) {
 		$h = SPFW_Settings::group( 'hardening' );
 
-		if ( empty( $h['csp_enabled'] ) || empty( $h['csp_report_only'] ) ) {
+		// Open whenever CSP is enabled (enforce mode included), so real blocked
+		// resources are captured, not only Report-Only test violations. Closed
+		// entirely when CSP is off.
+		if ( empty( $h['csp_enabled'] ) ) {
 			return new WP_REST_Response( null, 403 );
 		}
 

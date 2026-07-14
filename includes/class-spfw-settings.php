@@ -75,7 +75,7 @@ class SPFW_Settings {
 				'csp_mode'                => 'builder',
 				'csp_directives'          => array(
 					'default-src'     => array( "'self'" ),
-					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:' ),
+					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:', 'data:' ),
 					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
 					'img-src'         => array( "'self'", 'data:', 'https:' ),
 					'font-src'        => array( "'self'", 'data:', 'https:' ),

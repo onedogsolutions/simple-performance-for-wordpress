@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.6.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -47,7 +47,7 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
 * Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
 * Add a Content-Security-Policy header with a visual policy builder — toggle the allowed sources per directive (scripts, styles, images, fonts, …) and watch the policy string build itself, or switch to Advanced mode to edit the raw policy and add your own directives
-* See exactly what a policy would break: in Report-Only mode, blocked resources are collected and shown as warnings next to the directive that blocked them, with a one-click "Allow" to add the source — so you can clear every violation before you enforce, and can skip logged-in users so the block editor and admin bar keep working
+* See exactly what a policy blocks: whenever CSP is active, blocked resources are collected and shown as warnings next to the directive that blocked them, with a one-click "Allow" to add the source — clear every violation in Report-Only before you enforce, and keep catching real breakage after. Can skip logged-in users so the block editor and admin bar keep working
 * Add an HTTP Strict Transport Security (HSTS) header with a configurable max-age, includeSubDomains, and preload — only sent on HTTPS responses, including behind a reverse proxy that terminates TLS at the edge (e.g. QUIC.cloud)
 
 = Google Fonts Localizer & Discovery =
@@ -89,6 +89,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.6.1 =
+* Fixed: CSP violation reports could fail to appear during testing. The policy emitted both report-uri and the newer report-to; when both are present Chrome ignores report-uri and uses the Reporting API, which batches reports and delays them by up to a minute. Now emits report-uri only, so violations are reported immediately.
+* Changed: CSP violations are now collected whenever the policy is active, in enforce mode too (not only Report-Only) — so a resource blocked on your live site still shows up as a warning. The report endpoint is still fully closed whenever CSP is disabled.
+* Fixed: the "Allow" button now inserts the correct token for scheme blocks — a blocked data: or blob: script (which browsers report as bare "data"/"blob") adds data:/blob: rather than an invalid bare word.
+* Changed: data: added to the default script-src, since LiteSpeed/QUIC.cloud JS optimization commonly serves inline scripts as data: URIs — the recommended policy no longer blocks them out of the box.
 
 = 1.6.0 =
 * Added: a visual Content-Security-Policy builder. Instead of one raw text box, each directive (script-src, style-src, img-src, …) now has toggle chips for its common sources plus an "additional hosts" field, and the policy string builds itself live. An Advanced switch still exposes the raw editor for custom directives.
