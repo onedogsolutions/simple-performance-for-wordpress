@@ -160,16 +160,17 @@ export default function CspPolicyCard( {
 			return next;
 		} );
 
-	// While enabled and in Report-Only mode, poll the violation log so warnings
-	// surface without a manual refresh. Collection is closed in enforce mode.
+	// While CSP is enabled (Report-Only or enforce), poll the violation log so
+	// warnings surface without a manual refresh. Collection is closed only when
+	// CSP itself is off.
 	useEffect( () => {
-		if ( ! enabled || ! reportOnly || ! onRefreshCspReports ) {
+		if ( ! enabled || ! onRefreshCspReports ) {
 			return undefined;
 		}
 
 		const id = setInterval( onRefreshCspReports, 20000 );
 		return () => clearInterval( id );
-	}, [ enabled, reportOnly, onRefreshCspReports ] );
+	}, [ enabled, onRefreshCspReports ] );
 
 	const setDirectiveTokens = ( name, tokens ) => {
 		onChange( 'csp_directives', { ...directives, [ name ]: tokens } );
@@ -222,15 +223,20 @@ export default function CspPolicyCard( {
 					.filter( ( t ) => ! directive.tokens.includes( t ) )
 					.join( ' ' );
 
-	// "Allow" a reported source: map keyword blocks to their keyword token,
-	// otherwise add the blocked origin to the directive's sources.
+	// "Allow" a reported source. Browsers report keyword/scheme blocks as a
+	// bare word ('inline', 'eval', 'data', 'blob'), which map to real CSP
+	// tokens; anything else is a host origin added verbatim.
+	const KEYWORD_TOKENS = {
+		inline: "'unsafe-inline'",
+		eval: "'unsafe-eval'",
+		data: 'data:',
+		blob: 'blob:',
+		filesystem: 'filesystem:',
+		mediastream: 'mediastream:',
+	};
+
 	const allowSource = ( name, origin ) => {
-		let token = origin;
-		if ( 'inline' === origin ) {
-			token = "'unsafe-inline'";
-		} else if ( 'eval' === origin ) {
-			token = "'unsafe-eval'";
-		}
+		const token = KEYWORD_TOKENS[ origin ] || origin;
 
 		const current = ( directives[ name ] || [] ).filter(
 			( t ) => t !== NONE
@@ -305,7 +311,7 @@ export default function CspPolicyCard( {
 							'simple-performance-for-wordpress'
 						) }
 						description={ __(
-							'Sends Content-Security-Policy-Report-Only, which logs violations without blocking anything, and collects them here as warnings so you can see exactly what the policy would break. Keep this on until the list below is clear, then turn it off to enforce — enforcing also closes the reporting endpoint and stops collection.',
+							'Sends Content-Security-Policy-Report-Only, which logs violations without blocking anything so you can see exactly what the policy would break. Keep this on until the list below is clear, then turn it off to enforce. Violations are collected here in both modes — while enforcing, a warning below means something is actually being blocked.',
 							'simple-performance-for-wordpress'
 						) }
 					>
@@ -581,10 +587,10 @@ export default function CspPolicyCard( {
 							</div>
 						</div>
 
-						{ ! reportOnly && (
-							<p className="mt-1 text-sm text-gray-500">
+						{ ! reportOnly && cspReports.length > 0 && (
+							<p className="mt-1 text-sm text-amber-700">
 								{ __(
-									'Collection is paused: violations are only collected in Report-Only mode. Any entries below were captured during earlier testing.',
+									'Enforcing: each entry below is a resource currently being blocked on your live site.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
@@ -592,15 +598,10 @@ export default function CspPolicyCard( {
 
 						{ 0 === cspReports.length && (
 							<p className="mt-1 text-sm text-gray-500">
-								{ reportOnly
-									? __(
-											'No violations collected yet. Browse your site as a logged-out visitor to generate reports, then Refresh.',
-											'simple-performance-for-wordpress'
-									  )
-									: __(
-											'No violations collected.',
-											'simple-performance-for-wordpress'
-									  ) }
+								{ __(
+									'No violations collected yet. Browse your site as a logged-out visitor to generate reports, then Refresh.',
+									'simple-performance-for-wordpress'
+								) }
 							</p>
 						) }
 

@@ -36,15 +36,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @var string
 	 */
-	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
-
-	/**
-	 * Reporting group name shared between the CSP `report-to` directive and
-	 * the `Reporting-Endpoints` response header.
-	 *
-	 * @var string
-	 */
-	const CSP_REPORT_GROUP = 'spfw-csp';
+	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
@@ -222,23 +214,25 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy = self::DEFAULT_CSP;
 		}
 
-		$report_only = ! empty( $h['csp_report_only'] );
+		// Collect violations whenever CSP is enabled — in enforce mode too, so
+		// real production breakage (a blocked resource) is still surfaced in the
+		// admin, not just during Report-Only testing. Append report-uri so the
+		// browser posts violations to our endpoint. We deliberately use
+		// report-uri ALONE (not the newer report-to): when both are present
+		// Chrome ignores report-uri and switches to the Reporting API, which
+		// batches reports and delays them by up to a minute — so violations
+		// appear to never arrive during interactive testing. report-uri is
+		// deprecated but universally honored and fires immediately per
+		// violation, which is exactly what this admin feedback loop needs.
+		$report_url = self::csp_report_url();
 
-		// Only Report-Only mode collects violations: append the reporting
-		// directives and open the endpoint via the header the browser needs.
-		if ( $report_only ) {
-			$report_url = self::csp_report_url();
-
-			if ( '' !== $report_url ) {
-				$policy  = rtrim( $policy );
-				$policy .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
-				$policy .= ' report-uri ' . $report_url . '; report-to ' . self::CSP_REPORT_GROUP . ';';
-
-				header( 'Reporting-Endpoints: ' . self::CSP_REPORT_GROUP . '="' . $report_url . '"' );
-			}
+		if ( '' !== $report_url ) {
+			$policy  = rtrim( $policy );
+			$policy .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
+			$policy .= ' report-uri ' . $report_url . ';';
 		}
 
-		$header = $report_only
+		$header = ! empty( $h['csp_report_only'] )
 			? 'Content-Security-Policy-Report-Only'
 			: 'Content-Security-Policy';
 

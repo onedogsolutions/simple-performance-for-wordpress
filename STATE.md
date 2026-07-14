@@ -12,7 +12,7 @@ the authoritative record.)
 - **Branch:** `claude/missing-security-headers-x8gyp9` (HSTS header, prior work
   on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.6.0
+- **Plugin version target:** 1.6.1
 - **Last updated:** 2026-07-14
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -884,6 +884,43 @@ follow-ups deferred. Keep entries dated and terse.
   a blocked host in Report-Only surfaces on the right directive, "Allow" adds
   it, enforcing removes `report-uri` and closes `POST /csp-report`); regenerate
   `.pot` for the new strings.
+
+- 2026-07-14 (CSP reporting reliability + enforce-mode collection, branch
+  `claude/missing-security-headers-x8gyp9`, version → 1.6.1): shipped 1.6.0 to
+  the user for QA; a console screenshot of onedog.solutions showed a wall of
+  `script-src` violations blocking `data:text/javascript;base64,…` scripts
+  (LiteSpeed/QUIC.cloud inlines JS as data: URIs) with **none** collected in the
+  admin. Diagnosis: (1) the site was **enforcing** ("has been blocked", no
+  "[Report Only]" prefix), and 1.6.0 only collected in Report-Only mode, so
+  nothing was captured; (2) even in Report-Only, `add_csp_header()` emitted
+  **both** `report-uri` and `report-to` — Chrome ignores `report-uri` when
+  `report-to` is present and switches to the Reporting API, which batches/delays
+  reports up to a minute, so they appeared to never arrive. **Fixes:**
+  - `add_csp_header()` now emits **`report-uri` only** (removed `report-to` +
+    `Reporting-Endpoints` + the `CSP_REPORT_GROUP` constant) for immediate,
+    per-violation delivery — the reliability fix.
+  - **Collect whenever CSP is enabled, enforce mode included** (user decision,
+    reversing the earlier Report-Only-only gate): `add_csp_header()` appends
+    `report-uri` in both modes, and `receive_csp_report()` is gated on
+    `csp_enabled` alone (still fully closed 403 when CSP is off). So real
+    production breakage after enforcing is still surfaced as warnings. Poll +
+    UI copy updated to match (enforce-mode warnings flagged amber as "currently
+    blocked on your live site").
+  - `data:` added to the default `script-src` (in both `DEFAULT_CSP` and the
+    `csp_directives` schema default) so LiteSpeed's data:-URI inline scripts
+    aren't blocked out of the box on the plugin's own target platform. Marginal
+    XSS tradeoff since `'unsafe-inline'` is already present.
+  - React "Allow" now maps bare scheme blocks to real tokens
+    (`data`→`data:`, `blob`→`blob:`, plus the existing `inline`→`'unsafe-inline'`
+    / `eval`→`'unsafe-eval'`), since browsers report a blocked data: script as
+    the bare word "data".
+  **Verified:** `php -l` clean; scratch harness confirms the new default
+  round-trips and `report-to`/`CSP_REPORT_GROUP` are gone; `npm run build` +
+  `lint-js` (changed component) clean. **Note for user:** on their live site the
+  instant un-break (no update needed) is to flip Report-Only back ON — it never
+  blocks. **Outstanding:** live QA of the 1.6.1 build (confirm reports now land
+  promptly in both modes and "Allow" of a data: block adds `data:`); regenerate
+  `.pot`.
 
 ## Open questions / blockers
 
