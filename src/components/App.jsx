@@ -127,10 +127,20 @@ export default function App() {
 	};
 
 	const handleScanFonts = () => {
+		// Persist current settings first so manually declared weights and extra
+		// scan URLs the user just typed are in effect for this scan (the scan
+		// reads persisted settings, not the in-memory form state).
 		return apiFetch( {
-			path: '/spfw/v1/settings/scan-fonts',
+			path: '/spfw/v1/settings',
 			method: 'POST',
+			data: settings,
 		} )
+			.then( () =>
+				apiFetch( {
+					path: '/spfw/v1/settings/scan-fonts',
+					method: 'POST',
+				} )
+			)
 			.then( ( data ) => {
 				setSettings( data );
 				const found =

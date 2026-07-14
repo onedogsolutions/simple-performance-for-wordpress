@@ -12,13 +12,21 @@ defined( 'ABSPATH' ) || exit;
  * files locally, and rewrites the frontend to serve them from
  * /uploads/ods-fonts/ instead of fonts.googleapis.com/fonts.gstatic.com.
  *
- * Discovery captures fonts from WordPress's own style pipeline while the
- * homepage renders (the `style_loader_src` filter), not just by regex-scanning
- * loopback HTML — so it catches every enqueued Google Fonts stylesheet
- * regardless of protocol form (https/http/protocol-relative), API version
- * (`css`/`css2`), or the handle a theme happens to register it under. A
- * broadened HTML/linked-CSS pass runs alongside it to catch hard-coded
- * `<link>`s and `@import`s that don't flow through the enqueue system.
+ * Discovery captures fonts from WordPress's own style pipeline while pages
+ * render (the `style_loader_src` filter), not just by regex-scanning loopback
+ * HTML — so it catches every enqueued Google Fonts stylesheet regardless of
+ * protocol form (https/http/protocol-relative), API version (`css`/`css2`), or
+ * the handle a theme happens to register it under. A broadened HTML/linked-CSS
+ * pass runs alongside it to catch hard-coded `<link>`s, `@import`s, and CDN-
+ * inlined `@font-face` blocks that don't flow through the enqueue system.
+ *
+ * Because OpenLiteSpeed + QUIC.cloud can serve an optimized, font-tag-stripped
+ * copy of a page — hiding some weights from the scan — discovery is hardened
+ * three ways: the loopback fetch sends cache-busting args and no-cache headers
+ * to force a fresh render; the scan covers the homepage plus a sample of inner
+ * templates (recent post/page) and admin-supplied URLs, not just the homepage;
+ * and admins can declare families/weights manually, which are localized
+ * directly from Google regardless of what the front end exposes.
  */
 class SPFW_Module_Fonts implements SPFW_Module {
 
@@ -145,7 +153,20 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		set_transient( self::SCAN_TOKEN_TRANSIENT, $token, self::SCAN_TTL );
 		delete_transient( self::SCAN_URLS_TRANSIENT );
 
-		$html = $this->fetch_homepage( $token );
+		// Scan the homepage plus a representative sample of inner templates and
+		// any admin-specified extra URLs, so weights enqueued only on singular
+		// posts/pages/products (not the homepage) are discovered too.
+		$htmls    = array();
+		$fetch_ok = false;
+
+		foreach ( $this->scan_targets() as $target ) {
+			$html = $this->fetch_page( $target, $token );
+
+			if ( is_string( $html ) && '' !== $html ) {
+				$htmls[]  = $html;
+				$fetch_ok = true;
+			}
+		}
 
 		$captured = get_transient( self::SCAN_URLS_TRANSIENT );
 		$captured = is_array( $captured ) ? $captured : array();
@@ -153,17 +174,33 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		delete_transient( self::SCAN_TOKEN_TRANSIENT );
 		delete_transient( self::SCAN_URLS_TRANSIENT );
 
-		$css_urls = $captured;
+		$css_urls     = $captured;
+		$font_faces   = array();
 
-		if ( is_string( $html ) && '' !== $html ) {
+		foreach ( $htmls as $html ) {
 			$css_urls = array_merge( $css_urls, $this->find_google_css_urls( $html ) );
 			$css_urls = array_merge( $css_urls, $this->find_google_in_linked_css( $html ) );
+
+			// When a proxy/CDN inlines critical CSS it can strip the Google
+			// <link> yet leave fully-resolved @font-face blocks pointing at
+			// fonts.gstatic.com. Localize those directly — no Google CSS URL
+			// is needed.
+			foreach ( $this->find_inlined_gstatic_faces( $html ) as $src => $face ) {
+				$font_faces[ $src ] = $face;
+			}
 		}
+
+		// Manual declarations are proxy-proof: the admin states the exact
+		// families/weights to localize, so a used weight (e.g. 400) is captured
+		// even when the automated scan only ever sees an optimized page that
+		// references another (e.g. 700).
+		$manual_urls = $this->manual_css_urls();
+		$css_urls    = array_merge( $css_urls, $manual_urls );
 
 		$css_urls = $this->normalize_css_urls( $css_urls );
 
-		if ( empty( $css_urls ) ) {
-			if ( false === $html && empty( $captured ) ) {
+		if ( empty( $css_urls ) && empty( $font_faces ) ) {
+			if ( ! $fetch_ok && empty( $captured ) && empty( $manual_urls ) ) {
 				return new WP_Error(
 					'spfw_fonts_fetch_failed',
 					__( 'Could not load your homepage to scan for fonts. Your server may block loopback requests — check your site is reachable from itself, then try again.', 'simple-performance-for-wordpress' )
@@ -172,11 +209,9 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 			return $this->finish_scan(
 				array(),
-				__( 'No Google Fonts were detected on your homepage. Nothing to localize.', 'simple-performance-for-wordpress' )
+				__( 'No Google Fonts were detected. If your site uses a CDN/optimizer that strips font tags, add the families and weights manually below and scan again.', 'simple-performance-for-wordpress' )
 			);
 		}
-
-		$font_faces = array();
 
 		foreach ( $css_urls as $css_url ) {
 			$css_body = $this->fetch_url_body( $css_url );
@@ -325,32 +360,111 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	}
 
 	/**
-	 * Fetch the homepage HTML through an instrumented loopback request. The
-	 * scan token makes the render capture enqueued Google Fonts; the
-	 * cache-buster arg makes LiteSpeed serve a fresh render.
+	 * Build the list of URLs to scan: always the homepage, plus a representative
+	 * recent post and page (so weights on singular templates are seen), plus any
+	 * admin-configured extra URLs. Same-origin only, deduped, and capped.
 	 *
+	 * @return string[]
+	 */
+	private function scan_targets() {
+		$home    = home_url( '/' );
+		$host    = wp_parse_url( $home, PHP_URL_HOST );
+		$targets = array( $home );
+
+		foreach ( $this->auto_sample_urls() as $url ) {
+			$targets[] = $url;
+		}
+
+		$fonts = SPFW_Settings::group( 'fonts' );
+		$extra = isset( $fonts['extra_scan_urls'] ) && is_array( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : array();
+
+		foreach ( $extra as $url ) {
+			$abs = $this->absolutize( $url, home_url() );
+
+			if ( ! $abs ) {
+				continue;
+			}
+
+			$abs_host = wp_parse_url( $abs, PHP_URL_HOST );
+
+			if ( $host && $abs_host && $abs_host !== $host ) {
+				continue;
+			}
+
+			$targets[] = $abs;
+		}
+
+		return array_slice( array_values( array_unique( $targets ) ), 0, 12 );
+	}
+
+	/**
+	 * Permalinks of the most recent published post and page, so a font weight
+	 * that only appears on singular templates (never the homepage) is still
+	 * discovered. Silently empty when the queries can't run.
+	 *
+	 * @return string[]
+	 */
+	private function auto_sample_urls() {
+		$urls = array();
+
+		foreach ( array( 'post', 'page' ) as $type ) {
+			$ids = get_posts(
+				array(
+					'post_type'        => $type,
+					'post_status'      => 'publish',
+					'numberposts'      => 1,
+					'fields'           => 'ids',
+					'suppress_filters' => true,
+					'no_found_rows'    => true,
+				)
+			);
+
+			if ( ! empty( $ids ) ) {
+				$permalink = get_permalink( $ids[0] );
+
+				if ( $permalink ) {
+					$urls[] = $permalink;
+				}
+			}
+		}
+
+		return $urls;
+	}
+
+	/**
+	 * Fetch one page's HTML through an instrumented loopback request. The scan
+	 * token makes the render capture enqueued Google Fonts; the unique
+	 * cache-buster arg plus explicit no-cache headers make LiteSpeed / QUIC.cloud
+	 * serve a fresh, un-optimized render instead of a cached, font-tag-stripped
+	 * copy.
+	 *
+	 * @param string $url   Absolute URL to fetch.
 	 * @param string $token One-time scan token.
 	 * @return string|false
 	 */
-	private function fetch_homepage( $token ) {
+	private function fetch_page( $url, $token ) {
 		$url = add_query_arg(
 			array(
 				'spfw_font_scan' => $token,
 				'spfw_nocache'   => (string) time(),
 			),
-			home_url( '/' )
+			$url
 		);
 
 		$args = array(
 			'timeout'     => 20,
 			'redirection' => 5,
 			'user-agent'  => self::CHROME_UA,
+			'headers'     => array(
+				'Cache-Control' => 'no-cache, no-store, must-revalidate',
+				'Pragma'        => 'no-cache',
+			),
 		);
 
 		$response = wp_remote_get( $url, $args );
 
 		// Loopback TLS often fails on self-signed / mismatched certs; retry once
-		// without verification (we're only reading our own homepage markup).
+		// without verification (we're only reading our own page markup).
 		if ( is_wp_error( $response ) ) {
 			$args['sslverify'] = false;
 			$response          = wp_remote_get( $url, $args );
@@ -361,6 +475,113 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		}
 
 		return wp_remote_retrieve_body( $response );
+	}
+
+	/**
+	 * Extract already-resolved @font-face blocks that point at
+	 * fonts.gstatic.com from a chunk of markup (typically inlined critical CSS a
+	 * CDN/optimizer left in the page after stripping the Google <link>). These
+	 * can be downloaded and rewritten directly without a Google CSS URL.
+	 *
+	 * @param string $content HTML or CSS.
+	 * @return array<string,array> Faces keyed by source URL.
+	 */
+	private function find_inlined_gstatic_faces( $content ) {
+		$faces = array();
+
+		foreach ( $this->parse_font_faces( $content ) as $face ) {
+			if ( false !== strpos( $face['src_url'], 'fonts.gstatic.com' ) ) {
+				$faces[ $face['src_url'] ] = $face;
+			}
+		}
+
+		return $faces;
+	}
+
+	/**
+	 * Turn the admin's manual `Family:weights` declarations into canonical
+	 * Google Fonts `css2` stylesheet URLs, one per family. Because these are
+	 * built from explicit input rather than scraped from a (possibly optimized)
+	 * page, they reliably capture every requested weight — the primary fix for
+	 * weights a CDN/proxy hides from automated discovery.
+	 *
+	 * @return string[]
+	 */
+	private function manual_css_urls() {
+		$fonts  = SPFW_Settings::group( 'fonts' );
+		$manual = isset( $fonts['manual_families'] ) && is_array( $fonts['manual_families'] ) ? $fonts['manual_families'] : array();
+		$urls   = array();
+
+		foreach ( $manual as $spec ) {
+			$url = $this->build_google_css_url( $spec );
+
+			if ( $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		return $urls;
+	}
+
+	/**
+	 * Build a `fonts.googleapis.com/css2` URL for one `Family:weights` spec
+	 * (e.g. `Roboto Condensed:400,700` or `Roboto Condensed:400,400i,700`).
+	 * Weights are validated to 100–900; a trailing `i` marks italic, emitted on
+	 * the `ital,wght` axis. Returns false for an unusable spec.
+	 *
+	 * @param string $spec Normalized `Family:weights` declaration.
+	 * @return string|false
+	 */
+	private function build_google_css_url( $spec ) {
+		$parts  = explode( ':', (string) $spec, 2 );
+		$family = trim( $parts[0] );
+
+		if ( '' === $family ) {
+			return false;
+		}
+
+		$weights = isset( $parts[1] ) ? preg_split( '/[,\s]+/', trim( $parts[1] ) ) : array( '400' );
+		$normals = array();
+		$italics = array();
+
+		foreach ( $weights as $weight ) {
+			$weight = trim( $weight );
+
+			if ( preg_match( '/^([1-9]00)i$/', $weight, $m ) ) {
+				$italics[] = (int) $m[1];
+			} elseif ( preg_match( '/^([1-9]00)$/', $weight, $m ) ) {
+				$normals[] = (int) $m[1];
+			}
+		}
+
+		if ( empty( $normals ) && empty( $italics ) ) {
+			$normals = array( 400 );
+		}
+
+		$family_param = rawurlencode( $family );
+		$family_param = str_replace( '%20', '+', $family_param );
+
+		if ( ! empty( $italics ) ) {
+			$tuples = array();
+
+			foreach ( array_unique( $normals ) as $w ) {
+				$tuples[] = '0,' . $w;
+			}
+
+			foreach ( array_unique( $italics ) as $w ) {
+				$tuples[] = '1,' . $w;
+			}
+
+			// Google requires the axis tuples in ascending order.
+			sort( $tuples );
+			$axis = 'ital,wght@' . implode( ';', $tuples );
+		} else {
+			$normals = array_unique( $normals );
+			sort( $normals );
+			$axis = 'wght@' . implode( ';', array_map( 'strval', $normals ) );
+		}
+
+		return 'https://fonts.googleapis.com/css2?family=' . $family_param . ':' . $axis . '&display=swap';
 	}
 
 	/**
