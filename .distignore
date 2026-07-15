@@ -17,6 +17,7 @@ src
 
 STATE.md
 README.md
+FONT_WEIGHT_FIX_PLAN.md
 
 package.json
 package-lock.json

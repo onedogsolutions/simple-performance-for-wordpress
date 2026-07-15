@@ -9,11 +9,12 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/missing-security-headers-x8gyp9` (HSTS header, prior work
+- **Branch:** `claude/plugin-font-weight-issues-2xfjms` (font-weight fix plan;
+  HSTS/CSP work on `claude/missing-security-headers-x8gyp9`, prior work
   on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.6.1
-- **Last updated:** 2026-07-14
+- **Plugin version target:** 1.7.1 (tree is at 1.7.0)
+- **Last updated:** 2026-07-15
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -22,7 +23,10 @@ the authoritative record.)
   with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`);
   ✅ Strict-Transport-Security (HSTS) header added, proxy-aware (branch
   `claude/missing-security-headers-x8gyp9`); ✅ CSP visual policy builder +
-  live violation-report warnings (branch `claude/missing-security-headers-x8gyp9`)
+  live violation-report warnings (branch `claude/missing-security-headers-x8gyp9`);
+  📝 Localized-fonts wrong-weight bug root-caused (variable-font URL-dedupe
+  collapse) — fix plan written in `FONT_WEIGHT_FIX_PLAN.md`, not yet implemented
+  (branch `claude/plugin-font-weight-issues-2xfjms`)
 
 ## Shared project facts (true for every step)
 
@@ -69,9 +73,13 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Hardening-toggle write bug is fixed and hardening options expanded** (see the
-latest dated entry in Decisions & deviations below). Remaining before release:
-regenerate
+**Implement `FONT_WEIGHT_FIX_PLAN.md` (→ 1.7.1):** localized Google Fonts render
+at the heaviest discovered weight because faces are deduped by `.woff2` URL,
+and Google's variable fonts (incl. Roboto Condensed, onedog.solutions' body
+font) share one URL across all weights — see the 2026-07-15 decisions entry.
+Steps F1–F4 in the plan: identity-keyed face dedupe, per-scan download memo,
+`needs_rescan` migration/banner/notice, version bump. After that, the prior
+backlog stands: regenerate
 `languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
 fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
@@ -921,6 +929,31 @@ follow-ups deferred. Keep entries dated and terse.
   blocks. **Outstanding:** live QA of the 1.6.1 build (confirm reports now land
   promptly in both modes and "Allow" of a data: block adds `data:`); regenerate
   `.pot`.
+
+- 2026-07-15 (localized fonts render bold — root cause + plan, branch
+  `claude/plugin-font-weight-issues-2xfjms`): user reported (with DevTools
+  screenshots of onedog.solutions) that after font localization, footer
+  newsletter links and blog archive/single-post body copy render at ~700
+  while computed styles show `font-weight: 400`. **Root cause found and
+  verified live against Google's API — this is NOT a discovery gap** (which
+  is what 1.7.0/`e986f48` addressed): Google serves variable fonts for many
+  families now, and for Roboto Condensed v31 both `css?…:300,400,700` (v1,
+  what BB Theme enqueues) and `css2?…wght@300;400;700` return 21 `@font-face`
+  blocks over only **7 unique `.woff2` URLs** (one shared file per
+  unicode-range subset, blocks in ascending weight order). The module dedupes
+  faces **by src URL** in three places (`parse_font_faces()`,
+  `scan()`'s union, `find_inlined_gstatic_faces()`), so the last block per
+  URL — always the heaviest weight — is the only one that survives into the
+  generated `fonts.css`. The stylesheet ends up declaring the family at 700
+  only; the browser uses that sole face for all weights (VF instanced at the
+  700 descriptor), body text renders bold, computed style still reports 400.
+  Wrote `FONT_WEIGHT_FIX_PLAN.md` (root, `.distignore`d): F1 dedupe faces by
+  block-content hash instead of URL; F2 memoize downloads per scan (faces now
+  legitimately share URLs); F3 `fonts.needs_rescan` migration flag + Fonts-tab
+  banner + admin notice, since the broken CSS is persisted and only a re-scan
+  regenerates it; F4 bump 1.7.1 + readme changelog. Verification: harness
+  fixtures captured from the real API on this date; full checklist in the
+  plan. **No code changed yet — plan only, per user request.**
 
 ## Open questions / blockers
 
