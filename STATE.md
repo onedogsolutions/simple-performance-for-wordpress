@@ -9,9 +9,10 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/plugin-font-weight-issues-2xfjms` (font-weight fix plan;
-  HSTS/CSP work on `claude/missing-security-headers-x8gyp9`, prior work
-  on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
+- **Branch:** `main` (font-weight fix merged from
+  `claude/plugin-font-weight-issues-2xfjms`; prior work on
+  `claude/missing-security-headers-x8gyp9`,
+  `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
 - **Plugin version target:** 1.7.1
 - **Last updated:** 2026-07-15
@@ -72,9 +73,10 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.7.1 (font-weight-collapse fix) is implemented and verified**, pending
-merge to `main`. See the 2026-07-15 decisions entries for root cause and fix
-detail. Remaining before release: regenerate
+**1.7.1 (font-weight-collapse fix) is implemented, verified, and merged to
+`main`.** A test release ZIP (`simple-performance-for-wordpress-1.7.1.zip`)
+was built for WordPress install/QA. See the 2026-07-15 decisions entries for
+root cause and fix detail. Remaining before release: regenerate
 `languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
 fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
@@ -1005,6 +1007,14 @@ follow-ups deferred. Keep entries dated and terse.
   all three weights present in the served `fonts.css`, purge LSCache, and
   visually confirm footer/blog copy renders at the correct weight); `.pot`
   regeneration remains outstanding project-wide (unchanged backlog item).
+
+- 2026-07-15 (release housekeeping): merged `claude/plugin-font-weight-issues-2xfjms`
+  into `main` (fast-forward — no divergence). Produced a test ZIP
+  (`simple-performance-for-wordpress-1.7.1.zip`, gitignored, not committed) from a
+  fresh `npm run build`, staged and packaged per `.distignore` (verified `build/`
+  present, all excluded dev paths absent, `php -l` clean on every staged PHP file,
+  version header confirmed 1.7.1) for the user to install and QA on a live
+  WordPress site.
 
 ## Open questions / blockers
 
