@@ -97,6 +97,7 @@ class SPFW_Settings {
 				'last_scan'       => 0,
 				'manual_families' => array(),
 				'extra_scan_urls' => array(),
+				'needs_rescan'    => false,
 			),
 			'woocommerce' => array(
 				'disable_cart_fragments' => false,
@@ -141,6 +142,18 @@ class SPFW_Settings {
 			&& ! isset( $stored['hardening']['csp_mode'] )
 			&& ! empty( $stored['hardening']['csp_policy'] ) ) {
 			self::run_csp_mode_migration( $stored );
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		// Migration to 1.7.1: prior versions deduped discovered @font-face
+		// blocks by .woff2 URL, which collapsed variable-font families (e.g.
+		// Roboto Condensed) down to their single heaviest requested weight.
+		// An install that already has localized CSS on disk is flagged so the
+		// admin UI can prompt a re-scan to pick up the fixed generator.
+		if ( version_compare( $stored_ver, '1.7.1', '<' )
+			&& ! empty( $stored['fonts']['discovered']['css'] ) ) {
+			self::run_font_rescan_migration( $stored );
 			$stored = get_option( self::OPTION_KEY, array() );
 			$stored = is_array( $stored ) ? $stored : array();
 		}
@@ -383,6 +396,7 @@ class SPFW_Settings {
 		$clean['fonts']['extra_scan_urls'] = self::sanitize_scan_urls(
 			isset( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : $defaults['fonts']['extra_scan_urls']
 		);
+		$clean['fonts']['needs_rescan']    = self::to_bool( $fonts, 'needs_rescan', $defaults['fonts']['needs_rescan'] );
 
 		$woo = isset( $input['woocommerce'] ) && is_array( $input['woocommerce'] ) ? $input['woocommerce'] : array();
 
@@ -674,6 +688,26 @@ class SPFW_Settings {
 		}
 
 		$updated['hardening']['csp_mode'] = 'custom';
+
+		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Migration to 1.7.1: flag existing localized-font CSS as stale so the
+	 * admin UI prompts a re-scan (see the version_compare() call site for
+	 * why — the previous generator could collapse variable-font weights).
+	 *
+	 * @param array $stored Currently stored settings.
+	 */
+	private static function run_font_rescan_migration( array $stored ) {
+		$updated = $stored;
+
+		if ( ! isset( $updated['fonts'] ) || ! is_array( $updated['fonts'] ) ) {
+			$updated['fonts'] = array();
+		}
+
+		$updated['fonts']['needs_rescan'] = true;
 
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );

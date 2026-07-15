@@ -13,7 +13,7 @@ the authoritative record.)
   HSTS/CSP work on `claude/missing-security-headers-x8gyp9`, prior work
   on `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.7.1 (tree is at 1.7.0)
+- **Plugin version target:** 1.7.1
 - **Last updated:** 2026-07-15
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -24,9 +24,8 @@ the authoritative record.)
   ✅ Strict-Transport-Security (HSTS) header added, proxy-aware (branch
   `claude/missing-security-headers-x8gyp9`); ✅ CSP visual policy builder +
   live violation-report warnings (branch `claude/missing-security-headers-x8gyp9`);
-  📝 Localized-fonts wrong-weight bug root-caused (variable-font URL-dedupe
-  collapse) — fix plan written in `FONT_WEIGHT_FIX_PLAN.md`, not yet implemented
-  (branch `claude/plugin-font-weight-issues-2xfjms`)
+  ✅ Localized-fonts wrong-weight bug fixed (variable-font block-identity dedupe,
+  1.7.1, branch `claude/plugin-font-weight-issues-2xfjms`)
 
 ## Shared project facts (true for every step)
 
@@ -73,13 +72,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Implement `FONT_WEIGHT_FIX_PLAN.md` (→ 1.7.1):** localized Google Fonts render
-at the heaviest discovered weight because faces are deduped by `.woff2` URL,
-and Google's variable fonts (incl. Roboto Condensed, onedog.solutions' body
-font) share one URL across all weights — see the 2026-07-15 decisions entry.
-Steps F1–F4 in the plan: identity-keyed face dedupe, per-scan download memo,
-`needs_rescan` migration/banner/notice, version bump. After that, the prior
-backlog stands: regenerate
+**1.7.1 (font-weight-collapse fix) is implemented and verified**, pending
+merge to `main`. See the 2026-07-15 decisions entries for root cause and fix
+detail. Remaining before release: regenerate
 `languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
 fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
@@ -947,13 +942,69 @@ follow-ups deferred. Keep entries dated and terse.
   generated `fonts.css`. The stylesheet ends up declaring the family at 700
   only; the browser uses that sole face for all weights (VF instanced at the
   700 descriptor), body text renders bold, computed style still reports 400.
-  Wrote `FONT_WEIGHT_FIX_PLAN.md` (root, `.distignore`d): F1 dedupe faces by
-  block-content hash instead of URL; F2 memoize downloads per scan (faces now
-  legitimately share URLs); F3 `fonts.needs_rescan` migration flag + Fonts-tab
-  banner + admin notice, since the broken CSS is persisted and only a re-scan
-  regenerates it; F4 bump 1.7.1 + readme changelog. Verification: harness
-  fixtures captured from the real API on this date; full checklist in the
-  plan. **No code changed yet — plan only, per user request.**
+  Wrote `FONT_WEIGHT_FIX_PLAN.md` (root, `.distignore`d) specifying the fix.
+
+- 2026-07-15 (font-weight-collapse fix implemented, → 1.7.1, same branch):
+  implemented `FONT_WEIGHT_FIX_PLAN.md` in full.
+  **F1 — identity-keyed dedupe** (`class-spfw-module-fonts.php`):
+  `parse_font_faces()` now keys each parsed face on `sha1()` of its
+  whitespace-normalized block text (added as `$face['key']`) instead of
+  `$face['src_url']`, so every distinct weight/style/unicode-range block
+  survives even when several share one `.woff2` URL; byte-identical blocks
+  seen twice (e.g. captured via both the enqueue pipeline and an HTML regex
+  pass) still collapse to one. `scan()`'s per-CSS-URL union and
+  `find_inlined_gstatic_faces()` both switched from keying on `src_url` to
+  keying on `key`.
+  **F2 — per-scan download memoization**: faces now legitimately share a
+  `src_url` (up to 3 weights per file for a typical VF family), so `scan()`
+  gained a `$downloaded[ $src_url ]` memo keyed by URL — each unique
+  `.woff2` is fetched from `fonts.gstatic.com` exactly once per scan
+  regardless of how many faces reference it; `$files`/`families` still
+  report one row per face (correct — same file, different weight labels).
+  **F3 — stale-install remediation**: `fonts.needs_rescan` (bool, default
+  false) added to the schema (`class-spfw-settings.php` defaults +
+  `sanitize()` via `to_bool()`). New migration
+  `run_font_rescan_migration()` fires once, when
+  `version_compare($stored_ver, '1.7.1', '<')` and
+  `fonts.discovered.css` is non-empty — flips `needs_rescan` true without
+  touching the existing (still-serving) CSS, so nothing breaks mid-upgrade.
+  `SPFW_Module_Fonts::finish_scan()` now always sets `needs_rescan = false`
+  (found or empty result) since any scan under the fixed generator
+  supersedes the stale marker. Surfaced two ways, mirroring
+  `SPFW_Module_Hardening`'s missing/altered pattern: a dismiss-by-fixing
+  `admin_notices` warning (`maybe_show_rescan_notice()`/
+  `render_rescan_notice()`, gated `manage_options`, linking to the Fonts
+  tab — note the link's `tab=fonts`/`tab=hardening` query arg is decorative
+  only, since `App.jsx` doesn't read a tab param from the URL; this matches
+  the pre-existing Hardening notice's same limitation, not a new one) and an
+  amber banner at the top of `FontsSettings.jsx`'s card when
+  `fonts.needs_rescan` is true.
+  **F4**: bumped to 1.7.1 (plugin header + `SPFW_VERSION` +
+  `readme.txt` stable tag/changelog).
+  **Verified:** three scratch PHP harnesses (reflection + mocked
+  `wp_remote_get`/temp-dir filesystem/stubbed `get_option`, not committed),
+  built against the *real* Google Fonts API responses captured live this
+  date (21 blocks / 7 URLs for `Roboto Condensed:300,400,700` on both v1 and
+  v2 endpoints): (1) parser — all 21 blocks survive (vs. 7 under the old
+  URL-keyed dedupe, confirmed by deliberately reproducing the old logic
+  inline and showing it collapses to weight-700-only), every shared URL
+  keeps all 3 weights, duplicate-content union still dedupes correctly,
+  static per-weight-URL families unaffected, `find_inlined_gstatic_faces()`
+  keeps all 21; (2) full `scan()` flow — exactly 7 network fetches for 21
+  faces (memoization), exactly 7 files on disk, generated CSS has 7 blocks
+  each at weight 300/400/700 with zero remaining `gstatic.com` references,
+  `needs_rescan` clears; (3) migration — fresh installs and never-scanned
+  1.7.0 installs stay `false`; a 1.7.0 install with existing `discovered.css`
+  flips to `true` and it's actually persisted (re-fetched with cache
+  cleared); a 1.7.1 install that's already been rescanned is left alone.
+  `php -l` clean on all 3 changed PHP files; `npm install && npm run build`
+  succeeds; `wp-scripts lint-js` clean on `FontsSettings.jsx` (the 2
+  pre-existing `CoreSettings.jsx:476` a11y errors are untouched/out of
+  scope, confirmed by a full `src/` lint pass). **Outstanding:** live
+  QA on onedog.solutions (re-scan, confirm the banner/notice clear, confirm
+  all three weights present in the served `fonts.css`, purge LSCache, and
+  visually confirm footer/blog copy renders at the correct weight); `.pot`
+  regeneration remains outstanding project-wide (unchanged backlog item).
 
 ## Open questions / blockers
 

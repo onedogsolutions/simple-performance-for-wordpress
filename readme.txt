@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.7.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -89,6 +89,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.7.1 =
+* Fixed: localized Google Fonts could render bolder than specified — e.g. body copy or footer links coming out at weight 700 when 400 was set, with computed styles still showing 400. Root cause: Google serves many families (including Roboto Condensed) as variable fonts, where every requested weight shares one .woff2 file; the localizer deduplicated discovered @font-face blocks by that shared file URL, so only the heaviest weight's block survived into the generated stylesheet. Blocks are now deduplicated by their full content instead, so every discovered weight and style is kept.
+* If you previously ran a font scan, a notice will prompt you to re-scan after updating — this regenerates the local stylesheet with the fix applied. Existing localized fonts keep working in the meantime; nothing is removed automatically.
 
 = 1.7.0 =
 * Fixed: font discovery missed weights that a CDN/optimizer hid from the page. On OpenLiteSpeed + QUIC.cloud the scan could see only some weights (e.g. Roboto Condensed 700) while the site actually rendered another (400), so the missing weight fell back to a system font. The loopback scan now sends no-cache headers alongside the existing cache-buster so it gets a fresh, un-optimized render.

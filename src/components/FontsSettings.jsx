@@ -48,6 +48,23 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 				'simple-performance-for-wordpress'
 			) }
 		>
+			{ fonts.needs_rescan && (
+				<div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+					<p className="text-sm font-medium text-amber-800">
+						{ __(
+							'Your localized fonts may render at the wrong weight.',
+							'simple-performance-for-wordpress'
+						) }
+					</p>
+					<p className="mt-1 text-sm text-amber-700">
+						{ __(
+							'These fonts were localized by an older version of this plugin that could drop font weights (e.g. a font family would render bold everywhere, even where a lighter weight was specified). Click "Scan fonts now" below to regenerate them correctly.',
+							'simple-performance-for-wordpress'
+						) }
+					</p>
+				</div>
+			) }
+
 			<SettingsRow
 				title={ __(
 					'Self-host Google Fonts',
