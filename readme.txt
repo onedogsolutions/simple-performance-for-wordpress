@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.7.1
+Stable tag: 1.8.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -27,6 +27,8 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Control the WordPress Heartbeat API (disable, or allow only in the editor) and its frequency
 * Add a blank favicon to stop /favicon.ico 404s
 * Disable jQuery Migrate on the frontend
+* Disable the WordPress core XML sitemap (wp-sitemap.xml)
+* Remove the max-image-preview:large directive from the robots meta tag
 
 = WooCommerce Optimizations (shown when WooCommerce is active) =
 * Disable AJAX cart fragments off the cart/checkout — the biggest single store speed win
@@ -89,6 +91,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.8.0 =
+* New: Disable WordPress core XML sitemaps (absorbs the "Disable WP Sitemaps" plugin).
+* New: Remove the robots max-image-preview:large directive (absorbs the "Disable WP Robots" plugin).
 
 = 1.7.1 =
 * Fixed: localized Google Fonts could render bolder than specified — e.g. body copy or footer links coming out at weight 700 when 400 was set, with computed styles still showing 400. Root cause: Google serves many families (including Roboto Condensed) as variable fonts, where every requested weight shares one .woff2 file; the localizer deduplicated discovered @font-face blocks by that shared file URL, so only the heaviest weight's block survived into the generated stylesheet. Blocks are now deduplicated by their full content instead, so every discovered weight and style is kept.
