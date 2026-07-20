@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.7.1
-- **Last updated:** 2026-07-15
+- **Plugin version target:** 1.8.0
+- **Last updated:** 2026-07-20
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -26,7 +26,10 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`); ✅ CSP visual policy builder +
   live violation-report warnings (branch `claude/missing-security-headers-x8gyp9`);
   ✅ Localized-fonts wrong-weight bug fixed (variable-font block-identity dedupe,
-  1.7.1, branch `claude/plugin-font-weight-issues-2xfjms`)
+  1.7.1, branch `claude/plugin-font-weight-issues-2xfjms`); ✅ Disable WP
+  Sitemaps + Remove robots max-image-preview Core toggles added (absorbs two
+  single-hook standalone plugins, 1.8.0, branch
+  `claude/wp-sitemaps-robots-toggles-eaoris`, merged to `main`)
 
 ## Shared project facts (true for every step)
 
@@ -73,10 +76,21 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.7.1 (font-weight-collapse fix) is implemented, verified, and merged to
-`main`.** A test release ZIP (`simple-performance-for-wordpress-1.7.1.zip`)
-was built for WordPress install/QA. See the 2026-07-15 decisions entries for
-root cause and fix detail. Remaining before release: regenerate
+**1.8.0 (Disable WP Sitemaps + Remove robots max-image-preview Core toggles)
+is implemented and merged to `main`.** A test release ZIP
+(`simple-performance-for-wordpress-1.8.0.zip`) was built for WordPress
+install/QA. See the 2026-07-20 decisions entry for detail. Both new toggles
+default OFF (opt-in, SEO/crawler-facing) and merge in on read, so no data
+migration is required. Outstanding QA: on a live WordPress install confirm
+that enabling **Disable WP sitemaps** makes `/wp-sitemap.xml` 404, and that
+enabling **Remove robots max-image-preview** drops `max-image-preview:large`
+from the `<meta name="robots">` tag — neither was runtime-verified in the
+build environment (no WordPress instance available).
+
+**Prior (1.7.1, font-weight-collapse fix)** is implemented, verified, and
+merged to `main`; a test ZIP (`simple-performance-for-wordpress-1.7.1.zip`)
+was built. See the 2026-07-15 decisions entries for root cause and fix detail.
+Remaining before release: regenerate
 `languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
 fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
@@ -1014,6 +1028,46 @@ follow-ups deferred. Keep entries dated and terse.
   fresh `npm run build`, staged and packaged per `.distignore` (verified `build/`
   present, all excluded dev paths absent, `php -l` clean on every staged PHP file,
   version header confirmed 1.7.1) for the user to install and QA on a live
+  WordPress site.
+
+- 2026-07-20 (Disable WP Sitemaps + Remove robots max-image-preview, → 1.8.0,
+  branch `claude/wp-sitemaps-robots-toggles-eaoris`, merged to `main`): folded
+  two single-hook standalone plugins ("Disable WP Sitemaps" 1.8.9 and "Disable
+  WP Robots" 2.4) into the Core module as two new toggles rather than new
+  modules — both map directly onto the existing boolean-setting → conditional-
+  hook pattern. **Schema** (`class-spfw-settings.php`): added
+  `core.disable_wp_sitemaps` and `core.remove_robots_max_image_preview` to
+  `defaults()` (both `false`) and to the `$core_bools` sanitize list. No
+  migration needed — additive boolean defaults merge in on every `get()` via
+  `merge_recursive()`, so existing installs pick them up as OFF with no
+  behavior change. **Behavior** (`class-spfw-module-core.php`): in `register()`,
+  `disable_wp_sitemaps` → `add_filter( 'wp_sitemaps_enabled', '__return_false' )`
+  (disables core `wp-sitemap.xml`); `remove_robots_max_image_preview` →
+  `remove_filter( 'wp_robots', 'wp_robots_max_image_preview_large' )` (drops the
+  `max-image-preview:large` directive from the robots meta tag). The
+  `remove_filter` runs at `plugins_loaded`/`register()` time, before `wp_robots`
+  fires in `wp_head`, matching the source plugin. **UI**
+  (`CoreSettings.jsx`): two `toggleRow()` entries appended to the **Head
+  Cleanup** card (robots meta + sitemap are both head/discovery output); no
+  wiring changes since `App.jsx` already routes Core toggles through
+  `handleChange('core', …)`. **Versioning**: bumped to 1.8.0 (plugin header +
+  `SPFW_VERSION` + `readme.txt` stable tag, feature list, and `= 1.8.0 =`
+  changelog). Only the trivial, un-copyrightable hook calls were reimplemented;
+  the source plugins' GPL headers/readmes and their `disable-wp-sitemaps` /
+  `disable-wp-robots` text domains were not carried over (new strings use this
+  plugin's `simple-performance-for-wordpress` domain). **Verified:** `php -l`
+  clean on both changed PHP files; `npm install && npm run build` succeeds and
+  the minified `build/index.js` contains both new setting keys.
+  **Outstanding:** live WordPress QA (see Next action) — the two runtime
+  behaviors were not exercised in the build environment; `.pot` regeneration
+  remains the unchanged project-wide backlog item.
+
+- 2026-07-20 (release housekeeping): merged
+  `claude/wp-sitemaps-robots-toggles-eaoris` into `main` (fast-forward — no
+  divergence). Produced a test ZIP (`simple-performance-for-wordpress-1.8.0.zip`,
+  gitignored, not committed) from a fresh `npm run build`, staged and packaged
+  per `.distignore` (verified `build/` present, dev paths absent, `php -l` clean
+  on staged PHP, version header 1.8.0) for the user to install and QA on a live
   WordPress site.
 
 ## Open questions / blockers
