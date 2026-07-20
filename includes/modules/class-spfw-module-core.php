@@ -153,6 +153,14 @@ class SPFW_Module_Core implements SPFW_Module {
 		if ( ! empty( $c['disable_jquery_migrate'] ) && ! is_admin() ) {
 			add_action( 'wp_default_scripts', array( $this, 'remove_jquery_migrate' ) );
 		}
+
+		if ( ! empty( $c['disable_wp_sitemaps'] ) ) {
+			add_filter( 'wp_sitemaps_enabled', '__return_false' );
+		}
+
+		if ( ! empty( $c['remove_robots_max_image_preview'] ) ) {
+			remove_filter( 'wp_robots', 'wp_robots_max_image_preview_large' );
+		}
 	}
 
 	/**

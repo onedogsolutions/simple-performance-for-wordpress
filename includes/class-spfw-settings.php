@@ -55,6 +55,8 @@ class SPFW_Settings {
 				'post_revisions'         => 'default',
 				'autosave_interval'      => 0,
 				'disable_jquery_migrate' => true,
+				'disable_wp_sitemaps'    => false,
+				'remove_robots_max_image_preview' => false,
 			),
 			'restapi'     => array(
 				'require_auth'        => false,
@@ -285,6 +287,8 @@ class SPFW_Settings {
 			'remove_comment_urls',
 			'blank_favicon',
 			'disable_jquery_migrate',
+			'disable_wp_sitemaps',
+			'remove_robots_max_image_preview',
 		);
 
 		foreach ( $core_bools as $key ) {

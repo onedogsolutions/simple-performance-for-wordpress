@@ -275,6 +275,28 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					)
 				) }
+				{ toggleRow(
+					'remove_robots_max_image_preview',
+					__(
+						'Remove robots max-image-preview',
+						'simple-performance-for-wordpress'
+					),
+					__(
+						'Strip the default max-image-preview:large directive WordPress adds to the robots meta tag.',
+						'simple-performance-for-wordpress'
+					)
+				) }
+				{ toggleRow(
+					'disable_wp_sitemaps',
+					__(
+						'Disable WP sitemaps',
+						'simple-performance-for-wordpress'
+					),
+					__(
+						'Disable the WordPress core XML sitemap (wp-sitemap.xml). Leave off if you rely on it; enable if your SEO plugin generates its own.',
+						'simple-performance-for-wordpress'
+					)
+				) }
 			</SettingsCard>
 
 			<SettingsCard
