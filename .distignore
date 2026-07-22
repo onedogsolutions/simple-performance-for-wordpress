@@ -18,6 +18,7 @@ src
 STATE.md
 README.md
 FONT_WEIGHT_FIX_PLAN.md
+CSP_POLICY_BUILDER_COVERAGE_PLAN.md
 
 package.json
 package-lock.json

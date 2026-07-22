@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.8.0
-- **Last updated:** 2026-07-20
+- **Plugin version target:** 1.9.0
+- **Last updated:** 2026-07-22
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -29,7 +29,10 @@ the authoritative record.)
   1.7.1, branch `claude/plugin-font-weight-issues-2xfjms`); ✅ Disable WP
   Sitemaps + Remove robots max-image-preview Core toggles added (absorbs two
   single-hook standalone plugins, 1.8.0, branch
-  `claude/wp-sitemaps-robots-toggles-eaoris`, merged to `main`)
+  `claude/wp-sitemaps-robots-toggles-eaoris`, merged to `main`); ✅ CSP policy
+  builder coverage gaps fixed (`worker-src` row added, `script-src-elem`/
+  `style-src-elem` effective directives collapsed to their base row, 1.9.0,
+  branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`)
 
 ## Shared project facts (true for every step)
 
@@ -1069,6 +1072,28 @@ follow-ups deferred. Keep entries dated and terse.
   per `.distignore` (verified `build/` present, dev paths absent, `php -l` clean
   on staged PHP, version header 1.8.0) for the user to install and QA on a live
   WordPress site.
+
+- 2026-07-22 (CSP policy builder coverage gaps, → 1.9.0, branch
+  `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`): landed two
+  coverage-gap fixes to the CSP policy builder that were developed in parallel
+  and originally tagged 1.8.0 on their branch; since `main` had already shipped
+  1.8.0 for the sitemaps/robots toggles, the work was re-versioned to **1.9.0**
+  on merge (plugin header + `SPFW_VERSION` + `readme.txt` stable tag and
+  changelog). **worker-src:** added a "Workers (Web / Service / Shared Workers)"
+  directive row to the builder (`CspPolicyCard.jsx`), added `worker-src`
+  to the managed-directive allowlist and to the recommended default policy
+  (`class-spfw-settings.php` — `'self' blob:`), and to `DEFAULT_CSP`
+  (`class-spfw-module-hardening.php`); `blob:` added as a preset chip on the
+  Scripts and Styles rows. **Effective-directive collapse:** violations reported
+  against the granular `script-src-elem`/`script-src-attr`/`style-src-elem`/
+  `style-src-attr` fallbacks are now folded to their base `script-src`/
+  `style-src` directive via a new `DIRECTIVE_ALIASES` map in
+  `class-spfw-rest-settings.php`, so they group under (and can be "Allow"-ed
+  from) the row the policy actually emits instead of the "other" bucket.
+  **Verified:** `php -l` clean on all changed PHP; `npm run build` succeeds.
+  **Outstanding:** `.pot` regeneration remains the standing backlog item; live
+  WordPress QA of the new worker-src row and violation grouping not exercised in
+  the build environment.
 
 ## Open questions / blockers
 

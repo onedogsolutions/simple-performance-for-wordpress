@@ -388,8 +388,26 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
+	 * Effective-directive fallback aliases: browsers report the most specific
+	 * directive that actually blocked the resource (e.g. `script-src-elem` for
+	 * an inline/external <script> tag), which falls back to the coarser
+	 * directive the builder exposes as a row. Collapsed here so violations
+	 * group under — and "Allow" writes to — the directive the policy actually
+	 * emits, instead of being orphaned into the "other" bucket.
+	 *
+	 * @var array<string,string>
+	 */
+	const DIRECTIVE_ALIASES = array(
+		'script-src-elem' => 'script-src',
+		'script-src-attr' => 'script-src',
+		'style-src-elem'  => 'style-src',
+		'style-src-attr'  => 'style-src',
+	);
+
+	/**
 	 * Reduce a reported directive to its bare name (browsers sometimes send
-	 * "script-src https://x" as violated-directive).
+	 * "script-src https://x" as violated-directive), then collapse a granular
+	 * effective-directive fallback (script-src-elem, etc.) to its base directive.
 	 *
 	 * @param string $directive Raw directive value.
 	 * @return string
@@ -398,7 +416,11 @@ class SPFW_Rest_Settings {
 		$directive = strtolower( trim( (string) $directive ) );
 		$directive = preg_split( '/\s+/', $directive )[0];
 
-		return preg_match( '/^[a-z-]{1,40}$/', $directive ) ? $directive : '';
+		if ( ! preg_match( '/^[a-z-]{1,40}$/', $directive ) ) {
+			return '';
+		}
+
+		return isset( self::DIRECTIVE_ALIASES[ $directive ] ) ? self::DIRECTIVE_ALIASES[ $directive ] : $directive;
 	}
 
 	/**
