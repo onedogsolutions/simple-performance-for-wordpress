@@ -33,10 +33,8 @@ the authoritative record.)
   builder coverage gaps fixed (`worker-src` row added, `script-src-elem`/
   `style-src-elem` effective directives collapsed to their base row, 1.9.0,
   branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`); ✅
-  Beaver Builder settings-based font discovery added (reads Google Fonts from
-  Beaver Builder's stored global + per-layout settings, immune to page-cache/
-  optimizer tag stripping, 1.10.0, salvaged from the obsolete
-  `claude/branch-cleanup-state-ck3owq`, merged to `main`); ✅ CSP violation
+  Beaver Builder settings-based font discovery removed (was causing fewer fonts
+  to be discovered, 1.10.0); ✅ CSP violation
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
   no-store cache headers on report endpoint, connect-src auto-injection,
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
@@ -1098,31 +1096,16 @@ follow-ups deferred. Keep entries dated and terse.
   WordPress QA of the new worker-src row and violation grouping not exercised in
   the build environment.
 
-- 2026-07-22 (Beaver Builder settings-based font discovery, → 1.10.0, salvaged
-  from `claude/branch-cleanup-state-ck3owq`, merged to `main`): during branch
-  cleanup, the obsolete `branch-cleanup-state-ck3owq` (v1.2.0, 17 commits behind
-  `main`; merging it wholesale would have reverted the plugin) was found to
-  carry one genuinely unique, still-wanted feature not in `main`: discovering
-  Google Fonts directly from Beaver Builder's stored settings instead of only
-  from rendered HTML. Rather than merge the stale branch, the feature was
-  **reimplemented on current `main`'s (much-evolved) fonts module**. The
-  branch's rendered-page/multi-URL scanning was *not* ported — `main` already
-  does that (and better) via its instrumented capture + `scan_targets()`
-  sampling. Added to `class-spfw-module-fonts.php`: `beaver_builder_css_urls()`
-  (reads `FLBuilderModel::get_global_settings()` + each `_fl_builder_enabled`
-  post's `_fl_builder_data`), `find_font_fields()`/`flatten_settings()` (pull
-  `*family`/`*weight` sibling pairs out of the layout node settings),
-  `google_specs_to_urls()` (filter to real Google families, union weights, and
-  reuse the existing `build_google_css_url()` spec builder), plus
-  `beaver_builder_google_catalog()` and `family_is_google_font()` (allow-list via
-  Beaver Builder's own `FLBuilderFontFamilies` catalog when present, else a
-  system-font exclusion list). `scan()` merges these URLs alongside the manual
-  and rendered-page URLs; all collectors no-op when Beaver Builder is inactive.
-  **Versioning:** bumped 1.9.0 → 1.10.0 (new discovery source is a feature).
-  **Verified:** `php -l` clean; `npm run build` succeeds (no JS changes — the
-  new families surface through the existing Fonts UI). **Outstanding:** live
-  WordPress + Beaver Builder QA (the FLBuilder integration was not exercised in
-  the build environment); `.pot` regeneration remains the standing backlog item.
+- 2026-07-22 (Beaver Builder font discovery removed, 1.10.0): the Beaver
+  Builder settings-based font discovery (added earlier the same day, salvaged
+  from the obsolete `claude/branch-cleanup-state-ck3owq` branch) was removed
+  because it was causing fewer fonts to be discovered overall. The methods
+  `beaver_builder_css_urls()`, `find_font_fields()`, `flatten_settings()`,
+  `google_specs_to_urls()`, `beaver_builder_google_catalog()`, and
+  `family_is_google_font()` were deleted from `class-spfw-module-fonts.php`,
+  along with the call site in `scan()`. Font discovery reverts to the
+  rendered-page scan + manual declarations approach.
+  **Verified:** `php -l` clean.
 
 - 2026-07-22 (translation template regenerated, 1.10.0): cleared the
   long-standing `.pot` backlog item that every recent release entry had deferred.
@@ -1135,8 +1118,7 @@ follow-ups deferred. Keep entries dated and terse.
   WooCommerce), the font-weight and discovery fixes, the security-headers/HSTS/CSP
   work, the sitemaps/robots toggles, and the 1.9.0 `worker-src` row — growing the
   template from ~40 to **225 msgids** and bumping Project-Id-Version to 1.10.0.
-  The 1.10.0 Beaver Builder discovery is backend-only and added no user-facing
-  strings. No `.po`/`.mo` locale files exist yet, so nothing downstream needed
+  No `.po`/`.mo` locale files exist yet, so nothing downstream needed
   reconciling. **Verified:** WP-CLI reported success; the new
   `Workers (Web / Service / Shared Workers)` string is present. A fresh release
   ZIP (`simple-performance-for-wordpress-1.10.0.zip`) was built afterwards for

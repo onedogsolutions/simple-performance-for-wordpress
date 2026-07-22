@@ -54,7 +54,6 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 
 = Google Fonts Localizer & Discovery =
 * Scans a representative sample of your pages for Google Fonts references and downloads the .woff2 files to your own server
-* Reads fonts straight from Beaver Builder's stored layout settings when it's active, so they're found even behind a page cache or CSS optimizer that hides the font tag
 * Rewrites the page to serve fonts locally instead of from fonts.googleapis.com / fonts.gstatic.com
 * Falls back gracefully to the original Google-hosted fonts if a local copy isn't available yet, so a scan issue never breaks font rendering
 
@@ -106,7 +105,7 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 * Added: a CDN diagnostic hint in the CSP card when no violations have been collected in enforce mode, explaining common CDN pitfalls (missing forwarded headers, cached REST endpoint) and clarifying that ERR_BLOCKED_BY_ORB errors are not CSP violations.
 
 = 1.10.0 =
-* Added: font discovery now reads Google Fonts directly from Beaver Builder's stored settings (global typography and each published layout's node settings) in addition to scanning rendered pages. Because it reads the layout data rather than the rendered HTML, it finds fonts even when a page cache or CSS optimizer strips the Google Fonts tag, and it isn't limited to the sampled pages. It no-ops when Beaver Builder isn't active.
+* Removed: Beaver Builder settings-based font discovery (was causing fewer fonts to be discovered).
 
 = 1.9.0 =
 * Added: a "Workers (Web / Service / Shared Workers)" row to the CSP policy builder (`worker-src`), so scripts that spin up a worker from a `blob:` URL — a common pattern in map, chart, PDF, and analytics libraries — can be allowed like any other directive instead of only being fixable via the raw-policy editor. The recommended default policy now includes `worker-src 'self' blob:`.
