@@ -1,4 +1,4 @@
-import { useState } from '@wordpress/element';
+import { useState, useEffect } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
@@ -30,6 +30,19 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 	const scanResult = settings.scan_result || null;
 	const hasScanned = !! fonts.last_scan;
 	const [ isScanning, setIsScanning ] = useState( false );
+
+	// Local state to prevent React from stripping newlines as you type
+	const [ localManualFamilies, setLocalManualFamilies ] = useState( '' );
+	const [ localExtraUrls, setLocalExtraUrls ] = useState( '' );
+
+	// Keep local text in sync when the external settings change
+	useEffect( () => {
+		setLocalManualFamilies( listToText( fonts.manual_families ) );
+	}, [ fonts.manual_families ] );
+
+	useEffect( () => {
+		setLocalExtraUrls( listToText( fonts.extra_scan_urls ) );
+	}, [ fonts.extra_scan_urls ] );
 
 	const handleScan = () => {
 		setIsScanning( true );
@@ -173,11 +186,14 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					placeholder={
 						'Roboto Condensed:400,700\nOpen Sans:400,600,700'
 					}
-					value={ listToText( fonts.manual_families ) }
+					value={ localManualFamilies }
 					onChange={ ( e ) =>
+						setLocalManualFamilies( e.target.value )
+					}
+					onBlur={ () =>
 						onChange(
 							'manual_families',
-							textToList( e.target.value )
+							textToList( localManualFamilies )
 						)
 					}
 					className={ `${ textareaClass } mt-4` }
@@ -200,11 +216,14 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 				<textarea
 					rows={ 3 }
 					placeholder={ '/shop/\n/landing/' }
-					value={ listToText( fonts.extra_scan_urls ) }
+					value={ localExtraUrls }
 					onChange={ ( e ) =>
+						setLocalExtraUrls( e.target.value )
+					}
+					onBlur={ () =>
 						onChange(
 							'extra_scan_urls',
-							textToList( e.target.value )
+							textToList( localExtraUrls )
 						)
 					}
 					className={ `${ textareaClass } mt-4` }

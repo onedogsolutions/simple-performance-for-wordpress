@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.11.1
+- **Plugin version target:** 1.11.2
 - **Last updated:** 2026-07-22
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -40,7 +40,8 @@ the authoritative record.)
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
   no-store cache headers on report endpoint, connect-src auto-injection,
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
-  wrapper for WordPress overwrite detection, 1.11.1)
+  wrapper for WordPress overwrite detection, 1.11.1); ✅ Textarea multiline
+  input fix (local-state + blur-commit pattern, 1.11.2)
 
 ## Shared project facts (true for every step)
 
@@ -1175,6 +1176,25 @@ follow-ups deferred. Keep entries dated and terse.
   clean. **Outstanding:** live QA on a QUIC.cloud-proxied site (confirm reports
   arrive, report-uri carries public HTTPS origin, endpoint not cached); `.pot`
   regeneration for the new CDN-hint string.
+
+- 2026-07-22 (textarea multiline input fix, → 1.11.2): user reported that none
+  of the textarea fields in the admin UI allowed typing more than one line.
+  **Root cause:** the controlled `<textarea>` components in `FontsSettings.jsx`
+  (Manual font weights, Extra pages to scan) and `RestApiSettings.jsx`
+  (Whitelist routes) ran `textToList()` → `listToText()` on every keystroke;
+  `textToList()` calls `.filter(Boolean)` which strips the trailing empty string
+  produced by pressing Enter, so the newline was immediately removed from the
+  controlled value. The "Disable namespaces" textarea in `RestApiSettings.jsx`
+  was already immune (it used local state + `onBlur` commit). **Fix (2 files):**
+  - `FontsSettings.jsx`: added `localManualFamilies` and `localExtraUrls` state
+    with `useEffect` sync from external settings; both textareas now update only
+    local state on change and commit the parsed list on blur.
+  - `RestApiSettings.jsx`: added `localWhitelistText` state with `useEffect`
+    sync; the Whitelist routes textarea uses the same local-state + blur-commit
+    pattern.
+  Version bumped to 1.11.2 (plugin header + `SPFW_VERSION` + `readme.txt`
+  stable tag + changelog).
+  **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
 
 ## Open questions / blockers
 

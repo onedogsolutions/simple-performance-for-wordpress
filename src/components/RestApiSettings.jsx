@@ -25,6 +25,7 @@ export default function RestApiSettings( { settings, onChange } ) {
 
 	// Local state to prevent React from stripping newlines as you type
 	const [ localNamespacesText, setLocalNamespacesText ] = useState( '' );
+	const [ localWhitelistText, setLocalWhitelistText ] = useState( '' );
 
 	const disabledList = Array.isArray( restapi.disabled_namespaces )
 		? restapi.disabled_namespaces
@@ -40,6 +41,10 @@ export default function RestApiSettings( { settings, onChange } ) {
 	useEffect( () => {
 		setLocalNamespacesText( listToText( restapi.disabled_namespaces ) );
 	}, [ restapi.disabled_namespaces ] );
+
+	useEffect( () => {
+		setLocalWhitelistText( listToText( restapi.whitelist_routes ) );
+	}, [ restapi.whitelist_routes ] );
 
 	const toggleNamespace = ( ns, isDisabled ) => {
 		const next = isDisabled
@@ -159,11 +164,14 @@ export default function RestApiSettings( { settings, onChange } ) {
 				<textarea
 					rows={ 3 }
 					placeholder={ 'contact-form-7/v1\nwc/v3\nwc/store' }
-					value={ listToText( restapi.whitelist_routes ) }
+					value={ localWhitelistText }
 					onChange={ ( e ) =>
+						setLocalWhitelistText( e.target.value )
+					}
+					onBlur={ () =>
 						onChange(
 							'whitelist_routes',
-							textToList( e.target.value )
+							textToList( localWhitelistText )
 						)
 					}
 					className={ textareaClass }
