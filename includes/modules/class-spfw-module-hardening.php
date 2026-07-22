@@ -227,6 +227,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$report_url = self::csp_report_url();
 
 		if ( '' !== $report_url ) {
+			// When a CDN/proxy rewrites the report URL's origin so it differs
+			// from the page's own origin ('self'), the browser would block the
+			// report POST under connect-src. Inject the report origin into the
+			// policy's connect-src so reports are never silently dropped.
+			$policy = self::ensure_connect_src_allows( $policy, $report_url );
+
 			$policy  = rtrim( $policy );
 			$policy .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
 			$policy .= ' report-uri ' . $report_url . ';';
@@ -240,12 +246,100 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Full URL of the CSP violation-report REST endpoint.
+	 * Full URL of the CSP violation-report REST endpoint, adjusted for reverse
+	 * proxies / CDNs (QUIC.cloud, Cloudflare, etc.) that terminate TLS at the
+	 * edge and present a different public origin to the browser.
+	 *
+	 * `rest_url()` derives from the `siteurl` option, which behind a proxy may
+	 * carry the wrong scheme (http vs https) or host (origin hostname vs public
+	 * domain). The browser silently drops a mixed-content report-uri POST or one
+	 * aimed at an unreachable host, so violations never arrive. This method
+	 * rewrites the scheme and host from the same forwarded-header signals that
+	 * `is_https_request()` uses, so the emitted report-uri always matches the
+	 * origin the browser actually sees.
 	 *
 	 * @return string
 	 */
 	private static function csp_report_url() {
-		return esc_url_raw( rest_url( 'spfw/v1/csp-report' ) );
+		$url = rest_url( 'spfw/v1/csp-report' );
+
+		$origin = self::request_origin();
+
+		if ( '' !== $origin['scheme'] && '' !== $origin['host'] ) {
+			$parts = wp_parse_url( $url );
+
+			if ( is_array( $parts ) && ! empty( $parts['host'] ) ) {
+				// Rewrite scheme.
+				$url = preg_replace( '#^https?://#', $origin['scheme'] . '://', $url, 1 );
+
+				// Rewrite host (preserve port/path/query).
+				$url = str_replace( '://' . $parts['host'], '://' . $origin['host'], $url );
+			}
+		}
+
+		return esc_url_raw( $url );
+	}
+
+	/**
+	 * Ensure the policy's connect-src directive allows the report endpoint's
+	 * origin. When a CDN/proxy rewrites the report URL to a different origin
+	 * than the page's 'self', the browser would block the violation-report POST
+	 * under connect-src. This injects the report origin into connect-src (or
+	 * creates the directive if absent) so reports are never silently dropped.
+	 *
+	 * No-op when the report origin matches the site's own origin (the common
+	 * case without a proxy) or when connect-src already allows 'self' or 'https:'.
+	 *
+	 * @param string $policy     Policy string (may be empty).
+	 * @param string $report_url Full report endpoint URL.
+	 * @return string Possibly-modified policy string.
+	 */
+	private static function ensure_connect_src_allows( $policy, $report_url ) {
+		$report_parts = wp_parse_url( $report_url );
+
+		if ( ! is_array( $report_parts ) || empty( $report_parts['host'] ) ) {
+			return $policy;
+		}
+
+		$report_origin = ( isset( $report_parts['scheme'] ) ? $report_parts['scheme'] : 'https' ) . '://' . $report_parts['host'];
+
+		// Compare against the site's own origin (home_url).
+		$home_parts = wp_parse_url( home_url() );
+		$home_origin = '';
+
+		if ( is_array( $home_parts ) && ! empty( $home_parts['host'] ) ) {
+			$home_origin = ( isset( $home_parts['scheme'] ) ? $home_parts['scheme'] : 'https' ) . '://' . $home_parts['host'];
+		}
+
+		// Same origin — 'self' covers it, nothing to inject.
+		if ( '' === $home_origin || strtolower( $report_origin ) === strtolower( $home_origin ) ) {
+			return $policy;
+		}
+
+		// Check whether connect-src already exists in the policy.
+		$directives = self::parse_policy_to_directives( $policy );
+
+		if ( isset( $directives['connect-src'] ) ) {
+			$tokens = $directives['connect-src'];
+
+			// Already permissive enough.
+			if ( in_array( "'self'", $tokens, true ) || in_array( 'https:', $tokens, true ) ) {
+				return $policy;
+			}
+
+			// Already contains the report origin.
+			if ( in_array( $report_origin, $tokens, true ) ) {
+				return $policy;
+			}
+
+			$tokens[] = $report_origin;
+			$directives['connect-src'] = $tokens;
+		} else {
+			// No connect-src directive — add one with 'self' + the report origin.
+			$directives['connect-src'] = array( "'self'", $report_origin );
+		}
+
+		return self::build_policy_from_directives( $directives );
 	}
 
 	/**
@@ -387,22 +481,55 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @return bool
 	 */
 	private static function is_https_request() {
-		if ( is_ssl() ) {
-			return true;
+		return 'https' === self::request_origin()['scheme'];
+	}
+
+	/**
+	 * Determine the scheme and host the browser sees, accounting for reverse
+	 * proxies / CDNs (QUIC.cloud, Cloudflare, etc.) that terminate TLS at the
+	 * edge and forward the original request details via standard headers.
+	 *
+	 * Returns the best-known {scheme, host} pair. When no proxy headers are
+	 * present the values come from the direct connection (is_ssl() for scheme,
+	 * HTTP_HOST for host), so non-proxied sites are unaffected.
+	 *
+	 * @return array{scheme:string,host:string}
+	 */
+	private static function request_origin() {
+		// --- Scheme ---
+		$scheme = is_ssl() ? 'https' : 'http';
+
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+			$proto = strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) );
+			// X-Forwarded-Proto may be comma-separated (first = original client).
+			$proto  = trim( explode( ',', $proto )[0] );
+			$scheme = in_array( $proto, array( 'https', 'http' ), true ) ? $proto : $scheme;
+		} elseif ( isset( $_SERVER['HTTP_X_FORWARDED_SSL'] ) ) {
+			$ssl = strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_SSL'] ) ) );
+			if ( in_array( $ssl, array( 'on', '1' ), true ) ) {
+				$scheme = 'https';
+			}
+		} elseif ( isset( $_SERVER['HTTP_X_FORWARDED_PORT'] ) && '443' === sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PORT'] ) ) ) {
+			$scheme = 'https';
 		}
 
-		if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) ) ) {
-			return true;
+		// --- Host ---
+		$host = '';
+
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_HOST'] ) ) {
+			// X-Forwarded-Host may be comma-separated (first = original client).
+			$host = strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_HOST'] ) ) );
+			$host = trim( explode( ',', $host )[0] );
+		} elseif ( isset( $_SERVER['HTTP_HOST'] ) ) {
+			$host = strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) );
 		}
 
-		if ( isset( $_SERVER['HTTP_X_FORWARDED_SSL'] ) && 'on' === strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_SSL'] ) ) ) ) {
-			return true;
-		}
+		// Strip any port suffix from the host (e.g. "example.com:8080").
+		$host = preg_replace( '/:\d+$/', '', $host );
 
-		if ( isset( $_SERVER['HTTP_X_FORWARDED_PORT'] ) && '443' === sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PORT'] ) ) ) {
-			return true;
-		}
-
-		return false;
+		return array(
+			'scheme' => $scheme,
+			'host'   => $host,
+		);
 	}
 }

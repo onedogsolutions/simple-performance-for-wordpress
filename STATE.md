@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.10.0
+- **Plugin version target:** 1.11.0
 - **Last updated:** 2026-07-22
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -36,7 +36,10 @@ the authoritative record.)
   Beaver Builder settings-based font discovery added (reads Google Fonts from
   Beaver Builder's stored global + per-layout settings, immune to page-cache/
   optimizer tag stripping, 1.10.0, salvaged from the obsolete
-  `claude/branch-cleanup-state-ck3owq`, merged to `main`)
+  `claude/branch-cleanup-state-ck3owq`, merged to `main`); ✅ CSP violation
+  reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
+  no-store cache headers on report endpoint, connect-src auto-injection,
+  CDN diagnostic UI hint, 1.11.0)
 
 ## Shared project facts (true for every step)
 
@@ -83,29 +86,22 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.10.0 (Beaver Builder settings-based font discovery) is the current release,
-implemented and merged to `main`.** A test release ZIP
-(`simple-performance-for-wordpress-1.10.0.zip`) was built for WordPress
-install/QA. Recent releases now merged to `main`: 1.9.0 (CSP policy-builder
-coverage gaps — `worker-src` + effective-directive collapse) and 1.10.0 (Beaver
-Builder font discovery). See the 2026-07-22 decisions entries for detail.
+**1.11.0 (CSP CDN reporting fix) is the current release, implemented on
+`main`.** The CSP violation-report collection now works correctly behind
+QUIC.cloud and similar reverse-proxy CDNs: the `report-uri` is rewritten from
+forwarded headers, the report endpoint emits no-store cache headers, and
+`connect-src` is auto-injected when the report origin differs from the page
+origin. A CDN diagnostic hint surfaces in the admin when no reports arrive in
+enforce mode.
 
-**The long-standing `.pot` backlog item is now cleared.**
-`languages/simple-performance-for-wordpress.pot` was regenerated with
-`wp i18n make-pot` against the current tree, extracting all accumulated strings
-from Step 10, the font fixes, the security headers/CSP work, the sitemaps/robots
-toggles, and the 1.9.0 `worker-src` row (225 msgids; Project-Id-Version bumped to
-1.10.0). The Beaver Builder discovery added no user-facing strings.
-
-Remaining before release is manual QA on a live WordPress + OpenLiteSpeed +
-WooCommerce install — including an end-to-end fonts scan against a theme that
-enqueues Google Fonts (confirm `.woff2` land in `uploads/ods-fonts/`, families
-list, and the rendered frontend makes no `fonts.googleapis.com`/`fonts.gstatic.com`
-requests) and, when Beaver Builder is active, that fonts set only in its layout
-settings are discovered. Prior toggle QA still outstanding: enabling **Disable WP
-sitemaps** should 404 `/wp-sitemap.xml`; **Remove robots max-image-preview**
-should drop `max-image-preview:large` from the robots meta tag. None of these
-were runtime-verified in the build environment (no WordPress instance available).
+Remaining before release is manual QA on a live WordPress + QUIC.cloud site —
+confirm that violation reports arrive in the admin within seconds of a logged-out
+page load, that the report-uri in the response header carries the public HTTPS
+origin, and that the CDN does not cache the `/wp-json/spfw/v1/csp-report`
+endpoint. Prior toggle QA still outstanding: enabling **Disable WP sitemaps**
+should 404 `/wp-sitemap.xml`; **Remove robots max-image-preview** should drop
+`max-image-preview:large` from the robots meta tag. None of these were
+runtime-verified in the build environment (no WordPress instance available).
 Phase 1 (Steps 1–9) and Step 10 remain complete.
 
 ---
@@ -1145,6 +1141,41 @@ follow-ups deferred. Keep entries dated and terse.
   `Workers (Web / Service / Shared Workers)` string is present. A fresh release
   ZIP (`simple-performance-for-wordpress-1.10.0.zip`) was built afterwards for
   live install/QA.
+
+- 2026-07-22 (CSP CDN reporting fix, → 1.11.0): user reported that after placing
+  oregontradeswomen.org behind QUIC.cloud CDN, the CSP Policy Builder's blocked
+  script discovery (violation-report collection) stopped working — GTM scripts
+  showed `ERR_BLOCKED_BY_ORB` in DevTools but no violations appeared in the admin.
+  **Root cause:** `csp_report_url()` used `rest_url()` verbatim, which derives
+  from `siteurl` — behind a CDN that terminates TLS at the edge, this produced an
+  `http://` report-uri on an `https://` page (mixed-content → browser silently
+  drops the POST) or pointed at the origin hostname instead of the public domain.
+  The plugin already solved identical proxy-awareness for HSTS (`is_https_request()`)
+  but never applied it here. **Fixes (4 files):**
+  - `class-spfw-module-hardening.php`: extracted `request_origin()` (returns
+    `{scheme, host}` from `X-Forwarded-Proto`/`X-Forwarded-Ssl`/
+    `X-Forwarded-Port`/`X-Forwarded-Host`/`HTTP_HOST`, comma-separated first-entry
+    handling, port-suffix stripping); refactored `is_https_request()` to delegate
+    to it (DRY); rewrote `csp_report_url()` to rewrite the `rest_url()` output's
+    scheme+host from `request_origin()`; added `ensure_connect_src_allows()` which
+    injects the report origin into the policy's `connect-src` when it differs from
+    `home_url()`'s origin (no-op when same-origin or when `'self'`/`https:` already
+    present).
+  - `class-spfw-rest-settings.php`: `receive_csp_report()` now emits
+    `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`,
+    `Pragma: no-cache`, and `X-Robots-Tag: noindex, noarchive` before any logic,
+    so QUIC.cloud/LiteSpeed Cache never caches the 204/403 response.
+  - `CspPolicyCard.jsx`: when no violations are collected and CSP is enforcing
+    (not report-only), shows a CDN diagnostic hint explaining forwarded-header
+    requirements, REST-endpoint caching pitfalls, and clarifying that
+    `ERR_BLOCKED_BY_ORB`/`ERR_BLOCKED_BY_RESPONSE` are not CSP violations.
+  - Version bumped to 1.11.0 (plugin header + `SPFW_VERSION` + `readme.txt`
+    stable tag + changelog).
+  **Verified:** `php -l` clean on all 3 changed PHP files; `npm run build`
+  succeeds; `wp-scripts lint-js` clean on `CspPolicyCard.jsx`; `npm run lint:css`
+  clean. **Outstanding:** live QA on a QUIC.cloud-proxied site (confirm reports
+  arrive, report-uri carries public HTTPS origin, endpoint not cached); `.pot`
+  regeneration for the new CDN-hint string.
 
 ## Open questions / blockers
 

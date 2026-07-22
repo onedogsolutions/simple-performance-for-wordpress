@@ -207,10 +207,22 @@ class SPFW_Rest_Settings {
 	 * `application/reports+json` batch, caps the body size, dedupes into a
 	 * bounded transient, and always answers 204 (browsers ignore the response).
 	 *
+	 * Sends explicit no-store headers so CDNs (QUIC.cloud, Cloudflare) and
+	 * page-cache plugins never cache the 204/403 response — a cached 403 from
+	 * a moment when CSP was briefly off would silently swallow all subsequent
+	 * reports until the CDN cache expires.
+	 *
 	 * @param WP_REST_Request $request Incoming request.
 	 * @return WP_REST_Response
 	 */
 	public function receive_csp_report( $request ) {
+		// Prevent CDN / page-cache from caching this endpoint's response.
+		if ( ! headers_sent() ) {
+			header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+			header( 'Pragma: no-cache' );
+			header( 'X-Robots-Tag: noindex, noarchive' );
+		}
+
 		$h = SPFW_Settings::group( 'hardening' );
 
 		// Open whenever CSP is enabled (enforce mode included), so real blocked

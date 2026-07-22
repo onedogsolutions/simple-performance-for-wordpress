@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -92,6 +92,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.11.0 =
+* Fixed: CSP violation reports (blocked script discovery) never arriving when the site is behind a QUIC.cloud or Cloudflare CDN. The report-uri now rewrites its scheme and host from the CDN's forwarded headers (X-Forwarded-Proto, X-Forwarded-Host), so it always matches the origin the browser sees — previously it used the origin server's URL, which the browser silently dropped as mixed-content or unreachable.
+* Fixed: the report endpoint now sends explicit no-store cache headers, preventing CDNs and page-cache plugins from caching the 204/403 response and silently swallowing subsequent violation reports.
+* Added: when a CDN rewrites the report endpoint to a different origin, that origin is automatically injected into the policy's connect-src directive so the browser doesn't block the report POST itself.
+* Added: a CDN diagnostic hint in the CSP card when no violations have been collected in enforce mode, explaining common CDN pitfalls (missing forwarded headers, cached REST endpoint) and clarifying that ERR_BLOCKED_BY_ORB errors are not CSP violations.
 
 = 1.10.0 =
 * Added: font discovery now reads Google Fonts directly from Beaver Builder's stored settings (global typography and each published layout's node settings) in addition to scanning rendered pages. Because it reads the layout data rather than the rendered HTML, it finds fonts even when a page cache or CSS optimizer strips the Google Fonts tag, and it isn't limited to the sampled pages. It no-ops when Beaver Builder isn't active.

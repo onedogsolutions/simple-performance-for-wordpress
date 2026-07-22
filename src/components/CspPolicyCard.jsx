@@ -621,6 +621,15 @@ export default function CspPolicyCard( {
 							</p>
 						) }
 
+						{ 0 === cspReports.length && ! reportOnly && (
+							<p className="mt-2 text-xs text-gray-400">
+								{ __(
+									'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						) }
+
 						{ otherReports.length > 0 && (
 							<div className="mt-2">
 								<p className="text-xs font-semibold text-gray-600">
