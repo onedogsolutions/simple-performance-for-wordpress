@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.9.0
+- **Plugin version target:** 1.10.0
 - **Last updated:** 2026-07-22
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -32,7 +32,11 @@ the authoritative record.)
   `claude/wp-sitemaps-robots-toggles-eaoris`, merged to `main`); ✅ CSP policy
   builder coverage gaps fixed (`worker-src` row added, `script-src-elem`/
   `style-src-elem` effective directives collapsed to their base row, 1.9.0,
-  branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`)
+  branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`); ✅
+  Beaver Builder settings-based font discovery added (reads Google Fonts from
+  Beaver Builder's stored global + per-layout settings, immune to page-cache/
+  optimizer tag stripping, 1.10.0, salvaged from the obsolete
+  `claude/branch-cleanup-state-ck3owq`, merged to `main`)
 
 ## Shared project facts (true for every step)
 
@@ -1094,6 +1098,32 @@ follow-ups deferred. Keep entries dated and terse.
   **Outstanding:** `.pot` regeneration remains the standing backlog item; live
   WordPress QA of the new worker-src row and violation grouping not exercised in
   the build environment.
+
+- 2026-07-22 (Beaver Builder settings-based font discovery, → 1.10.0, salvaged
+  from `claude/branch-cleanup-state-ck3owq`, merged to `main`): during branch
+  cleanup, the obsolete `branch-cleanup-state-ck3owq` (v1.2.0, 17 commits behind
+  `main`; merging it wholesale would have reverted the plugin) was found to
+  carry one genuinely unique, still-wanted feature not in `main`: discovering
+  Google Fonts directly from Beaver Builder's stored settings instead of only
+  from rendered HTML. Rather than merge the stale branch, the feature was
+  **reimplemented on current `main`'s (much-evolved) fonts module**. The
+  branch's rendered-page/multi-URL scanning was *not* ported — `main` already
+  does that (and better) via its instrumented capture + `scan_targets()`
+  sampling. Added to `class-spfw-module-fonts.php`: `beaver_builder_css_urls()`
+  (reads `FLBuilderModel::get_global_settings()` + each `_fl_builder_enabled`
+  post's `_fl_builder_data`), `find_font_fields()`/`flatten_settings()` (pull
+  `*family`/`*weight` sibling pairs out of the layout node settings),
+  `google_specs_to_urls()` (filter to real Google families, union weights, and
+  reuse the existing `build_google_css_url()` spec builder), plus
+  `beaver_builder_google_catalog()` and `family_is_google_font()` (allow-list via
+  Beaver Builder's own `FLBuilderFontFamilies` catalog when present, else a
+  system-font exclusion list). `scan()` merges these URLs alongside the manual
+  and rendered-page URLs; all collectors no-op when Beaver Builder is inactive.
+  **Versioning:** bumped 1.9.0 → 1.10.0 (new discovery source is a feature).
+  **Verified:** `php -l` clean; `npm run build` succeeds (no JS changes — the
+  new families surface through the existing Fonts UI). **Outstanding:** live
+  WordPress + Beaver Builder QA (the FLBuilder integration was not exercised in
+  the build environment); `.pot` regeneration remains the standing backlog item.
 
 ## Open questions / blockers
 
