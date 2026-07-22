@@ -83,27 +83,30 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.8.0 (Disable WP Sitemaps + Remove robots max-image-preview Core toggles)
-is implemented and merged to `main`.** A test release ZIP
-(`simple-performance-for-wordpress-1.8.0.zip`) was built for WordPress
-install/QA. See the 2026-07-20 decisions entry for detail. Both new toggles
-default OFF (opt-in, SEO/crawler-facing) and merge in on read, so no data
-migration is required. Outstanding QA: on a live WordPress install confirm
-that enabling **Disable WP sitemaps** makes `/wp-sitemap.xml` 404, and that
-enabling **Remove robots max-image-preview** drops `max-image-preview:large`
-from the `<meta name="robots">` tag — neither was runtime-verified in the
-build environment (no WordPress instance available).
+**1.10.0 (Beaver Builder settings-based font discovery) is the current release,
+implemented and merged to `main`.** A test release ZIP
+(`simple-performance-for-wordpress-1.10.0.zip`) was built for WordPress
+install/QA. Recent releases now merged to `main`: 1.9.0 (CSP policy-builder
+coverage gaps — `worker-src` + effective-directive collapse) and 1.10.0 (Beaver
+Builder font discovery). See the 2026-07-22 decisions entries for detail.
 
-**Prior (1.7.1, font-weight-collapse fix)** is implemented, verified, and
-merged to `main`; a test ZIP (`simple-performance-for-wordpress-1.7.1.zip`)
-was built. See the 2026-07-15 decisions entries for root cause and fix detail.
-Remaining before release: regenerate
-`languages/simple-performance-for-wordpress.pot` (new strings from Step 10 and the
-fonts fix not yet extracted), and manual QA on a live WordPress + OpenLiteSpeed +
+**The long-standing `.pot` backlog item is now cleared.**
+`languages/simple-performance-for-wordpress.pot` was regenerated with
+`wp i18n make-pot` against the current tree, extracting all accumulated strings
+from Step 10, the font fixes, the security headers/CSP work, the sitemaps/robots
+toggles, and the 1.9.0 `worker-src` row (225 msgids; Project-Id-Version bumped to
+1.10.0). The Beaver Builder discovery added no user-facing strings.
+
+Remaining before release is manual QA on a live WordPress + OpenLiteSpeed +
 WooCommerce install — including an end-to-end fonts scan against a theme that
 enqueues Google Fonts (confirm `.woff2` land in `uploads/ods-fonts/`, families
 list, and the rendered frontend makes no `fonts.googleapis.com`/`fonts.gstatic.com`
-requests). Phase 1 (Steps 1–9) and Step 10 remain complete.
+requests) and, when Beaver Builder is active, that fonts set only in its layout
+settings are discovered. Prior toggle QA still outstanding: enabling **Disable WP
+sitemaps** should 404 `/wp-sitemap.xml`; **Remove robots max-image-preview**
+should drop `max-image-preview:large` from the robots meta tag. None of these
+were runtime-verified in the build environment (no WordPress instance available).
+Phase 1 (Steps 1–9) and Step 10 remain complete.
 
 ---
 
@@ -1124,6 +1127,24 @@ follow-ups deferred. Keep entries dated and terse.
   new families surface through the existing Fonts UI). **Outstanding:** live
   WordPress + Beaver Builder QA (the FLBuilder integration was not exercised in
   the build environment); `.pot` regeneration remains the standing backlog item.
+
+- 2026-07-22 (translation template regenerated, 1.10.0): cleared the
+  long-standing `.pot` backlog item that every recent release entry had deferred.
+  Ran `wp i18n make-pot . languages/simple-performance-for-wordpress.pot
+  --slug=simple-performance-for-wordpress
+  --domain=simple-performance-for-wordpress
+  --exclude=node_modules,build,vendor,.git,tests` (WP-CLI 2.12.0, same generator
+  as the prior file). Extracts all strings that had accumulated unextracted since
+  the file was last generated at 1.0.0 — Step 10 (quick-toggle parity +
+  WooCommerce), the font-weight and discovery fixes, the security-headers/HSTS/CSP
+  work, the sitemaps/robots toggles, and the 1.9.0 `worker-src` row — growing the
+  template from ~40 to **225 msgids** and bumping Project-Id-Version to 1.10.0.
+  The 1.10.0 Beaver Builder discovery is backend-only and added no user-facing
+  strings. No `.po`/`.mo` locale files exist yet, so nothing downstream needed
+  reconciling. **Verified:** WP-CLI reported success; the new
+  `Workers (Web / Service / Shared Workers)` string is present. A fresh release
+  ZIP (`simple-performance-for-wordpress-1.10.0.zip`) was built afterwards for
+  live install/QA.
 
 ## Open questions / blockers
 
