@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.8.0
+Stable tag: 1.9.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.9.0 =
+* Added: a "Workers (Web / Service / Shared Workers)" row to the CSP policy builder (`worker-src`), so scripts that spin up a worker from a `blob:` URL — a common pattern in map, chart, PDF, and analytics libraries — can be allowed like any other directive instead of only being fixable via the raw-policy editor. The recommended default policy now includes `worker-src 'self' blob:`.
+* Added: `blob:` as a preset chip on the Scripts and Styles rows.
+* Fixed: violations reported against the granular `script-src-elem` / `script-src-attr` / `style-src-elem` / `style-src-attr` effective directives were shown under "Other violations (directives not in the builder)" with no way to resolve them, even though allowing the source on the parent `script-src` / `style-src` directive is exactly what the browser's fallback behavior requires. These now group under, and can be Allowed from, their parent directive's row.
 
 = 1.8.0 =
 * New: Disable WordPress core XML sitemaps (absorbs the "Disable WP Sitemaps" plugin).

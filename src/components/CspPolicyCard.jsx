@@ -24,13 +24,21 @@ const CSP_DIRECTIVES = [
 			"'unsafe-eval'",
 			'https:',
 			'data:',
+			'blob:',
 			"'none'",
 		],
 	},
 	{
 		name: 'style-src',
 		label: __( 'Styles', 'simple-performance-for-wordpress' ),
-		tokens: [ "'self'", "'unsafe-inline'", 'https:', 'data:', "'none'" ],
+		tokens: [
+			"'self'",
+			"'unsafe-inline'",
+			'https:',
+			'data:',
+			'blob:',
+			"'none'",
+		],
 	},
 	{
 		name: 'img-src',
@@ -54,6 +62,14 @@ const CSP_DIRECTIVES = [
 		name: 'media-src',
 		label: __( 'Audio / video', 'simple-performance-for-wordpress' ),
 		tokens: [ "'self'", 'https:', 'data:', "'none'" ],
+	},
+	{
+		name: 'worker-src',
+		label: __(
+			'Workers (Web / Service / Shared Workers)',
+			'simple-performance-for-wordpress'
+		),
+		tokens: [ "'self'", 'blob:', 'https:', "'none'" ],
 	},
 	{
 		name: 'object-src',
