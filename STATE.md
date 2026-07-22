@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.11.0
+- **Plugin version target:** 1.11.1
 - **Last updated:** 2026-07-22
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
   quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -39,7 +39,8 @@ the authoritative record.)
   `claude/branch-cleanup-state-ck3owq`, merged to `main`); ✅ CSP violation
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
   no-store cache headers on report endpoint, connect-src auto-injection,
-  CDN diagnostic UI hint, 1.11.0)
+  CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
+  wrapper for WordPress overwrite detection, 1.11.1)
 
 ## Shared project facts (true for every step)
 
@@ -86,13 +87,11 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.11.0 (CSP CDN reporting fix) is the current release, implemented on
-`main`.** The CSP violation-report collection now works correctly behind
-QUIC.cloud and similar reverse-proxy CDNs: the `report-uri` is rewritten from
-forwarded headers, the report endpoint emits no-store cache headers, and
-`connect-src` is auto-injected when the report origin differs from the page
-origin. A CDN diagnostic hint surfaces in the admin when no reports arrive in
-enforce mode.
+**1.11.1 (ZIP packaging fix) is the current release, implemented on
+`main`.** The plugin ZIP now wraps all files inside a
+`simple-performance-for-wordpress/` root directory so WordPress correctly
+detects the existing installation and offers to overwrite on upload. The 1.11.0
+CSP CDN reporting fix remains the primary functional change in this cycle.
 
 Remaining before release is manual QA on a live WordPress + QUIC.cloud site —
 confirm that violation reports arrive in the admin within seconds of a logged-out

@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.11.0
+Stable tag: 1.11.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -92,6 +92,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.11.1 =
+* Fixed: plugin ZIP now packages files inside a `simple-performance-for-wordpress/` root directory so WordPress correctly detects the existing installation and offers to overwrite on upload.
 
 = 1.11.0 =
 * Fixed: CSP violation reports (blocked script discovery) never arriving when the site is behind a QUIC.cloud or Cloudflare CDN. The report-uri now rewrites its scheme and host from the CDN's forwarded headers (X-Forwarded-Proto, X-Forwarded-Host), so it always matches the origin the browser sees — previously it used the origin server's URL, which the browser silently dropped as mixed-content or unreachable.
