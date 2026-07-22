@@ -8,7 +8,9 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Discovers Google Fonts referenced by the site, downloads the .woff2
+ * Discovers Google Fonts referenced by the site — from the rendered HTML of a
+ * sample of pages, from manual declarations, and (when active) directly from
+ * Beaver Builder's stored layout settings — downloads the .woff2
  * files locally, and rewrites the frontend to serve them from
  * /uploads/ods-fonts/ instead of fonts.googleapis.com/fonts.gstatic.com.
  *
@@ -239,10 +241,18 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		$manual_urls = $this->manual_css_urls();
 		$css_urls    = array_merge( $css_urls, $manual_urls );
 
+		// Beaver Builder stores its typography as structured settings, so we can
+		// read the requested Google families straight from the layout data —
+		// immune to a CDN/optimizer stripping the font tag from rendered HTML,
+		// and not limited to the sampled pages. No-op when Beaver Builder is
+		// inactive.
+		$builder_urls = $this->beaver_builder_css_urls();
+		$css_urls     = array_merge( $css_urls, $builder_urls );
+
 		$css_urls = $this->normalize_css_urls( $css_urls );
 
 		if ( empty( $css_urls ) && empty( $font_faces ) ) {
-			if ( ! $fetch_ok && empty( $captured ) && empty( $manual_urls ) ) {
+			if ( ! $fetch_ok && empty( $captured ) && empty( $manual_urls ) && empty( $builder_urls ) ) {
 				return new WP_Error(
 					'spfw_fonts_fetch_failed',
 					__( 'Could not load your homepage to scan for fonts. Your server may block loopback requests — check your site is reachable from itself, then try again.', 'simple-performance-for-wordpress' )
@@ -556,6 +566,206 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		}
 
 		return $faces;
+	}
+
+	/**
+	 * Collect Google Fonts CSS URLs from Beaver Builder's stored settings —
+	 * its global typography plus every published layout's node settings —
+	 * rather than the rendered page. Because it reads the layout data directly,
+	 * it is immune to a page cache or CSS optimizer stripping the Google Fonts
+	 * tag, and it is not limited to the pages the HTML pass samples. No-ops when
+	 * Beaver Builder is inactive or its internals don't match the expected shape.
+	 *
+	 * @return string[] Canonical `css2` stylesheet URLs, one per discovered family.
+	 */
+	private function beaver_builder_css_urls() {
+		if ( ! class_exists( 'FLBuilderModel' ) ) {
+			return array();
+		}
+
+		$fields = array();
+
+		if ( method_exists( 'FLBuilderModel', 'get_global_settings' ) ) {
+			$this->find_font_fields( FLBuilderModel::get_global_settings(), $fields );
+		}
+
+		$layouts = get_posts(
+			array(
+				'post_type'              => 'any',
+				'post_status'            => 'publish',
+				'posts_per_page'         => 50,
+				'orderby'                => 'modified',
+				'order'                  => 'DESC',
+				'fields'                 => 'ids',
+				'no_found_rows'          => true,
+				'update_post_term_cache' => false,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- one-off admin-triggered scan, not a front-end query.
+				'meta_key'               => '_fl_builder_enabled',
+				'meta_value'             => 'yes',
+			)
+		);
+
+		foreach ( $layouts as $post_id ) {
+			$data = get_post_meta( $post_id, '_fl_builder_data', true );
+
+			if ( empty( $data ) || ! is_array( $data ) ) {
+				continue;
+			}
+
+			foreach ( $data as $node ) {
+				$settings = is_object( $node ) && isset( $node->settings ) ? $node->settings : null;
+
+				if ( $settings ) {
+					$this->find_font_fields( $settings, $fields );
+				}
+			}
+		}
+
+		return $this->google_specs_to_urls( $fields );
+	}
+
+	/**
+	 * Recursively scan a Beaver Builder settings object/array for `*family` /
+	 * `*weight` sibling key pairs (its font-field naming convention, e.g.
+	 * `heading_font_family` + `heading_font_weight`, or a bare `family` +
+	 * `weight` pair) and append each as a raw family/weight candidate.
+	 *
+	 * @param mixed $data   Settings object or array to scan.
+	 * @param array $fields Running candidate list (passed by reference).
+	 */
+	private function find_font_fields( $data, array &$fields ) {
+		$flat = array();
+		$this->flatten_settings( $data, $flat );
+
+		foreach ( $flat as $key => $value ) {
+			if ( '' === $value || ! preg_match( '/(^|_)family$/', $key ) ) {
+				continue;
+			}
+
+			$prefix = substr( $key, 0, -strlen( 'family' ) );
+
+			$fields[] = array(
+				'family' => $value,
+				'weight' => isset( $flat[ $prefix . 'weight' ] ) ? $flat[ $prefix . 'weight' ] : '',
+			);
+		}
+	}
+
+	/**
+	 * Flatten a nested settings object/array into a single-level key => scalar
+	 * map (last write wins across nesting levels — sufficient for sibling-key
+	 * pairing, since Beaver Builder stores font fields flat within a node).
+	 *
+	 * @param mixed $data Object or array to flatten.
+	 * @param array $out  Output map (passed by reference).
+	 */
+	private function flatten_settings( $data, array &$out ) {
+		if ( is_object( $data ) ) {
+			$data = get_object_vars( $data );
+		}
+
+		if ( ! is_array( $data ) ) {
+			return;
+		}
+
+		foreach ( $data as $key => $value ) {
+			if ( is_object( $value ) || is_array( $value ) ) {
+				$this->flatten_settings( $value, $out );
+			} elseif ( is_string( $key ) && is_scalar( $value ) ) {
+				$out[ $key ] = trim( (string) $value );
+			}
+		}
+	}
+
+	/**
+	 * Filter raw family/weight candidates down to actual Google Fonts (unioning
+	 * weights per family) and build one canonical `css2` URL per family via the
+	 * shared spec builder.
+	 *
+	 * @param array $fields Raw candidates: [ 'family' => string, 'weight' => string ].
+	 * @return string[]
+	 */
+	private function google_specs_to_urls( array $fields ) {
+		$catalog = $this->beaver_builder_google_catalog();
+		$specs   = array();
+
+		foreach ( $fields as $field ) {
+			$family = trim( (string) $field['family'] );
+
+			if ( '' === $family || ! $this->family_is_google_font( $family, $catalog ) ) {
+				continue;
+			}
+
+			if ( ! isset( $specs[ $family ] ) ) {
+				$specs[ $family ] = array();
+			}
+
+			if ( preg_match( '/[1-9]00/', (string) $field['weight'], $m ) ) {
+				$specs[ $family ][ $m[0] ] = true;
+			}
+		}
+
+		$urls = array();
+
+		foreach ( $specs as $family => $weights ) {
+			$weight_list = ! empty( $weights ) ? implode( ',', array_keys( $weights ) ) : '400';
+			$url         = $this->build_google_css_url( $family . ':' . $weight_list );
+
+			if ( $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		return $urls;
+	}
+
+	/**
+	 * Beaver Builder's own Google Fonts catalog, if its class/property exists in
+	 * the installed version — used as the authoritative allow-list when present.
+	 *
+	 * @return string[]|null List of Google family names, or null if unavailable.
+	 */
+	private function beaver_builder_google_catalog() {
+		if ( ! class_exists( 'FLBuilderFontFamilies' ) ) {
+			return null;
+		}
+
+		foreach ( array( 'google', 'google_fonts' ) as $prop ) {
+			if ( ! property_exists( 'FLBuilderFontFamilies', $prop ) ) {
+				continue;
+			}
+
+			$value = FLBuilderFontFamilies::$$prop;
+
+			if ( is_array( $value ) && ! empty( $value ) ) {
+				return array_keys( $value ) === range( 0, count( $value ) - 1 ) ? array_values( $value ) : array_keys( $value );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Whether a family name is a Google Font: matched against Beaver Builder's
+	 * own catalog when available, else a system/web-safe font exclusion list.
+	 *
+	 * @param string        $family  Family name.
+	 * @param string[]|null $catalog Google family allow-list, or null.
+	 * @return bool
+	 */
+	private function family_is_google_font( $family, $catalog ) {
+		if ( null !== $catalog ) {
+			return in_array( $family, $catalog, true );
+		}
+
+		static $system_fonts = array(
+			'default', 'inherit', 'arial', 'helvetica', 'helvetica neue', 'times new roman',
+			'times', 'georgia', 'garamond', 'verdana', 'tahoma', 'trebuchet ms', 'courier new',
+			'courier', 'lucida console', 'lucida sans unicode', 'palatino linotype', 'segoe ui',
+			'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+		);
+
+		return ! in_array( strtolower( $family ), $system_fonts, true );
 	}
 
 	/**

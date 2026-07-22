@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -53,7 +53,8 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Add an HTTP Strict Transport Security (HSTS) header with a configurable max-age, includeSubDomains, and preload — only sent on HTTPS responses, including behind a reverse proxy that terminates TLS at the edge (e.g. QUIC.cloud)
 
 = Google Fonts Localizer & Discovery =
-* Scans your homepage for Google Fonts references and downloads the .woff2 files to your own server
+* Scans a representative sample of your pages for Google Fonts references and downloads the .woff2 files to your own server
+* Reads fonts straight from Beaver Builder's stored layout settings when it's active, so they're found even behind a page cache or CSS optimizer that hides the font tag
 * Rewrites the page to serve fonts locally instead of from fonts.googleapis.com / fonts.gstatic.com
 * Falls back gracefully to the original Google-hosted fonts if a local copy isn't available yet, so a scan issue never breaks font rendering
 
@@ -91,6 +92,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.10.0 =
+* Added: font discovery now reads Google Fonts directly from Beaver Builder's stored settings (global typography and each published layout's node settings) in addition to scanning rendered pages. Because it reads the layout data rather than the rendered HTML, it finds fonts even when a page cache or CSS optimizer strips the Google Fonts tag, and it isn't limited to the sampled pages. It no-ops when Beaver Builder isn't active.
 
 = 1.9.0 =
 * Added: a "Workers (Web / Service / Shared Workers)" row to the CSP policy builder (`worker-src`), so scripts that spin up a worker from a `blob:` URL — a common pattern in map, chart, PDF, and analytics libraries — can be allowed like any other directive instead of only being fixable via the raw-policy editor. The recommended default policy now includes `worker-src 'self' blob:`.
