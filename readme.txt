@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.11.2
+Stable tag: 1.12.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.12.0 =
+* Added: MainWP child-side bridge (`SPFW_MainWP_Child`) so the companion "MainWP for Simple Performance for WordPress" dashboard extension can read and update plugin settings over MainWP's signed channel.
 
 = 1.11.2 =
 * Fixed: textarea fields (Manual font weights, Extra pages to scan, Whitelist routes) no longer allow only one line of input. Newlines are now preserved while typing; the list is parsed and saved on blur.

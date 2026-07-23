@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.11.2
-- **Last updated:** 2026-07-22
+- **Plugin version target:** 1.12.0
+- **Last updated:** 2026-07-23
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -39,7 +39,8 @@ the authoritative record.)
   no-store cache headers on report endpoint, connect-src auto-injection,
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
   wrapper for WordPress overwrite detection, 1.11.1); ✅ Textarea multiline
-  input fix (local-state + blur-commit pattern, 1.11.2)
+  input fix (local-state + blur-commit pattern, 1.11.2); ✅ MainWP child-side
+  bridge added (companion dashboard extension support, 1.12.0)
 
 ## Shared project facts (true for every step)
 
@@ -1177,6 +1178,15 @@ follow-ups deferred. Keep entries dated and terse.
   Version bumped to 1.11.2 (plugin header + `SPFW_VERSION` + `readme.txt`
   stable tag + changelog).
   **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
+
+- 2026-07-23 (MainWP child-side bridge, → 1.12.0): added
+  `includes/class-spfw-mainwp-child.php` — a lightweight bridge class
+  (`SPFW_MainWP_Child`) that hooks `mainwp_child_extra_execution` to let the
+  companion "MainWP for Simple Performance for WordPress" dashboard extension
+  read (`get_settings`) and update (`update_settings`) plugin settings over
+  MainWP's signed dashboard-to-child channel. The class is loaded and
+  instantiated in the main plugin bootstrap file. Version bumped to 1.12.0
+  (plugin header + `SPFW_VERSION` + `readme.txt` stable tag + changelog).
 
 ## Open questions / blockers
 
