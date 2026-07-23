@@ -16,8 +16,8 @@ the authoritative record.)
   `claude/feature-parity-quick-toggles-sf64kt`)
 - **Plugin version target:** 1.11.2
 - **Last updated:** 2026-07-22
-- **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (Perfmatters
-  quick-toggle parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
+- **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+  parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Hardening-toggle write bug fixed + hardening options expanded (branch
   `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
@@ -80,7 +80,7 @@ the authoritative record.)
 | 7 | Module 3 — directory hardening | ✅ Done | 2326c84 |
 | 8 | Module 4 — Google Fonts localizer | ✅ Done | a294f3b |
 | 9 | Uninstall cleanup | ✅ Done | 92afbf5 |
-| 10 | Perfmatters quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
+| 10 | Quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
@@ -572,10 +572,10 @@ follow-ups deferred. Keep entries dated and terse.
   can't be produced without a live running install to actually screenshot.
   This work sits outside the original 9-step Phase 1 plan, so it isn't a row
   in the Progress table above — noted here for continuity only.
-- 2026-07-10 (Step 10): Perfmatters quick-toggle parity + WooCommerce tab,
+- 2026-07-10 (Step 10): Quick-toggle parity + WooCommerce tab,
   built on branch `claude/feature-parity-quick-toggles-sf64kt`. Per user
   direction: **no Change Login URL**; **Heartbeat and post options match
-  Perfmatters** (replaced `heartbeat_mode`/`heartbeat_interval` with
+  the feature-parity spec** (replaced `heartbeat_mode`/`heartbeat_interval` with
   `heartbeat_control` [default|disable|allow_posts] + separate
   `heartbeat_frequency`; added `post_revisions` [default|disable|1–30] and
   `autosave_interval` [0=default|1–5 min]); **Google Maps included** as a
