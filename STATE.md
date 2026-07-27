@@ -1283,6 +1283,37 @@ follow-ups deferred. Keep entries dated and terse.
   Version bumped to 1.13.0 (plugin header + `SPFW_VERSION` + `readme.txt`
   stable tag + changelog).
 
+- 2026-07-27 (root cause corrected — QUIC.cloud UCSS was the carrier, → 1.13.1):
+  baseline `curl` checks run on staging *before* installing 1.13.0 disproved a
+  link in the 1.13.0 diagnosis. Staging's `fonts.css` was already **correct** —
+  a re-scan that morning had refreshed it and every URL pointed at
+  `staging.laseraesthetics.org` — so the stale-stylesheet mechanism in
+  `FONT_CORS_FIX_PLAN.md` §2.1 was not what the site was actually hitting.
+  Enumerating every stylesheet the page links found all 28 production font URLs
+  in one file and none in the page markup:
+  `/wp-content/litespeed/ucss/07c019270f875cdecbe7e6584695ee3b.css` — **QUIC.cloud
+  Unique CSS**, generated while `fonts.css` still held production-absolute URLs
+  and served in place of the original stylesheet ever since. Corroborated by the
+  font filenames in the console (`c97…`, `c79…`) appearing nowhere among the 22
+  files the current `fonts.css` references: filenames are `sha1()` of the gstatic
+  URL, so those belong to an older scan entirely.
+  **Consequences:** (1) the root-relative change (§3.3) is the load-bearing fix,
+  not belt-and-braces — derived CSS inherits whatever `fonts.css` contains, so
+  root-relative URLs make UCSS/CCSS domain-portable too; (2) purging the page
+  cache is insufficient. `finish_scan()` and the self-heal now call
+  `purge_generated_css()`, firing `litespeed_purge_all_ucss`, `_ccss`, `_cssjs`
+  and then `litespeed_purge_all`. Each is a plain `do_action`, so a hook LSCache
+  does not register is a harmless no-op — the names are **not** verified against
+  a live LSCache install.
+  **Ordering hazard recorded in the plan:** the site has LiteSpeed set to purge
+  all on plugin change, so installing the fix can requeue UCSS generation
+  *before* the first front-end request has regenerated `fonts.css` — rebuilding
+  the derived file from the old stylesheet. `fonts.css` must be regenerated
+  first, then purged.
+  **Verified:** `php -l` clean; the integration harness (now 26 assertions)
+  asserts all four purge hooks fire on a self-heal, with the page purge ordered
+  last. Version bumped to 1.13.1.
+
 ## Open questions / blockers
 
 - Live QA for the CORS font fix needs the staging site: this session's network
@@ -1295,6 +1326,12 @@ follow-ups deferred. Keep entries dated and terse.
   environment) and now covers more untranslated strings: the CDN hint added in
   1.11.0 plus 1.13.0's "Serving fonts from", the cross-origin warning, and the
   extended CSP hint.
+- The `litespeed_purge_all_ucss` / `_ccss` / `_cssjs` hook names are taken from
+  LSCache's documented purge API and have **not** been verified against a live
+  LSCache install. They are fired via `do_action`, so a wrong name is a silent
+  no-op rather than an error — which also means a wrong name would look exactly
+  like success. QA should confirm the UCSS file is actually rebuilt after a
+  scan, not merely that no error appears.
 - The font-directory `.htaccess` has not been exercised on a real
   OpenLiteSpeed vhost. The `<IfModule mod_headers.c>` guard is there precisely
   so a server without `mod_headers` ignores it rather than 500s, but QA step 7

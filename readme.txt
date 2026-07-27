@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.13.0
+Stable tag: 1.13.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.13.1 =
+* Fixed: regenerating the localized stylesheet now also purges LiteSpeed's generated CSS — QUIC.cloud Unique CSS and Critical CSS, and the combined CSS/JS cache — not just the page cache. Those are separate purge targets, and a Unique CSS file built from an older stylesheet would keep serving its font URLs to the browser no matter how many times the stylesheet itself was rebuilt.
 
 = 1.13.0 =
 * Fixed: localized Google Fonts were blocked by CORS after a site moved domain (for example a production site cloned to staging). Font URLs were frozen into the stored stylesheet at scan time, so the clone kept requesting fonts from the original host; browsers fetch CSS-referenced fonts in CORS mode and discard cross-origin responses that carry no `Access-Control-Allow-Origin` header, which shows in the console as "blocked by CORS policy" plus a misleading `ERR_FAILED 200 (OK)`.

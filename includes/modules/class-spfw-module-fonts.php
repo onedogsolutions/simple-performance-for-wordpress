@@ -385,9 +385,9 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		SPFW_Settings::update( $update );
 
-		// A hash change means cached pages must be re-rendered to pick up the
-		// rewrite; harmless no-op when LSCache is not installed.
-		do_action( 'litespeed_purge_all' );
+		// A hash change means cached pages — and any generated CSS derived from
+		// the old stylesheet — must be rebuilt to pick up the rewrite.
+		$this->purge_generated_css();
 
 		return array(
 			'families' => empty( $discovered['families'] ) ? array() : $discovered['families'],
@@ -976,12 +976,37 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		SPFW_Settings::update( array( 'fonts' => array( 'rendered_for' => $base ) ) );
 
-		// A page/CSS-combine cache built before the rewrite still holds the old
-		// font URLs, so the stale copy must go with it. Harmless no-op when
-		// LSCache is not installed.
-		do_action( 'litespeed_purge_all' );
+		$this->purge_generated_css();
 
 		return true;
+	}
+
+	/**
+	 * Invalidate every cache that may hold a *derived* copy of the font CSS.
+	 *
+	 * Purging the page cache alone is not enough, and assuming otherwise is
+	 * what let this bug survive a re-scan on a live site: LiteSpeed's CSS
+	 * combine output and QUIC.cloud's generated Critical CSS / Unique CSS are
+	 * separate artifacts, written into /wp-content/litespeed/ and served in
+	 * place of the original stylesheet. A UCSS file generated while fonts.css
+	 * still held absolute URLs keeps serving those URLs to the browser no
+	 * matter how many times fonts.css itself is regenerated — the observed
+	 * failure on a cloned staging site, where the page's own markup was clean
+	 * and a single UCSS file carried every stale font reference.
+	 *
+	 * Each hook is a plain do_action, so any name LSCache does not register
+	 * (whether because the plugin is absent or the version differs) is a
+	 * harmless no-op.
+	 */
+	private function purge_generated_css() {
+		foreach ( array(
+			'litespeed_purge_all_ucss',  // QUIC.cloud Unique CSS.
+			'litespeed_purge_all_ccss',  // QUIC.cloud Critical CSS.
+			'litespeed_purge_all_cssjs', // Combined/minified CSS + JS.
+			'litespeed_purge_all',       // Page cache, last so it settles after the rest.
+		) as $hook ) {
+			do_action( $hook );
+		}
 	}
 
 	/**

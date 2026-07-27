@@ -105,13 +105,43 @@ response. Any deployment where uploads are on a different host than the page
 (CDN offload, `upload_url_path` override, asset subdomain) fails the same way,
 permanently.
 
-### 2.4 Contributing factor: stale LiteSpeed CSS bundle
+### 2.4 The actual carrier on this site: QUIC.cloud UCSS (confirmed 2026-07-27)
 
-The console attributes the font URLs to `6795fcd…81e.css?ver=a6a8c…` — a
-LiteSpeed *combined* CSS bundle, not `fonts.css` directly. Whatever fixes the
-source CSS must also invalidate that bundle, or the browser keeps reading the
-old URLs out of the combined file. `finish_scan()` already fires
-`litespeed_purge_all`, but the self-healing path added in §3.2 must do the same.
+**Correction to §2.1 as it applies to laseraesthetics.org.** Baseline `curl`
+checks run before installing 1.13.0 showed staging's `fonts.css` was already
+**correct** — every URL in it pointed at `staging.laseraesthetics.org`. A re-scan
+that morning had refreshed it. Two further facts located the real carrier:
+
+- The font files named in the console (`c97…`, `c79…`) appear nowhere in the 22
+  files the current `fonts.css` references. Filenames are `sha1()` of the gstatic
+  source URL, so those belong to an *older* scan entirely.
+- Enumerating every stylesheet the page links found all 28 production font URLs
+  in exactly one file, and none in the page markup:
+  `/wp-content/litespeed/ucss/07c019270f875cdecbe7e6584695ee3b.css`.
+
+So the stale absolute URLs live in **QUIC.cloud-generated Unique CSS**, built
+while `fonts.css` still held production-absolute URLs and served in place of the
+original stylesheet ever since. `fonts.css` being fixed changes nothing, because
+the browser never reads it.
+
+This makes §3.3 (root-relative URLs) the load-bearing fix rather than a
+belt-and-braces one: derived CSS inherits whatever `fonts.css` contains, so
+root-relative URLs make the *generated* artifacts domain-portable too — a UCSS
+file built on production stays correct when served on staging.
+
+It also adds a requirement §3.2 did not cover. `litespeed_purge_all` clears the
+page cache; UCSS, CCSS, and the CSS/JS combine cache are **separate purge
+targets**. A scan that only purges pages leaves the derived copy in place, which
+is precisely why the site's own re-scan appeared to do nothing. Both purge
+sites — `finish_scan()` and the self-heal — must fire
+`litespeed_purge_all_ucss`, `_ccss`, and `_cssjs` as well. Each is a plain
+`do_action`, so an unregistered hook is a harmless no-op.
+
+**Ordering hazard for QA:** a purge that runs *before* `fonts.css` is
+regenerated lets QUIC.cloud rebuild UCSS from the old stylesheet, producing a
+fresh file with the same bad URLs. The site has LiteSpeed set to purge all on
+plugin change, so installing the fix alone can trigger exactly that. Regenerate
+`fonts.css` first (load one front-end page), then purge.
 
 ## 3. The fix
 
@@ -337,9 +367,9 @@ Confirm on the site:
 
 ## 7. Out of scope
 
-- QUIC.cloud-generated critical CSS (CCSS/UCSS) built while the site was on the
-  production domain may hold its own copy of the old URLs. That is edge-cached
-  state outside this plugin; a QUIC.cloud purge clears it. Worth checking during
-  QA step 5 if any font URL still points at production after the fix.
+- ~~QUIC.cloud-generated critical CSS (CCSS/UCSS)~~ — **moved in scope.** This
+  turned out to be the actual carrier on the reporting site, not a footnote; see
+  §2.4. The plugin now purges UCSS/CCSS/CSS-JS alongside the page cache whenever
+  it regenerates the stylesheet.
 - A general-purpose CORS header UI for arbitrary asset types. The font directory
   is the only place this plugin owns.
