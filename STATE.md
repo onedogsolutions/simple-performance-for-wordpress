@@ -1371,6 +1371,46 @@ follow-ups deferred. Keep entries dated and terse.
   produces a distinct line and that `store_scan_report()` persists message +
   diagnostics; `npm run build` and `lint-js` clean.
 
+- 2026-07-27 (**root cause of the discovery failure: the scan blinded itself**,
+  → 1.15.0): the 1.14.1 inline counts paid off immediately. The user ran two
+  scans two minutes apart — one with **Self-host Google Fonts ON**, one with it
+  **OFF** after a manual full purge and incognito page visits:
+  | | localize_google ON | OFF |
+  |---|---|---|
+  | families | 3 | **6** |
+  | Google stylesheets found | 3 | **4** |
+  | @font-face blocks | 22 | **48** |
+  | files | 22 | **25** |
+  Disabling the feature doubled discovery. **Root cause:**
+  `serve_local_fonts()` (on `wp_enqueue_scripts` @99) dequeues every Google
+  Fonts stylesheet, but discovery captures on the `style_loader_src` filter,
+  which only fires for styles that are actually *printed*. During the scan's own
+  loopback the plugin therefore removed the very stylesheets it was trying to
+  find — the enqueue capture saw nothing, the HTML pass had no `<link>` to
+  match, and `remove_google_resource_hints()` stripped the last trace. A scan
+  could only ever re-find fonts it had **not** already localized, so the font
+  set froze at whatever the first scan caught and no later addition (Maven Pro,
+  Open Sans:800) could ever be picked up. This also explains the user's
+  workaround of toggling the feature off, purging, and rescanning.
+  **Fix:** `maybe_capture_during_scan()` now returns whether the request is an
+  authorized scan loopback, and `register()` skips both `serve_local_fonts` and
+  `remove_google_resource_hints` for that request only. Verified a forged or
+  stale token cannot use this to switch localization off on a normal request.
+  **Second finding (still open):** both scans reported `0 from manual
+  declarations` while the UI textarea clearly held `Roboto Condensed:400,700`
+  and `Open Sans:400,600,700`. A reflection harness against live Google
+  responses proves `manual_css_urls()` → `parse_font_faces()` handles exactly
+  those two specs correctly (44 faces → 17 files), and `merge_recursive()`
+  replaces list values correctly, so the URL builder is not at fault. The scan
+  report now records `manual_declared` (what is stored) separately from
+  `manual` (what could be built), which decides between a persistence bug and a
+  spec-parsing bug on the next scan.
+  **Verified:** a new harness drives the real `register()` across three request
+  types (8 assertions: normal front-end request still localizes and strips
+  hints; valid-token loopback captures and does *not* dequeue; forged token
+  leaves localization active and captures nothing). Existing suites still pass
+  (21 + 26). `php -l`, `npm run build`, `lint-js`, `lint:css` clean.
+
 ## Open questions / blockers
 
 - Live QA for the CORS font fix needs the staging site: this session's network

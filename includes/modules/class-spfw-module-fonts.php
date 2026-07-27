@@ -104,11 +104,20 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	 * the admin — a stale-CSS warning notice.
 	 */
 	public function register() {
-		$this->maybe_capture_during_scan();
+		$is_scan = $this->maybe_capture_during_scan();
 
 		$fonts = SPFW_Settings::group( 'fonts' );
 
-		if ( ! empty( $fonts['localize_google'] ) && ! empty( $fonts['discovered']['css'] ) ) {
+		// Stand down during a scan's own loopback render. serve_local_fonts()
+		// dequeues every Google Fonts stylesheet, and `style_loader_src` — the
+		// filter discovery captures on — only fires for styles that actually get
+		// printed. So with localization enabled the plugin was hiding the fonts
+		// from its own scanner: the enqueue capture saw nothing, the HTML pass
+		// found no <link> to match, and the stripped resource hints removed the
+		// last trace. Rescanning could then only ever re-find fonts it had not
+		// already localized, which is why disabling the toggle and rescanning
+		// suddenly surfaced twice as many families.
+		if ( ! $is_scan && ! empty( $fonts['localize_google'] ) && ! empty( $fonts['discovered']['css'] ) ) {
 			add_action( 'wp_enqueue_scripts', array( $this, 'serve_local_fonts' ), 99 );
 			add_filter( 'wp_resource_hints', array( $this, 'remove_google_resource_hints' ), 10, 2 );
 		}
@@ -159,27 +168,33 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	 * When the current request is the scan loopback (identified by a valid
 	 * one-time token), instrument the style pipeline to record every Google
 	 * Fonts stylesheet WordPress prints. Inert on every other request.
+	 *
+	 * @return bool True when this request is an authorized scan loopback, so
+	 *              the caller can leave the frontend rewrite switched off and
+	 *              let the original Google enqueues through to be captured.
 	 */
 	private function maybe_capture_during_scan() {
 		if ( is_admin() ) {
-			return;
+			return false;
 		}
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- compared against a server-set transient below, not a form nonce.
 		$token = isset( $_GET['spfw_font_scan'] ) ? sanitize_text_field( wp_unslash( $_GET['spfw_font_scan'] ) ) : '';
 
 		if ( '' === $token ) {
-			return;
+			return false;
 		}
 
 		$expected = get_transient( self::SCAN_TOKEN_TRANSIENT );
 
 		if ( ! $expected || ! hash_equals( (string) $expected, $token ) ) {
-			return;
+			return false;
 		}
 
 		add_filter( 'style_loader_src', array( $this, 'capture_style_src' ), PHP_INT_MAX );
 		add_action( 'shutdown', array( $this, 'flush_captured_urls' ), 0 );
+
+		return true;
 	}
 
 	/**
@@ -234,16 +249,17 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		// or a failed download. The per-stage counts below are the difference
 		// between diagnosing that and guessing at it.
 		$diag = array(
-			'targets'      => array(),
-			'captured'     => 0,
-			'from_html'    => 0,
-			'from_linked'  => 0,
-			'inline_faces' => 0,
-			'manual'       => array(),
-			'css_urls'     => array(),
-			'faces'        => 0,
-			'downloads_ok' => 0,
-			'downloads_ko' => 0,
+			'targets'         => array(),
+			'captured'        => 0,
+			'from_html'       => 0,
+			'from_linked'     => 0,
+			'inline_faces'    => 0,
+			'manual_declared' => array(),
+			'manual'          => array(),
+			'css_urls'        => array(),
+			'faces'           => 0,
+			'downloads_ok'    => 0,
+			'downloads_ko'    => 0,
 		);
 
 		// Scan the homepage plus a representative sample of inner templates and
@@ -303,6 +319,13 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		// families/weights to localize, so a used weight (e.g. 400) is captured
 		// even when the automated scan only ever sees an optimized page that
 		// references another (e.g. 700).
+		// Record what is *stored* separately from what could be *built* from it.
+		// A declaration that never reaches the scan (a persistence problem) and
+		// one the URL builder rejects (a parsing problem) both end up as "no
+		// manual fonts", and only these two numbers side by side tell them apart.
+		$stored_manual           = SPFW_Settings::value( 'fonts', 'manual_families', array() );
+		$diag['manual_declared'] = is_array( $stored_manual ) ? array_values( $stored_manual ) : array();
+
 		$manual_urls    = $this->manual_css_urls();
 		$diag['manual'] = $manual_urls;
 		$css_urls       = array_merge( $css_urls, $manual_urls );
@@ -493,12 +516,13 @@ class SPFW_Module_Fonts implements SPFW_Module {
 			+ ( isset( $d['from_linked'] ) ? (int) $d['from_linked'] : 0 );
 
 		return sprintf(
-			/* translators: 1: pages loaded, 2: pages attempted, 3: stylesheets found on the site, 4: manual declarations, 5: @font-face blocks, 6: files downloaded, 7: files failed. */
-			__( '[%1$d/%2$d pages loaded · %3$d Google stylesheets on the site · %4$d from manual declarations · %5$d @font-face blocks · %6$d files downloaded, %7$d failed]', 'simple-performance-for-wordpress' ),
+			/* translators: 1: pages loaded, 2: pages attempted, 3: stylesheets found on the site, 4: manual declarations used, 5: manual declarations stored, 6: @font-face blocks, 7: files downloaded, 8: files failed. */
+			__( '[%1$d/%2$d pages loaded · %3$d Google stylesheets on the site · %4$d of %5$d manual declarations used · %6$d @font-face blocks · %7$d files downloaded, %8$d failed]', 'simple-performance-for-wordpress' ),
 			$ok,
 			count( $targets ),
 			$sheets,
 			isset( $d['manual'] ) ? count( $d['manual'] ) : 0,
+			isset( $d['manual_declared'] ) ? count( $d['manual_declared'] ) : 0,
 			isset( $d['faces'] ) ? (int) $d['faces'] : 0,
 			isset( $d['downloads_ok'] ) ? (int) $d['downloads_ok'] : 0,
 			isset( $d['downloads_ko'] ) ? (int) $d['downloads_ko'] : 0

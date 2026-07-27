@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.14.1
+Stable tag: 1.15.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.15.0 =
+* Fixed: font discovery was blind to any font it had already localized. While "Self-host Google Fonts" was on, the plugin dequeued the Google Fonts stylesheets during its own scan, so the scan could not see them — leaving admins to toggle the feature off, purge, and rescan just to discover fonts. The scan's loopback request now leaves the original Google stylesheets in place, so rescanning works with self-hosting enabled and picks up families and weights added since the last scan.
+* Added: the scan report now distinguishes manual declarations that are *stored* from those actually *used*, and lists the stored ones — so "no manual fonts" no longer conflates a setting that never saved with a family name Google does not recognize.
 
 = 1.14.1 =
 * Changed: the scan outcome message now carries the key counts inline — pages loaded, Google stylesheets found on the site, manual declarations in effect, @font-face blocks parsed, and files downloaded/failed — so a scan that finds nothing says why on its own line, without expanding anything.

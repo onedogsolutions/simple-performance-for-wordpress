@@ -241,20 +241,46 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 										</li>
 										<li>
 											{ __(
-												'From your manual declarations:',
+												'Manual declarations stored:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{
+												( diag.manual_declared || [] )
+													.length
+											}
+											{ ( diag.manual_declared || [] )
+												.length > 0 &&
+												` — ${ (
+													diag.manual_declared || []
+												).join( ', ' ) }` }
+										</li>
+										<li>
+											{ __(
+												'Manual declarations used:',
 												'simple-performance-for-wordpress'
 											) }{ ' ' }
 											{ ( diag.manual || [] ).length }
 										</li>
 									</ul>
-									{ ( diag.manual || [] ).length === 0 && (
+									{ ( diag.manual_declared || [] ).length ===
+										0 && (
 										<p className="mt-1 text-amber-700">
 											{ __(
-												'No manual declarations were used. If you typed some below, they were not saved before this scan ran.',
+												'No manual declarations were stored when this scan ran. Type them into “Manual font weights” below, click Save Settings, then scan again.',
 												'simple-performance-for-wordpress'
 											) }
 										</p>
 									) }
+									{ ( diag.manual_declared || [] ).length >
+										0 &&
+										( diag.manual || [] ).length === 0 && (
+											<p className="mt-1 text-amber-700">
+												{ __(
+													'Manual declarations were stored but none could be turned into a Google Fonts request — check the “Family:weights” spelling against Google’s catalog.',
+													'simple-performance-for-wordpress'
+												) }
+											</p>
+										) }
 								</div>
 
 								{ ( diag.css_urls || [] ).length > 0 && (
