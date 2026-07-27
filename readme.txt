@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.14.0
+Stable tag: 1.14.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.14.1 =
+* Changed: the scan outcome message now carries the key counts inline — pages loaded, Google stylesheets found on the site, manual declarations in effect, @font-face blocks parsed, and files downloaded/failed — so a scan that finds nothing says why on its own line, without expanding anything.
+* Fixed: scan diagnostics are now stored and shown after a page reload, instead of existing only in the scan's own response and disappearing on refresh.
+* Fixed: a scan that fails outright (for example when the site cannot load its own pages) now records and displays its diagnostics too. Previously that path returned a bare error and discarded every count that explained it — the case where the detail was needed most.
 
 = 1.14.0 =
 * Added: "Scan details" on the Fonts tab reports what each stage of a font scan actually saw — which pages were fetched and how large they were, how many Google stylesheets came from the page render, the page HTML, linked stylesheets, inlined @font-face blocks and your manual declarations, how many faces each Google stylesheet yielded, and how many font files downloaded or failed. A scan that finds fewer fonts than expected now says where they were lost instead of only reporting the total.

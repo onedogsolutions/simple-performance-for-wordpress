@@ -165,6 +165,12 @@ export default function App() {
 						),
 					'error'
 				);
+
+				// A failed scan still persists its diagnostics; refetch so the
+				// Scan details panel shows why it failed instead of nothing.
+				return apiFetch( { path: '/spfw/v1/settings' } )
+					.then( ( data ) => setSettings( data ) )
+					.catch( () => {} );
 			} );
 	};
 

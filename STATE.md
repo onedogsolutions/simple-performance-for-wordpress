@@ -1346,6 +1346,31 @@ follow-ups deferred. Keep entries dated and terse.
   `rendered_for`, and fires the purge hooks in order; `npm run build`,
   `lint-js`, `lint:css` clean.
 
+- 2026-07-27 (scan report persisted + counts inline, → 1.14.1): after 1.14.0 the
+  user re-scanned and reported "no new families were added" without the Scan
+  details, so the instrumentation had not actually closed the loop. Three
+  reasons it could not:
+  (1) `scan_result` lived only in the scan's POST response, so a page reload
+  discarded it; (2) the WP_Error path (`spfw_fonts_fetch_failed`) returned a bare
+  message and threw away the whole diagnostics array — the failure mode where
+  the counts matter most; (3) the counts were behind a `<details>` toggle, so
+  the visible outcome line still said nothing useful.
+  **Fix:** `finish_scan()` and a new `store_scan_report()` persist
+  `fonts.last_scan_report` (`{message, diagnostics, time}`); `diag_summary()`
+  appends the key counts to the outcome message itself; `FontsSettings.jsx`
+  prefers the live response and falls back to the persisted report; `App.jsx`
+  refetches settings on scan failure so a 500 still surfaces the report.
+  **Note on "no new families":** `finish_scan()` deliberately leaves
+  `discovered` intact on an empty scan (so a transient blip cannot wipe working
+  fonts), which means a *failing* scan and a scan that finds nothing new are
+  visually identical in the families list. That is very likely what the user is
+  seeing, and the inline counts now distinguish them.
+  **Verified:** `php -l` clean; a reflection harness renders `diag_summary()`
+  across four scenarios (CDN-stripped loopback, Google unreachable with manual
+  declarations in effect, healthy scan, hard loopback failure) and confirms each
+  produces a distinct line and that `store_scan_report()` persists message +
+  diagnostics; `npm run build` and `lint-js` clean.
+
 ## Open questions / blockers
 
 - Live QA for the CORS font fix needs the staging site: this session's network

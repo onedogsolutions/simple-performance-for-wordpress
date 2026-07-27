@@ -28,7 +28,10 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 		? discovered.files.length
 		: 0;
 	const scanResult = settings.scan_result || null;
-	const diag = ( scanResult && scanResult.diagnostics ) || null;
+	// Prefer this scan's own response, but fall back to the persisted report so
+	// the numbers are still here after a page reload.
+	const report = scanResult || fonts.last_scan_report || null;
+	const diag = ( report && report.diagnostics ) || null;
 	const runtime = settings.fonts_runtime || {};
 	const isCrossOrigin =
 		runtime.same_origin === false && !! runtime.uploads_host;
@@ -166,9 +169,9 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 						</p>
 					) }
 
-					{ scanResult && scanResult.message && (
-						<p className="text-xs text-gray-600">
-							{ scanResult.message }
+					{ report && report.message && (
+						<p className="text-xs text-gray-600 sm:text-right">
+							{ report.message }
 						</p>
 					) }
 

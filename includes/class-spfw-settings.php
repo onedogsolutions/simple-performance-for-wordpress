@@ -101,6 +101,10 @@ class SPFW_Settings {
 				'manual_families' => array(),
 				'extra_scan_urls' => array(),
 				'needs_rescan'    => false,
+				// Outcome + per-stage counts of the most recent scan, kept so
+				// the Fonts tab can show them after a page reload rather than
+				// only in the scan's own response.
+				'last_scan_report' => array(),
 				// Base the on-disk fonts.css was last rendered against. A
 				// mismatch against the current base means the site moved domain
 				// and the file must be regenerated — see
@@ -421,6 +425,9 @@ class SPFW_Settings {
 			isset( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : $defaults['fonts']['extra_scan_urls']
 		);
 		$clean['fonts']['needs_rescan']    = self::to_bool( $fonts, 'needs_rescan', $defaults['fonts']['needs_rescan'] );
+		$clean['fonts']['last_scan_report'] = isset( $fonts['last_scan_report'] ) && is_array( $fonts['last_scan_report'] )
+			? $fonts['last_scan_report']
+			: $defaults['fonts']['last_scan_report'];
 		$clean['fonts']['rendered_for']    = isset( $fonts['rendered_for'] )
 			? sanitize_text_field( $fonts['rendered_for'] )
 			: $defaults['fonts']['rendered_for'];

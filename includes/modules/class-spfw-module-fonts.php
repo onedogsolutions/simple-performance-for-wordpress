@@ -311,10 +311,14 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		if ( empty( $css_urls ) && empty( $font_faces ) ) {
 			if ( ! $fetch_ok && empty( $captured ) && empty( $manual_urls ) ) {
-				return new WP_Error(
-					'spfw_fonts_fetch_failed',
-					__( 'Could not load your homepage to scan for fonts. Your server may block loopback requests — check your site is reachable from itself, then try again.', 'simple-performance-for-wordpress' )
-				);
+				$error = __( 'Could not load your homepage to scan for fonts. Your server may block loopback requests — check your site is reachable from itself, then try again.', 'simple-performance-for-wordpress' );
+
+				// Persist the report even on the hard-failure path: this is the
+				// case an admin most needs to see, and returning a bare WP_Error
+				// would throw away every count that explains it.
+				$this->store_scan_report( $error, $diag );
+
+				return new WP_Error( 'spfw_fonts_fetch_failed', $error );
 			}
 
 			return $this->finish_scan(
@@ -424,10 +428,17 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	 * @return array
 	 */
 	private function finish_scan( $discovered, $message, $rendered_for = '', $diagnostics = array() ) {
+		$message = trim( $message . ' ' . $this->diag_summary( $diagnostics ) );
+
 		$update = array(
 			'fonts' => array(
-				'last_scan'    => time(),
-				'needs_rescan' => false,
+				'last_scan'        => time(),
+				'needs_rescan'     => false,
+				'last_scan_report' => array(
+					'message'     => $message,
+					'diagnostics' => $diagnostics,
+					'time'        => time(),
+				),
 			),
 		);
 
@@ -450,6 +461,70 @@ class SPFW_Module_Fonts implements SPFW_Module {
 			'files'       => empty( $discovered['files'] ) ? array() : $discovered['files'],
 			'message'     => $message,
 			'diagnostics' => $diagnostics,
+		);
+	}
+
+	/**
+	 * One-line summary of a scan's per-stage counts, appended to the outcome
+	 * message so the headline alone says where fonts were lost. Without it an
+	 * admin sees only "no fonts detected" and has to expand a panel — or ask —
+	 * to learn whether the pages failed to load, the manual declarations were
+	 * missing, or Google was unreachable.
+	 *
+	 * @param array $d Diagnostics array from scan().
+	 * @return string
+	 */
+	private function diag_summary( $d ) {
+		if ( empty( $d ) || ! is_array( $d ) ) {
+			return '';
+		}
+
+		$targets = isset( $d['targets'] ) ? $d['targets'] : array();
+		$ok      = 0;
+
+		foreach ( $targets as $t ) {
+			if ( ! empty( $t['ok'] ) ) {
+				++$ok;
+			}
+		}
+
+		$sheets = ( isset( $d['captured'] ) ? (int) $d['captured'] : 0 )
+			+ ( isset( $d['from_html'] ) ? (int) $d['from_html'] : 0 )
+			+ ( isset( $d['from_linked'] ) ? (int) $d['from_linked'] : 0 );
+
+		return sprintf(
+			/* translators: 1: pages loaded, 2: pages attempted, 3: stylesheets found on the site, 4: manual declarations, 5: @font-face blocks, 6: files downloaded, 7: files failed. */
+			__( '[%1$d/%2$d pages loaded · %3$d Google stylesheets on the site · %4$d from manual declarations · %5$d @font-face blocks · %6$d files downloaded, %7$d failed]', 'simple-performance-for-wordpress' ),
+			$ok,
+			count( $targets ),
+			$sheets,
+			isset( $d['manual'] ) ? count( $d['manual'] ) : 0,
+			isset( $d['faces'] ) ? (int) $d['faces'] : 0,
+			isset( $d['downloads_ok'] ) ? (int) $d['downloads_ok'] : 0,
+			isset( $d['downloads_ko'] ) ? (int) $d['downloads_ko'] : 0
+		);
+	}
+
+	/**
+	 * Persist a scan report without touching any other font state. Used by the
+	 * WP_Error path, which has no discovery result to record but still needs
+	 * its diagnostics to survive into the admin UI.
+	 *
+	 * @param string $message Outcome message.
+	 * @param array  $diag    Diagnostics array.
+	 */
+	private function store_scan_report( $message, $diag ) {
+		SPFW_Settings::update(
+			array(
+				'fonts' => array(
+					'last_scan'        => time(),
+					'last_scan_report' => array(
+						'message'     => trim( $message . ' ' . $this->diag_summary( $diag ) ),
+						'diagnostics' => $diag,
+						'time'        => time(),
+					),
+				),
+			)
 		);
 	}
 
