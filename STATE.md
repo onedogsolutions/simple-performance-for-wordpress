@@ -40,10 +40,11 @@ the authoritative record.)
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
   wrapper for WordPress overwrite detection, 1.11.1); ✅ Textarea multiline
   input fix (local-state + blur-commit pattern, 1.11.2); ✅ MainWP child-side
-  bridge added (companion dashboard extension support, 1.12.0); 📝 localized
-  fonts blocked by CORS after a domain change — root-caused and planned in
-  `FONT_CORS_FIX_PLAN.md` (1.13.0 target, branch
-  `claude/cors-font-loader-errors-01cd2j`), **not yet implemented**
+  bridge added (companion dashboard extension support, 1.12.0); ✅ localized
+  fonts blocked by CORS after a domain change fixed (portable token-based CSS
+  storage, root-relative font URLs, self-healing `fonts.css`, font-directory
+  ACAO `.htaccess`, 1.13.0 migration + Fonts/CSP diagnostics; plan in
+  `FONT_CORS_FIX_PLAN.md`, branch `claude/cors-font-loader-errors-01cd2j`)
 
 ## Shared project facts (true for every step)
 
@@ -90,17 +91,22 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Implement `FONT_CORS_FIX_PLAN.md` (1.13.0).** Localized fonts on a cloned
-site (staging) are requested from the *original* domain because absolute URLs
-are frozen into `fonts.discovered.css` at scan time, and cross-origin fonts
-without `Access-Control-Allow-Origin` are discarded by the browser. The plan
-specifies token-based portable CSS storage, root-relative rendering for
-same-host uploads, a self-healing `fonts.css` write, an ACAO `.htaccess` for the
-font directory, a 1.13.0 migration, and Fonts/CSP tab diagnostics. Start with
-the two baseline `curl` checks in §5.2 so the fix is measured against a
-confirmed before-state.
+**1.13.0 (CORS font fix) is implemented on
+`claude/cors-font-loader-errors-01cd2j`; live QA on the staging site is the
+remaining gate.** A test ZIP is built (`simple-performance-for-wordpress-1.13.0.zip`,
+gitignored). Work `FONT_CORS_FIX_PLAN.md` §5.2 in order: run the two baseline
+`curl` checks *before* installing so the fix is measured against a confirmed
+before-state, then install, load one staging front-end page (this triggers the
+self-heal), and confirm `fonts.css` now carries root-relative URLs, the
+`/course-registration/` console is clean, and production is unaffected.
 
-1.12.0 (MainWP child-side bridge) is the current release, implemented on `main`.
+Also check `upload_url_path` on staging: if the clone left it pointing at
+`laseraesthetics.org`, `wp_upload_dir()` still returns the production host, the
+fix stays in its cross-origin branch, and the Fonts tab will show the new
+amber "Fonts are served from … but this site runs on …" warning. Clearing that
+option is the fix in that case.
+
+1.12.0 (MainWP child-side bridge) is the current release on `main`.
 
 Prior outstanding manual QA on a live WordPress + QUIC.cloud site —
 confirm that violation reports arrive in the admin within seconds of a logged-out
@@ -298,6 +304,15 @@ by `hardeningStatus`.
   enqueue the generated local stylesheet versioned by `discovered['hash']`.
   **Fallback:** no local CSS yet → leave the original Google enqueue untouched,
   never break rendering.
+- **Portability (1.13.0):** `discovered['css']` stores the fonts directory as
+  the `%%SPFW_FONTS_URL%%` token, never a hostname, and is expanded only when
+  written to disk — to a **root-relative path** when uploads are on the site's
+  own host, or to an absolute URL when they are not. `fonts.rendered_for`
+  records which base the on-disk file was rendered against; a mismatch (i.e.
+  the site moved domain) regenerates `fonts.css` on the next front-end request
+  and fires `litespeed_purge_all`. A `mod_headers`-guarded `.htaccess` in the
+  fonts directory sends `Access-Control-Allow-Origin` for the genuinely
+  cross-origin case.
 - `src/components/FontsSettings.jsx` (props `{settings, onChange, onScan}`):
   toggle + "Scan fonts now" button (`onScan()` → local `isScanning` state) +
   summary (families/files/last-scan, read from `settings.fonts.discovered`) +
@@ -1226,13 +1241,64 @@ follow-ups deferred. Keep entries dated and terse.
   from" + a cross-origin warning in the Fonts tab. Plan only — no code changes
   yet.
 
+- 2026-07-27 (CORS font fix implemented, → 1.13.0): implements
+  `FONT_CORS_FIX_PLAN.md`. Changes:
+  - `class-spfw-module-fonts.php`: `FONTS_URL_TOKEN` / `FONTS_URL_PATTERN`
+    constants; `scan()` writes the token instead of an absolute URL;
+    `portable_css()` (absolute → token, idempotent), `render_css()` (token →
+    base), `rendered_base()` (root-relative when uploads are same-host,
+    absolute otherwise); `write_css_file()` is now the single choke point and
+    normalizes CSS of either vintage on the way through; `refresh_css_file()`
+    regenerates on a `rendered_for` mismatch under a 5-minute transient lock
+    and fires `litespeed_purge_all`; `cors_htaccess_payload()` /
+    `write_cors_htaccess()`; `runtime_info()` for the admin diagnostics.
+  - `class-spfw-settings.php`: `fonts.rendered_for` key + sanitize;
+    `run_font_portability_migration()` gated on `< 1.13.0`.
+  - `class-spfw-rest-settings.php`: `fonts_runtime` on the GET response.
+  - `FontsSettings.jsx`: "Serving fonts from" line + cross-origin amber banner.
+    Also fixed a pre-existing prettier error on the Extra-pages textarea.
+  - `CspPolicyCard.jsx`: the "not a CSP violation" hint now covers CORS
+    failures and the misleading `ERR_FAILED 200 (OK)`.
+  **Deviations from the plan:** (1) the plan's §5.1 test 4 said the migration
+  should leave `discovered['hash']` unchanged; it now *recomputes* the hash from
+  the tokenized CSS. The hash is the stylesheet's cache-busting version string,
+  and changing it once on upgrade is what evicts a browser- or LiteSpeed-cached
+  copy still holding the old absolute URLs. The property that actually matters —
+  the hash being identical on production and staging, so a domain move causes no
+  churn — is preserved and tested. (2) `write_cors_htaccess()` is called from
+  `write_css_file()` rather than `ensure_fonts_dir()`, which would have re-hashed
+  the file once per downloaded font during a scan.
+  **Verified:** `php -l` clean on all changed PHP; a standalone logic harness
+  (21 assertions: tokenize/render round trip, idempotence, cross-host fallback,
+  hash stability, protocol/www/subdirectory variants, and that the regex leaves
+  `local()`, `font-family`, and `unicode-range` alone); an integration harness
+  that loads the **real** `SPFW_Module_Fonts` against stubbed WP functions
+  (22 assertions) and reproduces the reported staging state — production URLs on
+  disk, self-healed to root-relative on the first `serve_local_fonts()` call,
+  `rendered_for` recorded, purge fired, CORS file written — then confirms no
+  rewrite/option-write/purge on subsequent requests, re-heal on a further domain
+  move, absolute URLs + `same_origin: false` for CDN-offloaded uploads, and
+  graceful fallback to Google (no enqueue, no write storm) when uploads are
+  unwritable. `npm run build` succeeds; `lint-js` and `lint:css` clean.
+  Version bumped to 1.13.0 (plugin header + `SPFW_VERSION` + `readme.txt`
+  stable tag + changelog).
+
 ## Open questions / blockers
 
 - Live QA for the CORS font fix needs the staging site: this session's network
   policy blocked outbound requests to `staging.laseraesthetics.org`, so the root
   cause is derived from the code paths plus the console evidence rather than a
-  live fetch. `FONT_CORS_FIX_PLAN.md` §5.2 lists two `curl` commands that
-  confirm the baseline before the fix is deployed.
+  live fetch, and no assertion here was made against a running WordPress.
+  `FONT_CORS_FIX_PLAN.md` §5.2 lists two `curl` commands that confirm the
+  baseline before the fix is deployed.
+- `.pot` regeneration is still outstanding (wp-cli is not available in this
+  environment) and now covers more untranslated strings: the CDN hint added in
+  1.11.0 plus 1.13.0's "Serving fonts from", the cross-origin warning, and the
+  extended CSP hint.
+- The font-directory `.htaccess` has not been exercised on a real
+  OpenLiteSpeed vhost. The `<IfModule mod_headers.c>` guard is there precisely
+  so a server without `mod_headers` ignores it rather than 500s, but QA step 7
+  should confirm it on the live host.
 
 ---
 

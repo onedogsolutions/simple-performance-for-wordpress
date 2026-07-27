@@ -1,7 +1,10 @@
 # Implementation Plan — Fix localized fonts blocked by CORS after a domain change
 
 **Branch:** `claude/cors-font-loader-errors-01cd2j` · **Version target:** 1.13.0
-**Status:** 📝 Plan — not yet implemented
+**Status:** ✅ Implemented — see STATE.md's decisions log for the two deviations
+(the migration recomputes `discovered['hash']` as a one-time cache bust; the
+CORS file is written from `write_css_file()` rather than `ensure_fonts_dir()`).
+Live QA per §5.2 still outstanding.
 **Author date:** 2026-07-27
 
 ---

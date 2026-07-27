@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,14 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.13.0 =
+* Fixed: localized Google Fonts were blocked by CORS after a site moved domain (for example a production site cloned to staging). Font URLs were frozen into the stored stylesheet at scan time, so the clone kept requesting fonts from the original host; browsers fetch CSS-referenced fonts in CORS mode and discard cross-origin responses that carry no `Access-Control-Allow-Origin` header, which shows in the console as "blocked by CORS policy" plus a misleading `ERR_FAILED 200 (OK)`.
+* Changed: the generated stylesheet now uses root-relative font URLs when uploads are on the site's own host, so changing domain, switching to HTTPS, or adding/removing `www` can no longer strand the font URLs on the old origin.
+* Added: `uploads/ods-fonts/.htaccess` sends `Access-Control-Allow-Origin` for font files, so setups that legitimately serve uploads cross-origin work too. Guarded by `<IfModule mod_headers.c>`.
+* Added: `fonts.css` now regenerates by itself when the site's URL changes, instead of only when the file is missing, and purges LiteSpeed so a combined stylesheet cannot keep serving the old URLs.
+* Added: the Fonts tab shows where fonts are being served from, and warns when that is a different host than the site.
+* Fixed: an existing install is corrected on upgrade — no re-scan needed.
 
 = 1.12.0 =
 * Added: MainWP child-side bridge (`SPFW_MainWP_Child`) so the companion "MainWP for Simple Performance for WordPress" dashboard extension can read and update plugin settings over MainWP's signed channel.

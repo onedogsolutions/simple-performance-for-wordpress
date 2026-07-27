@@ -28,6 +28,9 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 		? discovered.files.length
 		: 0;
 	const scanResult = settings.scan_result || null;
+	const runtime = settings.fonts_runtime || {};
+	const isCrossOrigin =
+		runtime.same_origin === false && !! runtime.uploads_host;
 	const hasScanned = !! fonts.last_scan;
 	const [ isScanning, setIsScanning ] = useState( false );
 
@@ -72,6 +75,28 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					<p className="mt-1 text-sm text-amber-700">
 						{ __(
 							'These fonts were localized by an older version of this plugin that could drop font weights (e.g. a font family would render bold everywhere, even where a lighter weight was specified). Click "Scan fonts now" below to regenerate them correctly.',
+							'simple-performance-for-wordpress'
+						) }
+					</p>
+				</div>
+			) }
+
+			{ isCrossOrigin && (
+				<div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+					<p className="text-sm font-medium text-amber-800">
+						{ sprintf(
+							/* translators: 1: uploads host, 2: site host. */
+							__(
+								'Fonts are served from %1$s but this site runs on %2$s.',
+								'simple-performance-for-wordpress'
+							),
+							runtime.uploads_host,
+							runtime.site_host
+						) }
+					</p>
+					<p className="mt-1 text-sm text-amber-700">
+						{ __(
+							'Fonts loaded from another host are fetched in CORS mode, so the browser discards them unless that host sends an Access-Control-Allow-Origin header — the console shows "blocked by CORS policy" alongside a misleading "ERR_FAILED 200 (OK)". This plugin adds the header to its own font directory, but it cannot do so for a host it does not serve. If this is a staging or cloned site, the WordPress uploads URL is probably still pointing at the original domain.',
 							'simple-performance-for-wordpress'
 						) }
 					</p>
@@ -129,6 +154,16 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 						) }{ ' ' }
 						{ lastScanLabel }
 					</p>
+
+					{ runtime.base && (
+						<p className="text-xs text-gray-500 break-all sm:text-right">
+							{ __(
+								'Serving fonts from:',
+								'simple-performance-for-wordpress'
+							) }{ ' ' }
+							<code className="font-mono">{ runtime.base }</code>
+						</p>
+					) }
 
 					{ scanResult && scanResult.message && (
 						<p className="text-xs text-gray-600">
@@ -217,9 +252,7 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					rows={ 3 }
 					placeholder={ '/shop/\n/landing/' }
 					value={ localExtraUrls }
-					onChange={ ( e ) =>
-						setLocalExtraUrls( e.target.value )
-					}
+					onChange={ ( e ) => setLocalExtraUrls( e.target.value ) }
 					onBlur={ () =>
 						onChange(
 							'extra_scan_urls',

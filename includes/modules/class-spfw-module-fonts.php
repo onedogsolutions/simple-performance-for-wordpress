@@ -32,6 +32,36 @@ defined( 'ABSPATH' ) || exit;
 class SPFW_Module_Fonts implements SPFW_Module {
 
 	/**
+	 * Placeholder standing in for the local fonts directory inside the stored
+	 * `discovered['css']`. The stored CSS therefore never contains a hostname,
+	 * so it stays valid when the site moves domain (production → staging clone,
+	 * http → https, www → apex). The token is expanded to a concrete base only
+	 * when the CSS is written to disk — see render_css()/rendered_base().
+	 *
+	 * Keep in sync with the literal in SPFW_Settings' 1.13.0 portability
+	 * migration, which runs before the module files are loaded and so cannot
+	 * reference this constant.
+	 */
+	const FONTS_URL_TOKEN = '%%SPFW_FONTS_URL%%';
+
+	/**
+	 * Matches an absolute URL pointing into the local fonts directory, so
+	 * previously-stored CSS can be folded back to the token form.
+	 */
+	const FONTS_URL_PATTERN = '#https?://[^\s"\'()]+/ods-fonts/#i';
+
+	/**
+	 * Guards the self-healing fonts.css rewrite so an unwritable filesystem
+	 * cannot trigger a write attempt on every single front-end request.
+	 */
+	const REWRITE_LOCK_TRANSIENT = 'spfw_fonts_rewrite_lock';
+
+	/**
+	 * Lifetime (seconds) of the rewrite lock.
+	 */
+	const REWRITE_LOCK_TTL = 300;
+
+	/**
 	 * Transient holding the one-time token that authorizes enqueue capture
 	 * during a scan's loopback request.
 	 */
@@ -286,7 +316,9 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 			$files[]    = $filename;
 			$families[] = $this->family_label( $face );
-			$local_url  = $this->fonts_url() . '/' . $filename;
+			// Tokenized, not absolute: the stored CSS must stay valid if the
+			// site later moves domain. Expanded at write time by render_css().
+			$local_url  = self::FONTS_URL_TOKEN . '/' . $filename;
 			$rewritten .= str_replace( $src_url, $local_url, $face['block'] ) . "\n";
 		}
 
@@ -304,7 +336,9 @@ class SPFW_Module_Fonts implements SPFW_Module {
 			'hash'     => sha1( $rewritten ),
 		);
 
-		$this->write_css_file( $rewritten );
+		// Record which base the on-disk file was rendered against, so
+		// serve_local_fonts() can detect a later domain move and self-heal.
+		$rendered_for = $this->write_css_file( $rewritten ) ? $this->rendered_base() : '';
 
 		return $this->finish_scan(
 			$discovered,
@@ -313,7 +347,8 @@ class SPFW_Module_Fonts implements SPFW_Module {
 				__( 'Localized %1$d font families (%2$d files).', 'simple-performance-for-wordpress' ),
 				count( $discovered['families'] ),
 				count( $discovered['files'] )
-			)
+			),
+			$rendered_for
 		);
 	}
 
@@ -326,11 +361,13 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	 * collapse fix) clears: any scan run under the fixed generator
 	 * supersedes the stale marker.
 	 *
-	 * @param array  $discovered Discovered payload, or empty array when none found.
-	 * @param string $message    Human-readable outcome for the admin UI.
+	 * @param array  $discovered   Discovered payload, or empty array when none found.
+	 * @param string $message      Human-readable outcome for the admin UI.
+	 * @param string $rendered_for Base the freshly-written fonts.css was rendered
+	 *                             against, or '' when nothing was written.
 	 * @return array
 	 */
-	private function finish_scan( $discovered, $message ) {
+	private function finish_scan( $discovered, $message, $rendered_for = '' ) {
 		$update = array(
 			'fonts' => array(
 				'last_scan'    => time(),
@@ -340,6 +377,10 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		if ( ! empty( $discovered ) ) {
 			$update['fonts']['discovered'] = $discovered;
+		}
+
+		if ( '' !== $rendered_for ) {
+			$update['fonts']['rendered_for'] = $rendered_for;
 		}
 
 		SPFW_Settings::update( $update );
@@ -373,15 +414,29 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 	/**
 	 * Dequeue any enqueued Google Fonts stylesheet (matched by src, not
-	 * handle) and enqueue the locally hosted replacement. Self-heals the
-	 * static CSS file if it's missing but cached CSS exists; if it can't
-	 * be (re)written, leaves the original Google enqueue untouched.
+	 * handle) and enqueue the locally hosted replacement.
+	 *
+	 * Self-heals the static CSS file when it is missing *or* when it was
+	 * rendered against a different base than the one in effect now — which is
+	 * what happens when a site is cloned to another domain (production →
+	 * staging). Without that check the cloned site would keep serving the
+	 * original site's absolute font URLs, and the browser would discard every
+	 * cross-origin .woff2 for want of an Access-Control-Allow-Origin header.
+	 *
+	 * The staleness test is an in-memory string compare against the already
+	 * loaded settings array — no per-request filesystem hashing. If the file
+	 * can't be (re)written, the original Google enqueue is left untouched so
+	 * the page still renders with the right fonts.
 	 */
 	public function serve_local_fonts() {
 		$fonts    = SPFW_Settings::group( 'fonts' );
 		$css_path = $this->fonts_dir() . '/fonts.css';
+		$base     = $this->rendered_base();
 
-		if ( ! file_exists( $css_path ) && ! $this->write_css_file( $fonts['discovered']['css'] ) ) {
+		$rendered_for = isset( $fonts['rendered_for'] ) ? $fonts['rendered_for'] : '';
+		$is_stale     = ( $rendered_for !== $base ) || ! file_exists( $css_path );
+
+		if ( $is_stale && ! $this->refresh_css_file( $fonts['discovered']['css'], $base ) ) {
 			return;
 		}
 
@@ -893,7 +948,51 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	}
 
 	/**
-	 * Write the generated @font-face CSS to the static fonts.css file.
+	 * Regenerate fonts.css for the current base and record what it was
+	 * rendered against, so the check in serve_local_fonts() settles on the
+	 * next request instead of rewriting the file every time.
+	 *
+	 * Wrapped in a short-lived transient lock: on a host where the uploads
+	 * directory is not writable this would otherwise attempt (and fail) a
+	 * write on every front-end request. The lock is released as soon as a
+	 * write succeeds, so the healthy path is never delayed.
+	 *
+	 * @param string $css  Stored (tokenized or legacy absolute) CSS.
+	 * @param string $base Base the file is being rendered against.
+	 * @return bool
+	 */
+	private function refresh_css_file( $css, $base ) {
+		if ( get_transient( self::REWRITE_LOCK_TRANSIENT ) ) {
+			return false;
+		}
+
+		set_transient( self::REWRITE_LOCK_TRANSIENT, 1, self::REWRITE_LOCK_TTL );
+
+		if ( ! $this->write_css_file( $css ) ) {
+			return false;
+		}
+
+		delete_transient( self::REWRITE_LOCK_TRANSIENT );
+
+		SPFW_Settings::update( array( 'fonts' => array( 'rendered_for' => $base ) ) );
+
+		// A page/CSS-combine cache built before the rewrite still holds the old
+		// font URLs, so the stale copy must go with it. Harmless no-op when
+		// LSCache is not installed.
+		do_action( 'litespeed_purge_all' );
+
+		return true;
+	}
+
+	/**
+	 * Write the generated @font-face CSS to the static fonts.css file, and
+	 * keep the directory's CORS rules in place alongside it.
+	 *
+	 * This is the single choke point where stored CSS becomes a served file,
+	 * so it normalizes on the way through: any absolute font URL left over
+	 * from an older version (or from a clone of another domain) is folded back
+	 * to the token, then expanded for the base in effect now. Callers can pass
+	 * stored CSS of either vintage and get correct URLs on disk.
 	 *
 	 * @param string $css CSS to write.
 	 * @return bool
@@ -905,7 +1004,157 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		$fs = $this->filesystem();
 
-		return $fs && (bool) $fs->put_contents( $this->fonts_dir() . '/fonts.css', $css, 0644 );
+		if ( ! $fs ) {
+			return false;
+		}
+
+		$rendered = $this->render_css( $this->portable_css( $css ) );
+
+		if ( ! $fs->put_contents( $this->fonts_dir() . '/fonts.css', $rendered, 0644 ) ) {
+			return false;
+		}
+
+		$this->write_cors_htaccess();
+
+		return true;
+	}
+
+	/**
+	 * Fold any absolute URL pointing into the local fonts directory back to
+	 * the portable token. Idempotent, and a no-op on already-tokenized CSS.
+	 *
+	 * @param string $css CSS to normalize.
+	 * @return string
+	 */
+	private function portable_css( $css ) {
+		return (string) preg_replace( self::FONTS_URL_PATTERN, self::FONTS_URL_TOKEN . '/', (string) $css );
+	}
+
+	/**
+	 * Expand the portable token to the base this site should serve fonts from.
+	 *
+	 * @param string $css Tokenized CSS.
+	 * @return string
+	 */
+	private function render_css( $css ) {
+		return str_replace( self::FONTS_URL_TOKEN, $this->rendered_base(), (string) $css );
+	}
+
+	/**
+	 * The base that font URLs inside the generated stylesheet resolve against.
+	 *
+	 * When uploads live on the site's own host — the overwhelmingly common
+	 * case — this is a **root-relative path** (`/wp-content/uploads/ods-fonts`)
+	 * rather than an absolute URL. That makes the generated CSS immune to every
+	 * variant of the bug this exists to fix: moving domain, switching http to
+	 * https, or adding/dropping `www` can no longer strand the font URLs on the
+	 * old origin. It also survives LiteSpeed relocating the combined stylesheet,
+	 * because a root-relative path resolves against the origin rather than the
+	 * stylesheet's own directory.
+	 *
+	 * When uploads are offloaded to a different host (a CDN, or an explicit
+	 * `upload_url_path`), root-relative would point at the wrong host, so the
+	 * absolute URL is kept. Fonts are then genuinely cross-origin and depend on
+	 * the Access-Control-Allow-Origin rules in write_cors_htaccess() — or, if
+	 * that host isn't this server, on the CDN's own header configuration. The
+	 * Fonts tab flags this case.
+	 *
+	 * @return string Base with no trailing slash.
+	 */
+	private function rendered_base() {
+		$url          = $this->fonts_url();
+		$uploads_host = wp_parse_url( $url, PHP_URL_HOST );
+		$site_host    = wp_parse_url( home_url(), PHP_URL_HOST );
+
+		if ( $uploads_host && $site_host && strtolower( $uploads_host ) === strtolower( $site_host ) ) {
+			$path = wp_parse_url( $url, PHP_URL_PATH );
+
+			if ( is_string( $path ) && '' !== $path && '/' !== $path ) {
+				return untrailingslashit( $path );
+			}
+		}
+
+		return $url;
+	}
+
+	/**
+	 * The .htaccess this plugin writes into the fonts directory.
+	 *
+	 * Fonts referenced from CSS are always fetched in CORS mode — that is not
+	 * configurable from CSS and is unaffected by Content-Security-Policy — so a
+	 * cross-origin .woff2 served without Access-Control-Allow-Origin is fetched
+	 * successfully and then discarded by the browser. A wildcard origin is the
+	 * right value here: these are public static assets with no credentials and
+	 * no per-user variation.
+	 *
+	 * The <IfModule> wrapper is load-bearing. A bare `Header` directive returns
+	 * a 500 on a server built without mod_headers, and this file is dropped into
+	 * a live uploads directory — the same caution behind SPFW_Htaccess::payload()
+	 * omitting `Options -Indexes`.
+	 *
+	 * @return string
+	 */
+	public static function cors_htaccess_payload() {
+		return "# BEGIN Simple Performance for WordPress\n"
+			. "# Allow cross-origin font loading (CDN / asset-host setups).\n"
+			. "<IfModule mod_headers.c>\n"
+			. "\t<FilesMatch \"\\.(woff2?|ttf|otf|eot)$\">\n"
+			. "\t\tHeader set Access-Control-Allow-Origin \"*\"\n"
+			. "\t\tHeader append Vary Origin\n"
+			. "\t</FilesMatch>\n"
+			. "</IfModule>\n"
+			. "# END Simple Performance for WordPress\n";
+	}
+
+	/**
+	 * Drop the CORS rules into the fonts directory, skipping the write when the
+	 * file is already byte-identical.
+	 *
+	 * Deliberately a separate file from the uploads-level deny-PHP .htaccess
+	 * rather than an addition to SPFW_Htaccess::payload(): changing that shared
+	 * payload would change its sha1 and flip every existing install's hardening
+	 * status to `altered`, firing a false "file has been modified" notice. The
+	 * two rule sets do not overlap.
+	 *
+	 * @return bool
+	 */
+	private function write_cors_htaccess() {
+		$path    = $this->fonts_dir() . '/.htaccess';
+		$payload = self::cors_htaccess_payload();
+
+		if ( file_exists( $path ) && sha1_file( $path ) === sha1( $payload ) ) {
+			return true;
+		}
+
+		$fs = $this->filesystem();
+
+		return $fs && (bool) $fs->put_contents( $path, $payload, 0644 );
+	}
+
+	/**
+	 * Read-only diagnostics for the Fonts tab: where fonts are actually being
+	 * served from, and whether that is same-origin with the site. Surfacing
+	 * this is what turns a silent cross-origin misconfiguration (a cloned site
+	 * still pointing at the original domain, or an `upload_url_path` left
+	 * behind by a migration) into something an admin can see.
+	 *
+	 * @return array
+	 */
+	public function runtime_info() {
+		$url          = $this->fonts_url();
+		$uploads_host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		$site_host    = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+
+		return array(
+			'base'             => $this->rendered_base(),
+			'base_url'         => $url,
+			'site_host'        => $site_host,
+			'uploads_host'     => $uploads_host,
+			'same_origin'      => ( '' !== $uploads_host && '' !== $site_host && strtolower( $uploads_host ) === strtolower( $site_host ) ),
+			'css_file_exists'  => file_exists( $this->fonts_dir() . '/fonts.css' ),
+			'cors_file_exists' => file_exists( $this->fonts_dir() . '/.htaccess' ),
+			'rendered_for'     => (string) SPFW_Settings::value( 'fonts', 'rendered_for', '' ),
+		);
 	}
 
 	/**

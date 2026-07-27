@@ -101,6 +101,11 @@ class SPFW_Settings {
 				'manual_families' => array(),
 				'extra_scan_urls' => array(),
 				'needs_rescan'    => false,
+				// Base the on-disk fonts.css was last rendered against. A
+				// mismatch against the current base means the site moved domain
+				// and the file must be regenerated — see
+				// SPFW_Module_Fonts::serve_local_fonts().
+				'rendered_for'    => '',
 			),
 			'woocommerce' => array(
 				'disable_cart_fragments' => false,
@@ -157,6 +162,20 @@ class SPFW_Settings {
 		if ( version_compare( $stored_ver, '1.7.1', '<' )
 			&& ! empty( $stored['fonts']['discovered']['css'] ) ) {
 			self::run_font_rescan_migration( $stored );
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		// Migration to 1.13.0: prior versions froze an absolute, fully-qualified
+		// font URL into the stored @font-face CSS at scan time. Cloning a site to
+		// another domain (production → staging) therefore left every font URL
+		// pointing at the original host, and browsers discard cross-origin fonts
+		// served without Access-Control-Allow-Origin. Fold those URLs back to the
+		// portable token so the next front-end request regenerates fonts.css for
+		// whichever domain the site is actually on — no re-scan required.
+		if ( version_compare( $stored_ver, '1.13.0', '<' )
+			&& ! empty( $stored['fonts']['discovered']['css'] ) ) {
+			self::run_font_portability_migration( $stored );
 			$stored = get_option( self::OPTION_KEY, array() );
 			$stored = is_array( $stored ) ? $stored : array();
 		}
@@ -402,6 +421,9 @@ class SPFW_Settings {
 			isset( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : $defaults['fonts']['extra_scan_urls']
 		);
 		$clean['fonts']['needs_rescan']    = self::to_bool( $fonts, 'needs_rescan', $defaults['fonts']['needs_rescan'] );
+		$clean['fonts']['rendered_for']    = isset( $fonts['rendered_for'] )
+			? sanitize_text_field( $fonts['rendered_for'] )
+			: $defaults['fonts']['rendered_for'];
 
 		$woo = isset( $input['woocommerce'] ) && is_array( $input['woocommerce'] ) ? $input['woocommerce'] : array();
 
@@ -714,6 +736,38 @@ class SPFW_Settings {
 		}
 
 		$updated['fonts']['needs_rescan'] = true;
+
+		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Migration to 1.13.0: rewrite absolute font URLs in the stored @font-face
+	 * CSS to the portable `%%SPFW_FONTS_URL%%` token (see the version_compare()
+	 * call site for why), and clear `rendered_for` so the next front-end request
+	 * regenerates fonts.css against the current domain.
+	 *
+	 * The `discovered['hash']` is recomputed from the tokenized CSS. That is
+	 * deliberate: the hash is the stylesheet's cache-busting version string, and
+	 * changing it once here is what evicts a browser- or LiteSpeed-cached copy
+	 * still holding the old absolute URLs. From this point on the hash describes
+	 * the font set alone, so it stays stable across a domain move.
+	 *
+	 * The token literal is duplicated from SPFW_Module_Fonts::FONTS_URL_TOKEN —
+	 * settings load before the module files, so the constant is not available
+	 * here.
+	 *
+	 * @param array $stored Currently stored settings.
+	 */
+	private static function run_font_portability_migration( array $stored ) {
+		$updated = $stored;
+
+		$css = (string) $updated['fonts']['discovered']['css'];
+		$css = (string) preg_replace( '#https?://[^\s"\'()]+/ods-fonts/#i', '%%SPFW_FONTS_URL%%/', $css );
+
+		$updated['fonts']['discovered']['css']  = $css;
+		$updated['fonts']['discovered']['hash'] = sha1( $css );
+		$updated['fonts']['rendered_for']       = '';
 
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );

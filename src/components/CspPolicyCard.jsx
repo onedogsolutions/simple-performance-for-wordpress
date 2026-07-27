@@ -624,7 +624,7 @@ export default function CspPolicyCard( {
 						{ 0 === cspReports.length && ! reportOnly && (
 							<p className="mt-2 text-xs text-gray-400">
 								{ __(
-									'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
+									'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log. Neither is "blocked by CORS policy" on a font or script, which often appears with a confusing ERR_FAILED 200 (OK): the request succeeded and the browser then discarded it for want of an Access-Control-Allow-Origin header on the other host. A CSP block always reads "Refused to load…" instead.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
