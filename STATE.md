@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.12.0
-- **Last updated:** 2026-07-23
+- **Plugin version target:** 1.13.0 (1.12.0 shipped)
+- **Last updated:** 2026-07-27
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -40,7 +40,10 @@ the authoritative record.)
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
   wrapper for WordPress overwrite detection, 1.11.1); ✅ Textarea multiline
   input fix (local-state + blur-commit pattern, 1.11.2); ✅ MainWP child-side
-  bridge added (companion dashboard extension support, 1.12.0)
+  bridge added (companion dashboard extension support, 1.12.0); 📝 localized
+  fonts blocked by CORS after a domain change — root-caused and planned in
+  `FONT_CORS_FIX_PLAN.md` (1.13.0 target, branch
+  `claude/cors-font-loader-errors-01cd2j`), **not yet implemented**
 
 ## Shared project facts (true for every step)
 
@@ -87,13 +90,19 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.11.1 (ZIP packaging fix) is the current release, implemented on
-`main`.** The plugin ZIP now wraps all files inside a
-`simple-performance-for-wordpress/` root directory so WordPress correctly
-detects the existing installation and offers to overwrite on upload. The 1.11.0
-CSP CDN reporting fix remains the primary functional change in this cycle.
+**Implement `FONT_CORS_FIX_PLAN.md` (1.13.0).** Localized fonts on a cloned
+site (staging) are requested from the *original* domain because absolute URLs
+are frozen into `fonts.discovered.css` at scan time, and cross-origin fonts
+without `Access-Control-Allow-Origin` are discarded by the browser. The plan
+specifies token-based portable CSS storage, root-relative rendering for
+same-host uploads, a self-healing `fonts.css` write, an ACAO `.htaccess` for the
+font directory, a 1.13.0 migration, and Fonts/CSP tab diagnostics. Start with
+the two baseline `curl` checks in §5.2 so the fix is measured against a
+confirmed before-state.
 
-Remaining before release is manual QA on a live WordPress + QUIC.cloud site —
+1.12.0 (MainWP child-side bridge) is the current release, implemented on `main`.
+
+Prior outstanding manual QA on a live WordPress + QUIC.cloud site —
 confirm that violation reports arrive in the admin within seconds of a logged-out
 page load, that the report-uri in the response header carries the public HTTPS
 origin, and that the CDN does not cache the `/wp-json/spfw/v1/csp-report`
@@ -1188,9 +1197,42 @@ follow-ups deferred. Keep entries dated and terse.
   instantiated in the main plugin bootstrap file. Version bumped to 1.12.0
   (plugin header + `SPFW_VERSION` + `readme.txt` stable tag + changelog).
 
+- 2026-07-27 (localized fonts blocked by CORS after a domain change, plan only,
+  → 1.13.0 target): user reported persistent console errors on
+  `staging.laseraesthetics.org` — `Access to font at
+  'https://laseraesthetics.org/wp-content/uploads/ods-fonts/….woff2' … blocked
+  by CORS policy` plus `net::ERR_FAILED 200 (OK)` — with no apparent reason for
+  the block after CSP-builder and font-loader updates. **Not a CSP or LiteSpeed
+  problem:** the generated policy is `font-src 'self' data: https:` (permits any
+  HTTPS origin), the violation log is empty, and LiteSpeed's Remove Query
+  Strings / Load Google Fonts Asynchronously / Remove Google Fonts are all off.
+  **Root cause:** `SPFW_Module_Fonts::scan()` bakes an absolute, fully-qualified
+  `fonts_url()` into every rewritten `@font-face` block and persists it in
+  `fonts.discovered.css`. The staging site was cloned from production, so the
+  stored CSS (and the already-generated `uploads/ods-fonts/fonts.css`) still
+  carry `laseraesthetics.org` URLs; nothing ever re-resolves them against the
+  site's current URL. Fonts referenced from CSS are always fetched in CORS mode,
+  so a cross-origin `.woff2` with no `Access-Control-Allow-Origin` is fetched
+  successfully and then discarded — the `ERR_FAILED 200 (OK)` signature.
+  Compounded by `serve_local_fonts()` only writing `fonts.css` when it is
+  *absent*, so the stale artifact is served forever, and by the plugin never
+  emitting ACAO for font files (static `.woff2` never reaches `send_headers`).
+  **Plan:** `FONT_CORS_FIX_PLAN.md` — store CSS with a `%%SPFW_FONTS_URL%%`
+  token, render root-relative URLs when uploads are same-host (absolute only for
+  CDN-offloaded uploads), self-heal `fonts.css` via a `rendered_for` comparison
+  plus a LiteSpeed purge, write a `mod_headers`-guarded ACAO `.htaccess` into
+  the font directory, add a 1.13.0 migration that tokenizes existing stored CSS
+  so installs are fixed on upgrade without a re-scan, and surface "Serving fonts
+  from" + a cross-origin warning in the Fonts tab. Plan only — no code changes
+  yet.
+
 ## Open questions / blockers
 
-- _(none yet)_
+- Live QA for the CORS font fix needs the staging site: this session's network
+  policy blocked outbound requests to `staging.laseraesthetics.org`, so the root
+  cause is derived from the code paths plus the console evidence rather than a
+  live fetch. `FONT_CORS_FIX_PLAN.md` §5.2 lists two `curl` commands that
+  confirm the baseline before the fix is deployed.
 
 ---
 
