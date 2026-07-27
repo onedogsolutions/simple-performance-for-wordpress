@@ -28,6 +28,7 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 		? discovered.files.length
 		: 0;
 	const scanResult = settings.scan_result || null;
+	const diag = ( scanResult && scanResult.diagnostics ) || null;
 	const runtime = settings.fonts_runtime || {};
 	const isCrossOrigin =
 		runtime.same_origin === false && !! runtime.uploads_host;
@@ -169,6 +170,143 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 						<p className="text-xs text-gray-600">
 							{ scanResult.message }
 						</p>
+					) }
+
+					{ diag && (
+						<details className="w-full mt-1 text-left">
+							<summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 sm:text-right">
+								{ __(
+									'Scan details',
+									'simple-performance-for-wordpress'
+								) }
+							</summary>
+							<div className="mt-2 rounded-md bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Pages fetched',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<ul className="mt-1 space-y-0.5 font-mono break-all">
+										{ ( diag.targets || [] ).map( ( t ) => (
+											<li key={ t.url }>
+												{ t.ok ? '✓' : '✗' } { t.url }
+												{ t.ok
+													? ` (${ t.bytes } bytes)`
+													: '' }
+											</li>
+										) ) }
+									</ul>
+								</div>
+
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Google stylesheets found',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<ul className="mt-1 space-y-0.5">
+										<li>
+											{ __(
+												'From the page render (enqueued):',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.captured }
+										</li>
+										<li>
+											{ __(
+												'From page HTML:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.from_html }
+										</li>
+										<li>
+											{ __(
+												'From linked stylesheets:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.from_linked }
+										</li>
+										<li>
+											{ __(
+												'Inlined @font-face blocks:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.inline_faces }
+										</li>
+										<li>
+											{ __(
+												'From your manual declarations:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ ( diag.manual || [] ).length }
+										</li>
+									</ul>
+									{ ( diag.manual || [] ).length === 0 && (
+										<p className="mt-1 text-amber-700">
+											{ __(
+												'No manual declarations were used. If you typed some below, they were not saved before this scan ran.',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+									) }
+								</div>
+
+								{ ( diag.css_urls || [] ).length > 0 && (
+									<div>
+										<p className="font-semibold text-gray-900">
+											{ __(
+												'Stylesheets fetched from Google',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+										<ul className="mt-1 space-y-0.5 font-mono break-all">
+											{ diag.css_urls.map( ( c ) => (
+												<li key={ c.url }>
+													{ c.ok ? '✓' : '✗' }{ ' ' }
+													{ c.url } — { c.faces }{ ' ' }
+													{ __(
+														'faces',
+														'simple-performance-for-wordpress'
+													) }
+												</li>
+											) ) }
+										</ul>
+									</div>
+								) }
+
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Font files',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<p className="mt-1">
+										{ sprintf(
+											/* translators: 1: total faces, 2: downloaded, 3: failed. */
+											__(
+												'%1$d @font-face blocks · %2$d files downloaded · %3$d failed',
+												'simple-performance-for-wordpress'
+											),
+											diag.faces || 0,
+											diag.downloads_ok || 0,
+											diag.downloads_ko || 0
+										) }
+									</p>
+									{ diag.downloads_ko > 0 && (
+										<p className="mt-1 text-amber-700">
+											{ __(
+												'Some files could not be downloaded — check that your server can reach fonts.gstatic.com.',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+									) }
+								</div>
+							</div>
+						</details>
 					) }
 
 					{ families.length > 0 ? (

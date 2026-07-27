@@ -1314,6 +1314,38 @@ follow-ups deferred. Keep entries dated and terse.
   asserts all four purge hooks fire on a self-heal, with the page purge ordered
   last. Version bumped to 1.13.1.
 
+- 2026-07-27 (font-scan diagnostics, → 1.14.0): user reported that discovery
+  "even when specifying other pages, is not identifying the fonts to load
+  locally" — the Fonts tab showed 3 families (Fredericka the Great:400, Open
+  Sans:600/700) despite manual declarations of `Roboto Condensed:400,700` and
+  `Open Sans:400,600,700`. **Ruled out by direct test, not inspection:** a
+  reflection harness drove the real `manual_css_urls()` →
+  `normalize_css_urls()` → `parse_font_faces()` chain against live Google
+  responses and produced exactly the expected five labels (Roboto
+  Condensed:400/700, Open Sans:400/600/700; 44 faces → 17 unique files), so the
+  manual-declaration path is correct as written. `App.jsx`'s `handleScanFonts()`
+  already POSTs settings before scanning, so the obvious "typed but not saved"
+  race is also already handled.
+  That left the live scan's actual behavior, which the plugin reported as a
+  single sentence with no per-stage visibility — an unfalsifiable position.
+  Rather than guess, `scan()` now threads a `$diag` array through every stage
+  (pages fetched + byte counts, stylesheets found per source, faces parsed per
+  Google URL, downloads ok/failed) and returns it as
+  `scan_result['diagnostics']`; `FontsSettings.jsx` renders it in a collapsible
+  "Scan details" block, including an explicit callout when a scan ran with zero
+  manual declarations in effect.
+  **Still unknown and awaiting the next scan on the live site:** whether the
+  live failure is a CDN-optimized loopback (QUIC.cloud serving a font-stripped
+  page so nothing is captured), manual declarations genuinely absent from the
+  DB, or per-family download failures. The diagnostics distinguish all three.
+  A CDN-bypassing loopback (direct-to-origin with a `Host:` header) was
+  considered and deliberately deferred until the diagnostics say whether the
+  loopback is in fact the problem.
+  **Verified:** `php -l` clean; a reflection harness confirms `finish_scan()`
+  takes the diagnostics argument, round-trips it into `scan_result`, persists
+  `rendered_for`, and fires the purge hooks in order; `npm run build`,
+  `lint-js`, `lint:css` clean.
+
 ## Open questions / blockers
 
 - Live QA for the CORS font fix needs the staging site: this session's network

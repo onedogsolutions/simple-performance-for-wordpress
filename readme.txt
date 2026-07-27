@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.13.1
+Stable tag: 1.14.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 1.14.0 =
+* Added: "Scan details" on the Fonts tab reports what each stage of a font scan actually saw — which pages were fetched and how large they were, how many Google stylesheets came from the page render, the page HTML, linked stylesheets, inlined @font-face blocks and your manual declarations, how many faces each Google stylesheet yielded, and how many font files downloaded or failed. A scan that finds fewer fonts than expected now says where they were lost instead of only reporting the total.
+* Added: an explicit warning in the scan details when a scan ran with no manual declarations in effect, which distinguishes "the declarations were not saved" from "the declarations did not match anything".
 
 = 1.13.1 =
 * Fixed: regenerating the localized stylesheet now also purges LiteSpeed's generated CSS — QUIC.cloud Unique CSS and Critical CSS, and the combined CSS/JS cache — not just the page cache. Those are separate purge targets, and a Unique CSS file built from an older stylesheet would keep serving its font URLs to the browser no matter how many times the stylesheet itself was rebuilt.

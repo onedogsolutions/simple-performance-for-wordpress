@@ -226,6 +226,26 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		set_transient( self::SCAN_TOKEN_TRANSIENT, $token, self::SCAN_TTL );
 		delete_transient( self::SCAN_URLS_TRANSIENT );
 
+		// Every stage records what it saw into $diag, which is returned to the
+		// admin UI. Discovery spans a loopback render, HTML/CSS scraping, the
+		// Google API, and file downloads — any one of which can silently
+		// contribute nothing — so a bare "localized N families" result gives an
+		// admin no way to tell a CDN-stripped page from an unreachable Google
+		// or a failed download. The per-stage counts below are the difference
+		// between diagnosing that and guessing at it.
+		$diag = array(
+			'targets'      => array(),
+			'captured'     => 0,
+			'from_html'    => 0,
+			'from_linked'  => 0,
+			'inline_faces' => 0,
+			'manual'       => array(),
+			'css_urls'     => array(),
+			'faces'        => 0,
+			'downloads_ok' => 0,
+			'downloads_ko' => 0,
+		);
+
 		// Scan the homepage plus a representative sample of inner templates and
 		// any admin-specified extra URLs, so weights enqueued only on singular
 		// posts/pages/products (not the homepage) are discovered too.
@@ -234,8 +254,15 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 		foreach ( $this->scan_targets() as $target ) {
 			$html = $this->fetch_page( $target, $token );
+			$ok   = is_string( $html ) && '' !== $html;
 
-			if ( is_string( $html ) && '' !== $html ) {
+			$diag['targets'][] = array(
+				'url'   => $target,
+				'ok'    => $ok,
+				'bytes' => $ok ? strlen( $html ) : 0,
+			);
+
+			if ( $ok ) {
 				$htmls[]  = $html;
 				$fetch_ok = true;
 			}
@@ -247,12 +274,19 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		delete_transient( self::SCAN_TOKEN_TRANSIENT );
 		delete_transient( self::SCAN_URLS_TRANSIENT );
 
+		$diag['captured'] = count( $captured );
+
 		$css_urls     = $captured;
 		$font_faces   = array();
 
 		foreach ( $htmls as $html ) {
-			$css_urls = array_merge( $css_urls, $this->find_google_css_urls( $html ) );
-			$css_urls = array_merge( $css_urls, $this->find_google_in_linked_css( $html ) );
+			$in_html   = $this->find_google_css_urls( $html );
+			$in_linked = $this->find_google_in_linked_css( $html );
+
+			$diag['from_html']   += count( $in_html );
+			$diag['from_linked'] += count( $in_linked );
+
+			$css_urls = array_merge( $css_urls, $in_html, $in_linked );
 
 			// When a proxy/CDN inlines critical CSS it can strip the Google
 			// <link> yet leave fully-resolved @font-face blocks pointing at
@@ -263,12 +297,15 @@ class SPFW_Module_Fonts implements SPFW_Module {
 			}
 		}
 
+		$diag['inline_faces'] = count( $font_faces );
+
 		// Manual declarations are proxy-proof: the admin states the exact
 		// families/weights to localize, so a used weight (e.g. 400) is captured
 		// even when the automated scan only ever sees an optimized page that
 		// references another (e.g. 700).
-		$manual_urls = $this->manual_css_urls();
-		$css_urls    = array_merge( $css_urls, $manual_urls );
+		$manual_urls    = $this->manual_css_urls();
+		$diag['manual'] = $manual_urls;
+		$css_urls       = array_merge( $css_urls, $manual_urls );
 
 		$css_urls = $this->normalize_css_urls( $css_urls );
 
@@ -282,19 +319,28 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 			return $this->finish_scan(
 				array(),
-				__( 'No Google Fonts were detected. If your site uses a CDN/optimizer that strips font tags, add the families and weights manually below and scan again.', 'simple-performance-for-wordpress' )
+				__( 'No Google Fonts were detected. If your site uses a CDN/optimizer that strips font tags, add the families and weights manually below and scan again.', 'simple-performance-for-wordpress' ),
+				'',
+				$diag
 			);
 		}
 
 		foreach ( $css_urls as $css_url ) {
 			$css_body = $this->fetch_url_body( $css_url );
+			$faces    = ( false !== $css_body ) ? $this->parse_font_faces( $css_body ) : array();
 
-			if ( false !== $css_body ) {
-				foreach ( $this->parse_font_faces( $css_body ) as $face ) {
-					$font_faces[ $face['key'] ] = $face;
-				}
+			$diag['css_urls'][] = array(
+				'url'   => $css_url,
+				'ok'    => false !== $css_body,
+				'faces' => count( $faces ),
+			);
+
+			foreach ( $faces as $face ) {
+				$font_faces[ $face['key'] ] = $face;
 			}
 		}
+
+		$diag['faces'] = count( $font_faces );
 
 		$files      = array();
 		$families   = array();
@@ -306,6 +352,12 @@ class SPFW_Module_Fonts implements SPFW_Module {
 
 			if ( ! array_key_exists( $src_url, $downloaded ) ) {
 				$downloaded[ $src_url ] = $this->download_font( $src_url );
+
+				if ( $downloaded[ $src_url ] ) {
+					++$diag['downloads_ok'];
+				} else {
+					++$diag['downloads_ko'];
+				}
 			}
 
 			$filename = $downloaded[ $src_url ];
@@ -325,7 +377,9 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		if ( '' === $rewritten ) {
 			return $this->finish_scan(
 				array(),
-				__( 'Google Fonts were detected but none of the font files could be downloaded. Check that your server can reach fonts.gstatic.com.', 'simple-performance-for-wordpress' )
+				__( 'Google Fonts were detected but none of the font files could be downloaded. Check that your server can reach fonts.gstatic.com.', 'simple-performance-for-wordpress' ),
+				'',
+				$diag
 			);
 		}
 
@@ -348,7 +402,8 @@ class SPFW_Module_Fonts implements SPFW_Module {
 				count( $discovered['families'] ),
 				count( $discovered['files'] )
 			),
-			$rendered_for
+			$rendered_for,
+			$diag
 		);
 	}
 
@@ -365,9 +420,10 @@ class SPFW_Module_Fonts implements SPFW_Module {
 	 * @param string $message      Human-readable outcome for the admin UI.
 	 * @param string $rendered_for Base the freshly-written fonts.css was rendered
 	 *                             against, or '' when nothing was written.
+	 * @param array  $diagnostics  Per-stage counts for the admin UI.
 	 * @return array
 	 */
-	private function finish_scan( $discovered, $message, $rendered_for = '' ) {
+	private function finish_scan( $discovered, $message, $rendered_for = '', $diagnostics = array() ) {
 		$update = array(
 			'fonts' => array(
 				'last_scan'    => time(),
@@ -390,9 +446,10 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		$this->purge_generated_css();
 
 		return array(
-			'families' => empty( $discovered['families'] ) ? array() : $discovered['families'],
-			'files'    => empty( $discovered['files'] ) ? array() : $discovered['files'],
-			'message'  => $message,
+			'families'    => empty( $discovered['families'] ) ? array() : $discovered['families'],
+			'files'       => empty( $discovered['files'] ) ? array() : $discovered['files'],
+			'message'     => $message,
+			'diagnostics' => $diagnostics,
 		);
 	}
 
