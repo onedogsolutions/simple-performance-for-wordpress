@@ -103,6 +103,16 @@ should 404 `/wp-sitemap.xml`; **Remove robots max-image-preview** should drop
 runtime-verified in the build environment (no WordPress instance available).
 Phase 1 (Steps 1–9) and Step 10 remain complete.
 
+**Forward roadmap (2026-08-01):** a gap review against the target stack produced
+`SPEED_AND_HARDENING_PLAN.md` — 19 items across five risk-ordered phases
+(1.13.0 → 2.0.0) covering block-editor CSS removal, application passwords,
+generic login errors, an author-enumeration leak via the users sitemap, font
+preloading, an `SPFW_Htaccess` refactor plus deny-rule extension fix, a root
+`.htaccess` target, additional security headers, WP-Cron/search/image-size
+toggles, CI + WPCS enforcement, settings export/import, presets, and hash-based
+CSP `script-src` tightening. No code from that plan has been implemented yet;
+the Progress table above is unchanged.
+
 ---
 
 ## Implementation steps
