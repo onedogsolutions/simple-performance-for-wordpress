@@ -61,7 +61,7 @@ the authoritative record.)
 - **Text domain / slug:** `simple-performance-for-wordpress`
 - **Prefix:** `spfw_` (functions/options), `SPFW_` (constants/classes)
 - **Author:** Ryan Waterbury — One Dog Solutions (https://onedog.solutions/)
-- **License:** GPL-3.0-or-later · **Min WP:** 6.0 · **Min PHP:** 7.4
+- **License:** GPL-3.0-or-later · **Min WP:** 6.0 · **Min PHP:** 8.0
 - **Target stack:** OpenLiteSpeed + LiteSpeed Cache
 - **Single option key:** `spfw_settings` (autoloaded, one serialized array — the
   only DB footprint; schema in Step 2 below)
@@ -121,7 +121,7 @@ gap-closure plan are now implemented.
 
 ### Step 1 — Bootstrap file ✅
 `simple-performance-for-wordpress.php`: plugin header (name/version/author/
-license/text-domain, min WP 6.0 / PHP 7.4), `ABSPATH` guard, constants
+license/text-domain, min WP 6.0 / PHP 8.0), `ABSPATH` guard, constants
 `SPFW_VERSION`/`SPFW_FILE`/`SPFW_PATH`/`SPFW_URL`/`SPFW_BASENAME`, text-domain load
 on `init`, require + boot `SPFW_Plugin` on `plugins_loaded`, activation/
 deactivation hooks wired to `SPFW_Plugin::activate()`/`deactivate()`. Never deletes

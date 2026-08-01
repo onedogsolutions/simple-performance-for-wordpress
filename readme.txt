@@ -3,7 +3,7 @@ Contributors: One Dog Solutions
 Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
-Requires PHP: 7.4
+Requires PHP: 8.0
 Stable tag: 2.0.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
