@@ -50,4 +50,5 @@ wp-config.php
 # Plugin build tooling — admin UI is built via `npm install && npm run build`
 node_modules/
 build/
+vendor/
 *.zip

@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<ruleset name="Simple Performance for WordPress">
+	<description>WordPress Coding Standards for Simple Performance for WordPress.</description>
+
+	<!-- Scan only plugin PHP files. -->
+	<file>./includes</file>
+	<file>./admin</file>
+	<file>./simple-performance-for-wordpress.php</file>
+	<file>./uninstall.php</file>
+
+	<!-- Exclude build artifacts and vendor. -->
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/build/*</exclude-pattern>
+
+	<!-- Use WordPress rulesets. -->
+	<rule ref="WordPress">
+		<!-- The plugin uses short array syntax and modern PHP. -->
+		<exclude name="Universal.Arrays.DisallowShortArraySyntax" />
+	</rule>
+
+	<!-- PHP cross-version compatibility. -->
+	<config name="testVersion" value="7.4-" />
+	<rule ref="PHPCompatibilityWP" />
+
+	<!-- Text domain enforcement. -->
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="simple-performance-for-wordpress" />
+			</property>
+		</properties>
+	</rule>
+
+	<!-- Prefix enforcement. -->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="spfw" />
+				<element value="SPFW" />
+			</property>
+		</properties>
+	</rule>
+
+	<!-- Allow the plugin's own file/constant naming. -->
+	<rule ref="WordPress.Files.FileName">
+		<properties>
+			<property name="strict_class_file_names" value="false" />
+		</properties>
+	</rule>
+
+	<!-- Show progress and sniff codes. -->
+	<arg value="ps" />
+	<arg name="extensions" value="php" />
+	<arg name="parallel" value="8" />
+</ruleset>

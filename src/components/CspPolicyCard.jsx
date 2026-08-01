@@ -1,5 +1,6 @@
 import { useEffect, useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
@@ -168,6 +169,7 @@ export default function CspPolicyCard( {
 	// by re-deriving the value from the parsed tokens. Cleared per-directive
 	// when a discrete action (Allow, 'none', reset) changes hosts out-of-band.
 	const [ hostText, setHostText ] = useState( {} );
+	const [ scanning, setScanning ] = useState( false );
 
 	const clearHostText = ( name ) =>
 		setHostText( ( prev ) => {
@@ -371,6 +373,107 @@ export default function CspPolicyCard( {
 							checked={ isCustom }
 							onChange={ ( v ) => switchMode( v ) }
 						/>
+					</SettingsRow>
+
+					<SettingsRow
+						title={ __(
+							'Tighten script-src (Advanced)',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Replaces \'unsafe-inline\' in script-src with sha256 hashes of your site\'s inline scripts, plus \'strict-dynamic\'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<div className="w-full space-y-3">
+							<Toggle
+								checked={
+									!! hardening.csp_tighten_script_src
+								}
+								onChange={ ( v ) =>
+									onChange( 'csp_tighten_script_src', v )
+								}
+							/>
+
+							{ !! hardening.csp_tighten_script_src && (
+								<div className="space-y-3 rounded-md bg-gray-50 p-4">
+									<div className="flex items-center justify-between">
+										<span className="text-sm text-gray-700">
+											{ hardening.csp_script_hashes &&
+											hardening.csp_script_hashes.length > 0
+												? sprintf(
+														/* translators: %d: number of hashes */
+														__(
+															'%d script hashes collected',
+															'simple-performance-for-wordpress'
+														),
+														hardening.csp_script_hashes.length
+												  )
+												: __(
+														'No hashes collected yet',
+														'simple-performance-for-wordpress'
+												  ) }
+										</span>
+										<button
+											type="button"
+											onClick={ () => {
+												setScanning( true );
+												apiFetch( {
+													path: '/spfw/v1/settings/scan-script-hashes',
+													method: 'POST',
+												} )
+													.then(
+														( data ) => {
+															onChange(
+																'csp_script_hashes',
+																data.hashes
+															);
+															onChange(
+																'csp_hash_last_scan',
+																data.last_scan
+															);
+															setScanning(
+																false
+															);
+														}
+													)
+													.catch( () =>
+														setScanning(
+															false
+														)
+													);
+											} }
+											disabled={ scanning }
+											className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+										>
+											{ scanning
+												? __(
+														'Scanning…',
+														'simple-performance-for-wordpress'
+												  )
+												: __(
+														'Scan for inline scripts',
+														'simple-performance-for-wordpress'
+												  ) }
+										</button>
+									</div>
+
+									<p className="text-xs text-gray-500">
+										{ __(
+											'Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+
+									<p className="text-xs text-amber-600">
+										{ __(
+											'Warning: \'strict-dynamic\' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
+							) }
+						</div>
 					</SettingsRow>
 
 					{ ! isCustom && (

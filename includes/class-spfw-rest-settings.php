@@ -90,6 +90,56 @@ class SPFW_Rest_Settings {
 				),
 			)
 		);
+
+		// Settings export / import (D2).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/export',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'export_settings' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/import',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'import_settings' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
+
+		// Configuration presets (D3).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/presets',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'list_presets' ),
+					'permission_callback' => array( $this, 'check_permissions' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'apply_preset' ),
+					'permission_callback' => array( $this, 'check_permissions' ),
+				),
+			)
+		);
+
+		// CSP script hash scan (Phase E).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/scan-script-hashes',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'scan_script_hashes' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -111,6 +161,7 @@ class SPFW_Rest_Settings {
 		$settings                             = SPFW_Settings::get();
 		$settings['hardening_status']         = SPFW_Htaccess::status( 'plugins' );
 		$settings['uploads_hardening_status'] = SPFW_Htaccess::status( 'uploads' );
+		$settings['root_hardening_status']    = SPFW_Htaccess::status( 'root' );
 		$settings['csp_default']              = SPFW_Module_Hardening::DEFAULT_CSP;
 		$settings['csp_default_directives']   = SPFW_Module_Hardening::default_csp_directives();
 		$settings['csp_reports']              = self::get_csp_reports();
@@ -453,5 +504,259 @@ class SPFW_Rest_Settings {
 		}
 
 		return substr( $uri, 0, 60 );
+	}
+
+	/**
+	 * GET callback: export settings as a portable JSON payload. Strips
+	 * volatile keys (integrity hashes, font scan cache, version) that are
+	 * site-specific and would corrupt another install's state detection.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function export_settings() {
+		$settings = SPFW_Settings::get();
+
+		// Strip volatile / site-specific keys.
+		unset( $settings['version'] );
+		unset( $settings['hardening']['htaccess_hash'] );
+		unset( $settings['hardening']['uploads_htaccess_hash'] );
+		unset( $settings['hardening']['root_htaccess_hash'] );
+		unset( $settings['fonts']['discovered'] );
+		unset( $settings['fonts']['last_scan'] );
+		unset( $settings['fonts']['needs_rescan'] );
+
+		return new WP_REST_Response(
+			array(
+				'plugin'   => 'simple-performance-for-wordpress',
+				'exported' => gmdate( 'c' ),
+				'site'     => home_url( '/' ),
+				'settings' => $settings,
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST callback: import a settings payload. Runs the incoming settings
+	 * through SPFW_Settings::sanitize() (which strips unknown keys and
+	 * clamps values) and re-derives integrity hashes locally so a foreign
+	 * export never corrupts this site's .htaccess status detection.
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function import_settings( $request ) {
+		$params = $request->get_json_params();
+
+		if ( ! is_array( $params ) || empty( $params['settings'] ) || ! is_array( $params['settings'] ) ) {
+			return new WP_Error(
+				'spfw_invalid_import',
+				__( 'Invalid import payload. Expected a JSON object with a "settings" key.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$incoming = $params['settings'];
+
+		// Never import volatile keys — they are site-specific.
+		unset( $incoming['version'] );
+		unset( $incoming['hardening']['htaccess_hash'] );
+		unset( $incoming['hardening']['uploads_htaccess_hash'] );
+		unset( $incoming['hardening']['root_htaccess_hash'] );
+		unset( $incoming['fonts']['discovered'] );
+		unset( $incoming['fonts']['last_scan'] );
+		unset( $incoming['fonts']['needs_rescan'] );
+
+		SPFW_Settings::update( $incoming );
+
+		// Re-derive integrity hashes for any enabled .htaccess targets so
+		// the status detection reflects this site's actual files.
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( ! empty( $h['plugins_htaccess'] ) ) {
+			SPFW_Htaccess::write( 'plugins' );
+		}
+
+		if ( ! empty( $h['uploads_htaccess'] ) ) {
+			SPFW_Htaccess::write( 'uploads' );
+		}
+
+		do_action( 'litespeed_purge_all' );
+
+		return $this->get_settings();
+	}
+
+	/**
+	 * GET callback: list available configuration presets with a summary
+	 * of what each one enables.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function list_presets() {
+		return new WP_REST_Response(
+			array(
+				'presets' => SPFW_Settings::get_presets(),
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST callback: apply a named configuration preset. Runs through the
+	 * normal SPFW_Settings::update() path so all sanitization, LSCache
+	 * purging, and .htaccess sync fire unchanged.
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function apply_preset( $request ) {
+		$params = $request->get_json_params();
+		$name   = is_array( $params ) && isset( $params['preset'] ) ? sanitize_text_field( $params['preset'] ) : '';
+
+		$presets = SPFW_Settings::get_presets();
+
+		if ( ! isset( $presets[ $name ] ) ) {
+			return new WP_Error(
+				'spfw_invalid_preset',
+				__( 'Unknown preset name.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		SPFW_Settings::update( $presets[ $name ]['settings'] );
+
+		do_action( 'litespeed_purge_all' );
+
+		return $this->get_settings();
+	}
+
+	/**
+	 * POST callback: scan representative pages for inline scripts and compute
+	 * sha256 hashes for CSP script-src tightening. Reuses the same URL sample
+	 * as the font scanner (homepage + recent post + recent page).
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function scan_script_hashes() {
+		$urls = $this->get_scan_urls();
+		$hashes = array();
+		$errors = array();
+
+		foreach ( $urls as $url ) {
+			$response = wp_remote_get(
+				$url,
+				array(
+					'timeout'     => 15,
+					'sslverify'   => false,
+					'headers'     => array(
+						'Cache-Control' => 'no-cache, no-store, must-revalidate',
+						'Pragma'        => 'no-cache',
+					),
+					'redirection' => 3,
+				)
+			);
+
+			if ( is_wp_error( $response ) ) {
+				$errors[] = $url . ': ' . $response->get_error_message();
+				continue;
+			}
+
+			$code = wp_remote_retrieve_response_code( $response );
+
+			if ( 200 !== $code ) {
+				$errors[] = $url . ': HTTP ' . $code;
+				continue;
+			}
+
+			$html = wp_remote_retrieve_body( $response );
+
+			if ( empty( $html ) ) {
+				continue;
+			}
+
+			// Extract inline script bodies (scripts without a src attribute).
+			if ( preg_match_all( '/<script(?![^>]*\bsrc\b)[^>]*>(.*?)<\/script>/is', $html, $matches ) ) {
+				foreach ( $matches[1] as $body ) {
+					$body = trim( $body );
+
+					// Skip empty or whitespace-only scripts.
+					if ( '' === $body || ! preg_match( '/\S/', $body ) ) {
+						continue;
+					}
+
+					// Skip JSON-LD and other non-executable script types.
+					if ( preg_match( '/<script[^>]*type\s*=\s*["\'](?:application\/ld\+json|application\/json|text\/template)["\']/i', $matches[0][ array_search( $body, $matches[1], true ) ] ?? '', $type_match ) ) {
+						continue;
+					}
+
+					$hash     = base64_encode( hash( 'sha256', $body, true ) );
+					$hashes[] = $hash;
+				}
+			}
+		}
+
+		$hashes = array_values( array_unique( $hashes ) );
+
+		// Store the hashes.
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_script_hashes'  => $hashes,
+					'csp_hash_last_scan' => time(),
+				),
+			)
+		);
+
+		return new WP_REST_Response(
+			array(
+				'hashes'     => $hashes,
+				'count'      => count( $hashes ),
+				'urls'       => $urls,
+				'errors'     => $errors,
+				'last_scan'  => time(),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Build the list of URLs to scan for inline scripts. Mirrors the font
+	 * scanner's representative sample: homepage, most recent post, most
+	 * recent page.
+	 *
+	 * @return string[]
+	 */
+	private function get_scan_urls() {
+		$urls = array( home_url( '/' ) );
+
+		$recent_post = get_posts(
+			array(
+				'post_type'      => 'post',
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			)
+		);
+
+		if ( ! empty( $recent_post ) ) {
+			$urls[] = get_permalink( $recent_post[0] );
+		}
+
+		$recent_page = get_posts(
+			array(
+				'post_type'      => 'page',
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			)
+		);
+
+		if ( ! empty( $recent_page ) ) {
+			$urls[] = get_permalink( $recent_page[0] );
+		}
+
+		return array_values( array_unique( array_filter( $urls ) ) );
 	}
 }

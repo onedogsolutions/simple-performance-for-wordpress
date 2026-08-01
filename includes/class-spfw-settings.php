@@ -57,6 +57,16 @@ class SPFW_Settings {
 				'disable_jquery_migrate' => true,
 				'disable_wp_sitemaps'    => false,
 				'remove_robots_max_image_preview' => false,
+				'disable_block_css'      => false,
+				'block_css_smart_mode'   => true,
+				'streamline_dashboard'   => false,
+				'disable_wp_cron'        => false,
+				'cron_lock_timeout'      => 0,
+				'speculation_rules'      => 'default',
+				'disable_search'         => false,
+				'search_redirect_home'   => true,
+				'disable_scaled_images'  => false,
+				'disabled_image_sizes'   => array(),
 			),
 			'restapi'     => array(
 				'require_auth'        => false,
@@ -70,6 +80,12 @@ class SPFW_Settings {
 				'uploads_htaccess_hash' => '',
 				'disable_file_editing'  => false,
 				'block_author_enum'     => false,
+				'disable_app_passwords' => false,
+				'generic_login_errors'  => false,
+				'protect_sensitive_files' => false,
+				'block_xmlrpc_file'     => false,
+				'root_htaccess_hash'    => '',
+				'permissions_policy'    => array( 'geolocation' => array(), 'microphone' => array(), 'camera' => array(), 'payment' => array(), 'usb' => array(), 'interest-cohort' => array() ),
 				'security_headers'      => false,
 				'csp_enabled'             => false,
 				'csp_report_only'         => true,
@@ -93,6 +109,9 @@ class SPFW_Settings {
 				'hsts_max_age'            => 31536000,
 				'hsts_include_subdomains' => false,
 				'hsts_preload'            => false,
+				'csp_script_hashes'       => array(),
+				'csp_hash_last_scan'      => 0,
+				'csp_tighten_script_src'  => false,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -159,6 +178,14 @@ class SPFW_Settings {
 			self::run_font_rescan_migration( $stored );
 			$stored = get_option( self::OPTION_KEY, array() );
 			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		// Migration to 1.14.0: the deny-PHP payload changed from <Files *.php>
+		// to <FilesMatch> with a broader extension pattern. Silently rewrite
+		// files we can prove we authored (legacy hash match) so existing
+		// installs don't see a false "file has been modified" alarm.
+		if ( version_compare( $stored_ver, '1.14.0', '<' ) ) {
+			SPFW_Htaccess::run_payload_migration();
 		}
 
 		self::$cache = self::merge_recursive( self::defaults(), $stored );
@@ -290,6 +317,13 @@ class SPFW_Settings {
 			'disable_jquery_migrate',
 			'disable_wp_sitemaps',
 			'remove_robots_max_image_preview',
+			'disable_block_css',
+			'block_css_smart_mode',
+			'streamline_dashboard',
+			'disable_wp_cron',
+			'disable_search',
+			'search_redirect_home',
+			'disable_scaled_images',
 		);
 
 		foreach ( $core_bools as $key ) {
@@ -324,6 +358,19 @@ class SPFW_Settings {
 			isset( $core['google_maps_exceptions'] ) ? $core['google_maps_exceptions'] : $defaults['core']['google_maps_exceptions']
 		);
 
+		// WP-Cron lock timeout: whitelist to safe values.
+		$cron_lock                            = isset( $core['cron_lock_timeout'] ) ? absint( $core['cron_lock_timeout'] ) : 0;
+		$clean['core']['cron_lock_timeout'] = in_array( $cron_lock, array( 0, 60, 120, 300 ), true ) ? $cron_lock : 0;
+
+		// Speculation Rules: default|disable|conservative.
+		$speculation                       = isset( $core['speculation_rules'] ) ? $core['speculation_rules'] : 'default';
+		$clean['core']['speculation_rules'] = in_array( $speculation, array( 'default', 'disable', 'conservative' ), true ) ? $speculation : 'default';
+
+		// Disabled image sizes: whitelist against known intermediate sizes.
+		$clean['core']['disabled_image_sizes'] = self::sanitize_image_sizes(
+			isset( $core['disabled_image_sizes'] ) ? $core['disabled_image_sizes'] : $defaults['core']['disabled_image_sizes']
+		);
+
 		$restapi = isset( $input['restapi'] ) && is_array( $input['restapi'] ) ? $input['restapi'] : array();
 
 		$clean['restapi']['require_auth']        = self::to_bool( $restapi, 'require_auth', $defaults['restapi']['require_auth'] );
@@ -341,6 +388,10 @@ class SPFW_Settings {
 			'uploads_htaccess',
 			'disable_file_editing',
 			'block_author_enum',
+			'disable_app_passwords',
+			'generic_login_errors',
+			'protect_sensitive_files',
+			'block_xmlrpc_file',
 			'security_headers',
 			'csp_enabled',
 			'csp_report_only',
@@ -359,6 +410,14 @@ class SPFW_Settings {
 
 		$uploads_hash                                = isset( $hardening['uploads_htaccess_hash'] ) ? sanitize_text_field( $hardening['uploads_htaccess_hash'] ) : '';
 		$clean['hardening']['uploads_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $uploads_hash ) ? $uploads_hash : '';
+
+		$root_hash                                = isset( $hardening['root_htaccess_hash'] ) ? sanitize_text_field( $hardening['root_htaccess_hash'] ) : '';
+		$clean['hardening']['root_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $root_hash ) ? $root_hash : '';
+
+		// Permissions-Policy: feature => allowlist map.
+		$clean['hardening']['permissions_policy'] = self::sanitize_permissions_policy(
+			isset( $hardening['permissions_policy'] ) ? $hardening['permissions_policy'] : $defaults['hardening']['permissions_policy']
+		);
 
 		// CSP policy: a single header value. Flatten any line breaks (the UI
 		// uses a textarea for readability), collapse the runs of whitespace
@@ -389,6 +448,29 @@ class SPFW_Settings {
 		$clean['hardening']['hsts_max_age'] = in_array( $hsts_max_age, array( 86400, 604800, 2592000, 15768000, 31536000, 63072000 ), true )
 			? $hsts_max_age
 			: $defaults['hardening']['hsts_max_age'];
+
+		// CSP script hashes: array of base64-encoded sha256 digests.
+		$raw_hashes = isset( $hardening['csp_script_hashes'] ) && is_array( $hardening['csp_script_hashes'] )
+			? $hardening['csp_script_hashes']
+			: array();
+		$clean['hardening']['csp_script_hashes'] = array_values(
+			array_filter(
+				array_map(
+					static function ( $h ) {
+						$h = trim( (string) $h );
+						// Must look like base64 (sha256 = 44 chars).
+						return preg_match( '/^[A-Za-z0-9+\/=]{20,88}$/', $h ) ? $h : '';
+					},
+					$raw_hashes
+				),
+				static function ( $h ) {
+					return '' !== $h;
+				}
+			)
+		);
+
+		$clean['hardening']['csp_hash_last_scan']     = isset( $hardening['csp_hash_last_scan'] ) ? absint( $hardening['csp_hash_last_scan'] ) : 0;
+		$clean['hardening']['csp_tighten_script_src'] = self::to_bool( $hardening, 'csp_tighten_script_src', $defaults['hardening']['csp_tighten_script_src'] );
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
@@ -650,6 +732,88 @@ class SPFW_Settings {
 	}
 
 	/**
+	 * Sanitize a list of image sizes to disable. Whitelisted against known
+	 * WordPress intermediate sizes so arbitrary strings can't be injected.
+	 *
+	 * @param mixed $raw Array of size names.
+	 * @return string[]
+	 */
+	private static function sanitize_image_sizes( $raw ) {
+		$allowed = array( '1536x1536', '2048x2048', 'medium_large' );
+		$items   = is_array( $raw ) ? $raw : array();
+		$clean   = array();
+
+		foreach ( $items as $item ) {
+			$item = trim( (string) $item );
+
+			if ( in_array( $item, $allowed, true ) ) {
+				$clean[] = $item;
+			}
+		}
+
+		return array_values( array_unique( $clean ) );
+	}
+
+	/**
+	 * Sanitize a Permissions-Policy feature => allowlist map. Whitelists
+	 * feature names, rejects any token containing ';', ',', whitespace, or
+	 * control characters.
+	 *
+	 * @param mixed $raw Feature => list of allowlist tokens.
+	 * @return array<string,string[]>
+	 */
+	private static function sanitize_permissions_policy( $raw ) {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$allowed_features = array(
+			'geolocation', 'microphone', 'camera', 'payment', 'usb',
+			'interest-cohort', 'accelerometer', 'ambient-light-sensor',
+			'autoplay', 'battery', 'display-capture', 'document-domain',
+			'encrypted-media', 'fullscreen', 'gamepad', 'gyroscope',
+			'layout-animations', 'legacy-image-formats', 'magnetometer',
+			'midi', 'oversized-images', 'picture-in-picture', 'publickey-credentials-get',
+			'screen-wake-lock', 'sync-xhr', 'unoptimized-images',
+			'unsized-media', 'vibrate', 'vr', 'web-share', 'xr-spatial-tracking',
+		);
+
+		$clean = array();
+
+		foreach ( $raw as $feature => $tokens ) {
+			$feature = strtolower( trim( (string) $feature ) );
+
+			if ( ! in_array( $feature, $allowed_features, true ) ) {
+				continue;
+			}
+
+			if ( ! is_array( $tokens ) ) {
+				$clean[ $feature ] = array();
+				continue;
+			}
+
+			$valid = array();
+
+			foreach ( $tokens as $token ) {
+				$token = trim( (string) $token );
+
+				if ( '' === $token || preg_match( '/[\s;,\x00-\x1F\x7F]/', $token ) ) {
+					continue;
+				}
+
+				// Allow 'self', quoted origins, and bare origins.
+				if ( preg_match( '#^"?[A-Za-z0-9.*:/-]+"?$#', $token ) ) {
+					$valid[] = $token;
+				}
+			}
+
+			$clean[ $feature ] = array_slice( array_values( array_unique( $valid ) ), 0, 10 );
+		}
+
+		return $clean;
+	}
+
+	/**
 	 * Run upgrade migrations on settings.
 	 *
 	 * @param array $stored Currently stored settings.
@@ -717,5 +881,107 @@ class SPFW_Settings {
 
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Named configuration presets. Each preset is a partial settings array
+	 * that is merged over defaults via the normal update() path, so all
+	 * sanitization, LSCache purging, and .htaccess sync fire unchanged.
+	 *
+	 * @return array<string,array{label:string,description:string,settings:array}>
+	 */
+	public static function get_presets() {
+		return array(
+			'balanced'    => array(
+				'label'       => __( 'Balanced', 'simple-performance-for-wordpress' ),
+				'description' => __( 'Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers.', 'simple-performance-for-wordpress' ),
+				'settings'    => array(
+					'core'      => array(
+						'disable_emojis'         => true,
+						'disable_embeds'         => true,
+						'disable_dashicons'      => true,
+						'disable_xmlrpc'         => true,
+						'remove_rsd'             => true,
+						'remove_wlwmanifest'     => true,
+						'hide_wp_version'        => true,
+						'remove_shortlink'       => true,
+						'disable_self_pingbacks' => true,
+						'disable_jquery_migrate' => true,
+						'streamline_dashboard'   => true,
+					),
+					'hardening' => array(
+						'security_headers' => true,
+					),
+				),
+			),
+			'aggressive'  => array(
+				'label'       => __( 'Aggressive', 'simple-performance-for-wordpress' ),
+				'description' => __( 'For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control.', 'simple-performance-for-wordpress' ),
+				'settings'    => array(
+					'core'      => array(
+						'disable_emojis'         => true,
+						'disable_embeds'         => true,
+						'disable_dashicons'      => true,
+						'disable_xmlrpc'         => true,
+						'remove_rsd'             => true,
+						'remove_wlwmanifest'     => true,
+						'hide_wp_version'        => true,
+						'remove_shortlink'       => true,
+						'remove_rest_api_links'  => true,
+						'disable_self_pingbacks' => true,
+						'disable_jquery_migrate' => true,
+						'disable_block_css'      => true,
+						'block_css_smart_mode'   => false,
+						'streamline_dashboard'   => true,
+						'disable_search'         => true,
+						'search_redirect_home'   => true,
+						'disable_scaled_images'  => true,
+						'disabled_image_sizes'   => array( '1536x1536', '2048x2048' ),
+						'speculation_rules'      => 'conservative',
+					),
+					'hardening' => array(
+						'security_headers' => true,
+					),
+				),
+			),
+			'locked_down' => array(
+				'label'       => __( 'Locked Down', 'simple-performance-for-wordpress' ),
+				'description' => __( 'Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors.', 'simple-performance-for-wordpress' ),
+				'settings'    => array(
+					'core'      => array(
+						'disable_emojis'         => true,
+						'disable_embeds'         => true,
+						'disable_dashicons'      => true,
+						'disable_xmlrpc'         => true,
+						'remove_rsd'             => true,
+						'remove_wlwmanifest'     => true,
+						'hide_wp_version'        => true,
+						'remove_shortlink'       => true,
+						'remove_rest_api_links'  => true,
+						'disable_self_pingbacks' => true,
+						'disable_jquery_migrate' => true,
+						'disable_block_css'      => true,
+						'block_css_smart_mode'   => false,
+						'streamline_dashboard'   => true,
+						'disable_search'         => true,
+						'search_redirect_home'   => true,
+						'disable_scaled_images'  => true,
+						'disabled_image_sizes'   => array( '1536x1536', '2048x2048' ),
+						'speculation_rules'      => 'disable',
+					),
+					'hardening' => array(
+						'plugins_htaccess'        => true,
+						'uploads_htaccess'        => true,
+						'disable_file_editing'    => true,
+						'block_author_enum'       => true,
+						'disable_app_passwords'   => true,
+						'generic_login_errors'    => true,
+						'protect_sensitive_files' => true,
+						'block_xmlrpc_file'       => true,
+						'security_headers'        => true,
+					),
+				),
+			),
+		);
 	}
 }

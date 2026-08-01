@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 1.10.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.0.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-07-22T16:24:58+00:00\n"
+"POT-Creation-Date: 2026-07-31T12:00:00+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -757,7 +757,7 @@ msgid "Block author enumeration"
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:165
-msgid "Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Complements disabling the REST users endpoint."
+msgid "Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Also removes the users sitemap (wp-sitemap-users-1.xml) to close the same leak via sitemaps. Complements disabling the REST users endpoint."
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:177
@@ -922,4 +922,282 @@ msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:97
 msgid "Removes the WooCommerce → Marketing menu and its admin feature."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php
+msgid "Invalid username or password."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable block editor CSS"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Removes wp-block-library, global-styles, and classic-theme-styles from the frontend (~30–60 KB render-blocking CSS). For classic or page-builder themes. Global styles are site-wide and cannot be conditionally removed per-post."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Smart mode: skip removal on pages that use blocks"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Streamline dashboard"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets. Eliminates the blocking outbound HTTP request to wordpress.org on every dashboard load."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Disable Application Passwords"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Removes the Application Passwords authentication method. These bypass two-factor authentication plugins. Warning: this will break any existing integration that authenticates with an application password. MainWP is unaffected — it uses its own signed channel."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Generic login error messages"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Replaces login and password-reset error messages with a single generic string, so attackers cannot determine whether a username exists. Real users see a less specific message."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Cron & Search"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Control WP-Cron behavior and disable public site search."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable WP-Cron"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Stops WordPress from spawning virtual cron jobs on every page load. Use only if you have a real system cron (e.g. `wp cron event run --due-now` every minute) configured on the server."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Cron lock timeout"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Default (60 seconds)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "300 seconds (5 minutes)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable site search"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Blocks public ?s= search queries on the frontend. Useful for sites where search is not needed and the query is an abuse vector."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Redirect search requests to the homepage (otherwise returns 404)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Speculation Rules"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Control the WordPress Speculative Loading API (prefetch/prerender). Prerendering can waste bandwidth on high-traffic sites."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Speculation Rules mode"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "WordPress 6.5+ injects a speculation-rules JSON script that prefetches and prerenders likely next pages. Conservative mode keeps prefetch but removes prerender. Disable removes the script entirely."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Conservative (prefetch only, no prerender)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable entirely"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Image Sizes"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Reduce disk usage and upload time by preventing generation of rarely-used intermediate image sizes."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable scaled image generation"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Disable intermediate sizes"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted."
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "1536×1536 (scaled)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "2048×2048 (scaled)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx
+msgid "medium_large (768px)"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Permissions-Policy features"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Uncheck to allow a feature."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx
+msgid "Block"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Apply preset…"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Export"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Import"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Settings exported."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Export failed."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Settings imported."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Import failed."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Invalid JSON file."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Preset applied."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Failed to apply preset."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Apply preset"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "This overwrites your current settings. Save first if you want to keep them."
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Apply"
+msgstr ""
+
+#: src/components/App.jsx
+msgid "Cancel"
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "Balanced"
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "Aggressive"
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "Locked Down"
+msgstr ""
+
+#: includes/class-spfw-settings.php
+msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
+msgstr ""
+
+#: includes/class-spfw-rest-settings.php
+msgid "Invalid import payload. Expected a JSON object with a \"settings\" key."
+msgstr ""
+
+#: includes/class-spfw-rest-settings.php
+msgid "Unknown preset name."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Tighten script-src (Advanced)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Replaces 'unsafe-inline' in script-src with sha256 hashes of your site's inline scripts, plus 'strict-dynamic'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean."
+msgstr ""
+
+#. translators: %d: number of hashes
+#: src/components/CspPolicyCard.jsx
+#, js-format
+msgid "%d script hashes collected"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "No hashes collected yet"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Scanning…"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Scan for inline scripts"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx
+msgid "Warning: 'strict-dynamic' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only."
 msgstr ""

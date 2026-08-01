@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.12.0
+Stable tag: 2.0.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -29,6 +29,13 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Disable jQuery Migrate on the frontend
 * Disable the WordPress core XML sitemap (wp-sitemap.xml)
 * Remove the max-image-preview:large directive from the robots meta tag
+* Disable block editor frontend CSS (wp-block-library, global-styles) with smart mode for mixed sites
+* Streamline the dashboard by removing bloated widgets (eliminates the blocking outbound HTTP request to wordpress.org)
+* Preload localized font files for faster text rendering
+* Disable WP-Cron (for sites with a real system cron) and tune the cron lock timeout
+* Control the Speculative Loading API (prefetch/prerender) — disable or run in conservative mode
+* Disable public site search (redirect to homepage or return 404)
+* Disable scaled image generation and selectively skip intermediate image sizes
 
 = WooCommerce Optimizations (shown when WooCommerce is active) =
 * Disable AJAX cart fragments off the cart/checkout — the biggest single store speed win
@@ -43,11 +50,14 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * The plugin's own settings API is always exempt automatically, so you can never lock yourself out of the settings screen
 
 = Security Hardening =
-* Drops a deny-PHP .htaccess into /wp-content/plugins/ and (optionally) /wp-content/uploads/ to block direct execution of PHP files where none should run
+* Drops a deny-PHP .htaccess into /wp-content/plugins/ and (optionally) /wp-content/uploads/ to block direct execution of PHP files (covers .php, .phtml, .php5, .php7, .phps, .phar, .inc) where none should run
 * Verifies each file's integrity on every admin page load and flags it if it's missing or has been altered, with a one-click restore — and never overwrites or deletes a pre-existing, unrecognized .htaccess
+* Root .htaccess rules: block direct access to sensitive files (readme.html, debug.log, .env, *.sql, *.bak) and deny xmlrpc.php at the server level — written via WordPress markers so permalink rules are preserved, with an automatic safety rollback if the rules cause a 500
 * Disable the built-in theme/plugin file editor (DISALLOW_FILE_EDIT) so a compromised admin account can't edit PHP from the dashboard
-* Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks
-* Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy); these work regardless of your web server's .htaccess handling
+* Block author enumeration — redirects anonymous ?author=N and /author/slug/ probes so usernames can't be harvested for brute-force attacks, and removes the users sitemap to close the same leak
+* Disable Application Passwords (which bypass two-factor authentication)
+* Generic login error messages (prevents username existence disclosure)
+* Send conservative security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, COOP, CORP, X-Permitted-Cross-Domain-Policies, configurable Permissions-Policy); these work regardless of your web server's .htaccess handling
 * Add a Content-Security-Policy header with a visual policy builder — toggle the allowed sources per directive (scripts, styles, images, fonts, …) and watch the policy string build itself, or switch to Advanced mode to edit the raw policy and add your own directives
 * See exactly what a policy blocks: whenever CSP is active, blocked resources are collected and shown as warnings next to the directive that blocked them, with a one-click "Allow" to add the source — clear every violation in Report-Only before you enforce, and keep catching real breakage after. Can skip logged-in users so the block editor and admin bar keep working
 * Add an HTTP Strict Transport Security (HSTS) header with a configurable max-age, includeSubDomains, and preload — only sent on HTTPS responses, including behind a reverse proxy that terminates TLS at the edge (e.g. QUIC.cloud)
@@ -91,6 +101,40 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.0.0 =
+* Added: CSP script-src tightening via hash sources — scan your site's inline scripts and replace 'unsafe-inline' with sha256 hashes plus 'strict-dynamic'. This provides real XSS protection while remaining compatible with full-page caching (hashes are stable across cache hits, unlike nonces).
+* Added: script hash scanner — crawls your homepage, most recent post, and most recent page to collect sha256 digests of all inline scripts. Re-scan after any plugin or theme change.
+* Important: 'strict-dynamic' changes how browsers interpret script-src — https: and host allowlists are ignored once it's present. Trust propagates from hashed scripts only. Any inline script that varies per request (timestamps, personalization blobs) will always violate and cannot be hashed.
+* Recommendation: keep CSP in Report-Only mode until the violation log is clean, then switch to enforcing. This is an advanced feature with a standing re-scan obligation after every plugin/theme update.
+
+= 1.16.0 =
+* Added: CI pipeline — GitHub Actions workflow running PHP lint (7.4–8.3), PHPCS with WordPress Coding Standards, and the admin UI build on every push/PR.
+* Added: composer.json with PHPCS, WPCS, and PHPCompatibility dev dependencies; phpcs.xml.dist configured for the plugin's text domain and prefix.
+* Added: settings export/import — download a portable JSON profile (volatile keys like integrity hashes and font scan cache are stripped) and import it on another site. Import re-derives .htaccess hashes locally so a foreign export never corrupts status detection.
+* Added: configuration presets — three one-click starting points (Balanced, Aggressive, Locked Down) with a confirmation step showing what will change. Applying a preset runs through the normal settings path so all sanitization, LSCache purging, and .htaccess sync fire unchanged.
+
+= 1.15.0 =
+* Added: additional security headers — Cross-Origin-Opener-Policy: same-origin, Cross-Origin-Resource-Policy: same-origin, and X-Permitted-Cross-Domain-Policies: none are now sent alongside the existing headers when "Send security headers" is enabled.
+* Added: configurable Permissions-Policy — the feature allowlist (geolocation, microphone, camera, payment, usb, interest-cohort) is now editable in the UI; blocked features are sent with an empty allowlist.
+* Added: security headers in wp-admin — nosniff and Referrer-Policy are now sent on admin pages too (never CSP or HSTS from this path).
+* Added: WP-Cron control — disable the virtual cron spawner (DISABLE_WP_CRON) for sites with a real system cron, and tune WP_CRON_LOCK_TIMEOUT to prevent overlapping cron runs.
+* Added: Speculation Rules control — disable WordPress's speculative loading (prefetch/prerender) entirely or run in conservative mode (prefetch only, moderate eagerness, no prerender).
+* Added: disable site search — blocks public ?s= queries on the frontend (redirect to homepage or return 404). Useful for sites where search is unused and the query is an abuse vector.
+* Added: image size generation control — disable the -scaled copy of large images (big_image_size_threshold) and selectively skip intermediate sizes (1536×1536, 2048×2048, medium_large) to save disk space and upload time.
+
+= 1.14.0 =
+* Changed: the deny-PHP .htaccess payload now uses FilesMatch with a PCRE pattern covering .php, .php5, .php7, .phtml, .phps, .phar, and .inc — the extensions a dropper uses once .php is blocked. Existing installs are silently migrated (legacy hash detection) with no false "file modified" alarm.
+* Added: root .htaccess rules — protect sensitive files (readme.html, license.txt, debug.log, .env, *.sql, *.bak, *.old) and block xmlrpc.php at the server level. Written via WordPress markers (insert_with_markers) so permalink rules are never disturbed. Includes an automatic safety rollback: if the rules cause a 500, they are removed on the next admin page load.
+* Changed: SPFW_Htaccess refactored to a targets map with two ownership modes (own_file for plugins/uploads, marker_block for the site root). Integrity checks for the root target hash only the extracted marker block, so a permalink save never trips the altered notice.
+
+= 1.13.0 =
+* Added: Disable block editor frontend CSS (wp-block-library, global-styles, classic-theme-styles) — removes ~30–60 KB of render-blocking CSS on classic/page-builder themes. Includes a smart mode (on by default) that skips removal on pages using blocks.
+* Added: Streamline dashboard — removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets, eliminating the blocking outbound HTTP request to wordpress.org on every dashboard load.
+* Added: Disable Application Passwords — removes the authentication method that bypasses two-factor plugins. MainWP is unaffected (uses its own signed channel).
+* Added: Generic login error messages — replaces login/password-reset errors with a single generic string so attackers cannot determine whether a username exists.
+* Fixed: author enumeration via sitemaps — when block_author_enum is on, the users sitemap provider (wp-sitemap-users-1.xml) is now removed so it no longer re-leaks author nicenames.
+* Added: font preloading — localized .woff2 files now emit <link rel="preload"> tags (up to 4, weight 400 first) so the browser discovers them without first parsing fonts.css.
 
 = 1.12.0 =
 * Added: MainWP child-side bridge (`SPFW_MainWP_Child`) so the companion "MainWP for Simple Performance for WordPress" dashboard extension can read and update plugin settings over MainWP's signed channel.

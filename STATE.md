@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 1.12.0
-- **Last updated:** 2026-07-23
+- **Plugin version target:** 2.0.0
+- **Last updated:** 2026-07-31
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -40,7 +40,19 @@ the authoritative record.)
   CDN diagnostic UI hint, 1.11.0); ✅ ZIP packaging fix (root directory
   wrapper for WordPress overwrite detection, 1.11.1); ✅ Textarea multiline
   input fix (local-state + blur-commit pattern, 1.11.2); ✅ MainWP child-side
-  bridge added (companion dashboard extension support, 1.12.0)
+  bridge added (companion dashboard extension support, 1.12.0); ✅ Phase A
+  speed & hardening gap-closure (block editor CSS removal, dashboard
+  streamlining, disable app passwords, generic login errors, sitemap
+  author-leak fix, font preloading, 1.13.0); ✅ Phase B .htaccess
+  subsystem rework (FilesMatch fix, root target with marker_block mode,
+  legacy hash migration, self-check safety net, 1.14.0); ✅ Phase C
+  headers & performance toggles (COOP/CORP/X-Permitted-Cross-Domain-Policies,
+  configurable Permissions-Policy, admin security headers, WP-Cron control,
+  Speculation Rules control, disable site search, image size generation
+  control, 1.15.0); ✅ Phase D operational maturity (CI/phpcs, settings
+  export/import, configuration presets, 1.16.0); ✅ Phase E CSP
+  script-src tightening (hash sources, strict-dynamic, inline script
+  scanner, 2.0.0)
 
 ## Shared project facts (true for every step)
 
@@ -87,21 +99,20 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**1.11.1 (ZIP packaging fix) is the current release, implemented on
-`main`.** The plugin ZIP now wraps all files inside a
-`simple-performance-for-wordpress/` root directory so WordPress correctly
-detects the existing installation and offers to overwrite on upload. The 1.11.0
-CSP CDN reporting fix remains the primary functional change in this cycle.
+**2.0.0 (Phase E — CSP script-src tightening) is the current release,
+implemented on `main`.** The full Speed & Hardening Gap-Closure Plan is
+now complete. Phase E shipped: CSP script-src tightening via sha256 hash
+sources (compatible with full-page caching, unlike nonces); inline script
+scanner (homepage + recent post + recent page); 'strict-dynamic' for
+trust propagation; advanced opt-in UI with clear documentation of the
+re-scan obligation and strict-dynamic semantics.
 
-Remaining before release is manual QA on a live WordPress + QUIC.cloud site —
-confirm that violation reports arrive in the admin within seconds of a logged-out
-page load, that the report-uri in the response header carries the public HTTPS
-origin, and that the CDN does not cache the `/wp-json/spfw/v1/csp-report`
-endpoint. Prior toggle QA still outstanding: enabling **Disable WP sitemaps**
-should 404 `/wp-sitemap.xml`; **Remove robots max-image-preview** should drop
-`max-image-preview:large` from the robots meta tag. None of these were
-runtime-verified in the build environment (no WordPress instance available).
-Phase 1 (Steps 1–9) and Step 10 remain complete.
+Remaining before release is manual QA on a live WordPress + OpenLiteSpeed
+site — confirm: scan collects hashes from all three URLs; tightening
+replaces 'unsafe-inline' with hashes + 'strict-dynamic'; violation
+collector shows any missed scripts in Report-Only mode; re-scan after a
+plugin change updates the hash list. All five phases (A–E) of the
+gap-closure plan are now implemented.
 
 ---
 
@@ -1177,6 +1188,39 @@ follow-ups deferred. Keep entries dated and terse.
     pattern.
   Version bumped to 1.11.2 (plugin header + `SPFW_VERSION` + `readme.txt`
   stable tag + changelog).
+  **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
+
+- 2026-07-31 (Phase B — .htaccess subsystem rework, → 1.14.0):
+  B0: refactored `SPFW_Htaccess` from hardcoded if/else to a TARGETS map
+  with two ownership modes (`own_file` for plugins/uploads, `marker_block`
+  for site root via `insert_with_markers()`). Added `legacy_payload_hashes()`
+  and `run_payload_migration()` so pre-1.14.0 installs are silently migrated
+  without a false "file modified" alarm. B1: replaced `<Files *.php>` with
+  `<FilesMatch "\.(?i:php[0-9]*|phtml|phps|phar|inc)$">` covering all
+  dangerous extensions. B2: new root target with two composed toggles
+  (`protect_sensitive_files`, `block_xmlrpc_file`), integrity = sha1 of the
+  extracted marker block only. Self-check safety net fires on next admin
+  load after a write and auto-removes the block on 500. New UI card in
+  HardeningSettings.jsx. Version bumped to 1.14.0.
+
+  **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
+
+- 2026-07-31 (Phase A — speed & hardening gap-closure, → 1.13.0):
+  implemented six low-risk items from the gap-closure plan. A1: disable block
+  editor frontend CSS (`core.disable_block_css` + `core.block_css_smart_mode`)
+  in `class-spfw-module-core.php`. A2: streamline dashboard
+  (`core.streamline_dashboard`) removes five widgets including the
+  blocking outbound HTTP request. A3: disable Application Passwords
+  (`hardening.disable_app_passwords`) in `class-spfw-module-hardening.php`.
+  A4: generic login error messages (`hardening.generic_login_errors`).
+  A5: sitemap author-leak fix — `wp_sitemaps_add_provider` filter removes
+  the users provider when `block_author_enum` is on (no new toggle).
+  A6: font preloading — unconditional `<link rel="preload">` for up to 4
+  localized .woff2 files in `class-spfw-module-fonts.php`. React UI updated
+  in CoreSettings.jsx and HardeningSettings.jsx. Version bumped to 1.13.0
+  (plugin header + SPFW_VERSION + readme.txt stable tag + changelog). .pot
+  regenerated.
+
   **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
 
 - 2026-07-23 (MainWP child-side bridge, → 1.12.0): added

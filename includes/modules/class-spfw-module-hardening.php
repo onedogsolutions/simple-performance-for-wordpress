@@ -26,6 +26,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	);
 
 	/**
+	 * Root .htaccess toggles (composed into one marker block).
+	 *
+	 * @var string[]
+	 */
+	const ROOT_TOGGLES = array(
+		'protect_sensitive_files',
+		'block_xmlrpc_file',
+	);
+
+	/**
 	 * Recommended baseline Content-Security-Policy. Deliberately permissive
 	 * enough not to break a typical WordPress front end: WordPress and most
 	 * themes/plugins emit inline <style>/<script> and data: images, so
@@ -45,6 +55,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 */
 	public function register() {
 		add_action( 'admin_init', array( $this, 'maybe_show_notice' ) );
+		add_action( 'admin_init', array( $this, 'maybe_run_root_self_check' ) );
 		add_action( 'update_option_' . SPFW_Settings::OPTION_KEY, array( $this, 'handle_settings_change' ), 10, 2 );
 
 		$h = SPFW_Settings::group( 'hardening' );
@@ -61,12 +72,34 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// would otherwise 301 ?author=1 to /author/slug/ and leak the login).
 		if ( ! empty( $h['block_author_enum'] ) && ! is_admin() ) {
 			add_action( 'template_redirect', array( $this, 'block_author_enumeration' ), 1 );
+
+			// A5: close the sitemap author-enumeration leak. When author
+			// enumeration is blocked but WP sitemaps remain enabled,
+			// /wp-sitemap-users-1.xml still lists every author nicename.
+			add_filter( 'wp_sitemaps_add_provider', array( $this, 'remove_users_sitemap_provider' ), 10, 2 );
+		}
+
+		// Disable Application Passwords (satisfies restapi.require_auth
+		// bypass via app-password Basic Auth, which also skips 2FA).
+		if ( ! empty( $h['disable_app_passwords'] ) ) {
+			add_filter( 'wp_is_application_passwords_available', '__return_false' );
+		}
+
+		// Generic login error messages: prevent wp-login.php from disclosing
+		// whether a username exists.
+		if ( ! empty( $h['generic_login_errors'] ) ) {
+			add_filter( 'login_errors', array( $this, 'generic_login_error' ) );
+			add_filter( 'wp_login_errors', array( $this, 'generic_login_error' ) );
 		}
 
 		// Emit conservative security response headers on front-end / REST
 		// responses (send_headers does not fire in wp-admin).
 		if ( ! empty( $h['security_headers'] ) ) {
 			add_action( 'send_headers', array( $this, 'add_security_headers' ) );
+
+			// C3: send a safe subset in wp-admin too (nosniff + Referrer-Policy
+			// only — never CSP or HSTS from this path).
+			add_action( 'admin_init', array( $this, 'add_admin_security_headers' ) );
 		}
 
 		// Content-Security-Policy is a separate, opt-in toggle because it is
@@ -89,7 +122,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * altered.
 	 */
 	public function maybe_show_notice() {
-		foreach ( array_keys( self::HTACCESS_TARGETS ) as $target ) {
+		$targets = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+
+		foreach ( $targets as $target ) {
 			if ( in_array( SPFW_Htaccess::status( $target ), array( 'missing', 'altered' ), true ) ) {
 				add_action( 'admin_notices', array( $this, 'render_notice' ) );
 
@@ -123,7 +158,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 	/**
 	 * Write or remove the plugins/uploads hardening files when their toggles
-	 * change.
+	 * change. Also handles the root .htaccess composed block — rewrites it
+	 * whenever either root toggle changes state OR when the composed content
+	 * would differ (e.g. one group added while the other was already on).
 	 *
 	 * @param array $old_value Previous full settings array.
 	 * @param array $new_value New full settings array.
@@ -138,6 +175,112 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			} elseif ( $was_on && ! $is_on ) {
 				SPFW_Htaccess::remove( $target );
 			}
+		}
+
+		// Root .htaccess: composed from two toggles.
+		$this->handle_root_htaccess_change( $old_value, $new_value );
+	}
+
+	/**
+	 * Handle root .htaccess changes. Rewrites the marker block whenever
+	 * either toggle changes, or when the composed payload differs from
+	 * what's on disk.
+	 *
+	 * @param array $old_value Previous full settings array.
+	 * @param array $new_value New full settings array.
+	 */
+	private function handle_root_htaccess_change( $old_value, $new_value ) {
+		$old_on = false;
+		$new_on = false;
+
+		foreach ( self::ROOT_TOGGLES as $toggle ) {
+			if ( ! empty( $old_value['hardening'][ $toggle ] ) ) {
+				$old_on = true;
+			}
+			if ( ! empty( $new_value['hardening'][ $toggle ] ) ) {
+				$new_on = true;
+			}
+		}
+
+		if ( $new_on && ! $old_on ) {
+			// First enable — write and schedule self-check.
+			SPFW_Htaccess::write( 'root' );
+			update_option( 'spfw_root_htaccess_check', true );
+		} elseif ( $old_on && ! $new_on ) {
+			// All disabled — remove our block.
+			SPFW_Htaccess::remove( 'root' );
+		} elseif ( $new_on && $old_on ) {
+			// Both were on but the combination changed (e.g. one added).
+			// Rebuild the block with the new composition.
+			$changed = false;
+
+			foreach ( self::ROOT_TOGGLES as $toggle ) {
+				$was = ! empty( $old_value['hardening'][ $toggle ] );
+				$now = ! empty( $new_value['hardening'][ $toggle ] );
+
+				if ( $was !== $now ) {
+					$changed = true;
+					break;
+				}
+			}
+
+			if ( $changed ) {
+				SPFW_Htaccess::write( 'root' );
+				update_option( 'spfw_root_htaccess_check', true );
+			}
+		}
+	}
+
+	/**
+	 * Safety net: after writing the root .htaccess, verify the site still
+	 * responds. If a self-check request returns 500, auto-remove the block
+	 * to prevent a permanent lockout.
+	 */
+	public function maybe_run_root_self_check() {
+		if ( ! get_option( 'spfw_root_htaccess_check' ) ) {
+			return;
+		}
+
+		delete_option( 'spfw_root_htaccess_check' );
+
+		$response = wp_remote_get(
+			home_url( '/' ),
+			array(
+				'timeout'     => 10,
+				'redirection' => 0,
+				'sslverify'   => false,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		if ( $code >= 500 ) {
+			// Site is broken — remove our block to restore access.
+			SPFW_Htaccess::remove( 'root' );
+
+			// Disable both toggles so it doesn't re-write on next save.
+			SPFW_Settings::update(
+				array(
+					'hardening' => array(
+						'protect_sensitive_files' => false,
+						'block_xmlrpc_file'       => false,
+					),
+				)
+			);
+
+			add_action(
+				'admin_notices',
+				function () {
+					printf(
+						'<div class="notice notice-error"><p>%s</p></div>',
+						esc_html__( 'Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal.', 'simple-performance-for-wordpress' )
+					);
+				}
+			);
 		}
 	}
 
@@ -163,6 +306,32 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * Remove the users sitemap provider so /wp-sitemap-users-1.xml 404s
+	 * when author enumeration blocking is active.
+	 *
+	 * @param object|false $provider The sitemap provider object.
+	 * @param string       $name     The sitemap name.
+	 * @return object|false
+	 */
+	public function remove_users_sitemap_provider( $provider, $name ) {
+		if ( 'users' === $name ) {
+			return false;
+		}
+
+		return $provider;
+	}
+
+	/**
+	 * Return a single generic error message for all login failures so
+	 * bad-username and bad-password responses are byte-identical.
+	 *
+	 * @return string
+	 */
+	public function generic_login_error() {
+		return __( 'Invalid username or password.', 'simple-performance-for-wordpress' );
+	}
+
+	/**
 	 * Send a conservative set of security response headers.
 	 */
 	public function add_security_headers() {
@@ -173,7 +342,52 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Frame-Options: SAMEORIGIN' );
 		header( 'Referrer-Policy: strict-origin-when-cross-origin' );
-		header( 'Permissions-Policy: geolocation=(), microphone=(), camera=()' );
+		header( 'Cross-Origin-Opener-Policy: same-origin' );
+		header( 'Cross-Origin-Resource-Policy: same-origin' );
+		header( 'X-Permitted-Cross-Domain-Policies: none' );
+		header( 'Permissions-Policy: ' . $this->build_permissions_policy() );
+	}
+
+	/**
+	 * Send a safe subset of security headers in wp-admin (nosniff and
+	 * Referrer-Policy only). Never sends CSP or HSTS from this path.
+	 */
+	public function add_admin_security_headers() {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'Referrer-Policy: strict-origin-when-cross-origin' );
+	}
+
+	/**
+	 * Build the Permissions-Policy header value from the configured
+	 * feature => allowlist map.
+	 *
+	 * @return string
+	 */
+	private function build_permissions_policy() {
+		$h        = SPFW_Settings::group( 'hardening' );
+		$features = isset( $h['permissions_policy'] ) && is_array( $h['permissions_policy'] )
+			? $h['permissions_policy']
+			: array();
+
+		if ( empty( $features ) ) {
+			return 'geolocation=(), microphone=(), camera=()';
+		}
+
+		$parts = array();
+
+		foreach ( $features as $feature => $allowlist ) {
+			if ( empty( $allowlist ) ) {
+				$parts[] = $feature . '=()';
+			} else {
+				$parts[] = $feature . '=(' . implode( ' ', $allowlist ) . ')';
+			}
+		}
+
+		return implode( ', ', $parts );
 	}
 
 	/**
@@ -212,6 +426,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		if ( '' === $policy ) {
 			$policy = self::DEFAULT_CSP;
+		}
+
+		// Phase E: when script-src tightening is enabled and we have collected
+		// hashes, replace 'unsafe-inline' in script-src with the hash list plus
+		// 'strict-dynamic'. Hashes are stable across cache hits (unlike nonces),
+		// so this is correct under full-page caching.
+		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
 		}
 
 		// Collect violations whenever CSP is enabled — in enforce mode too, so
@@ -382,6 +604,66 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return empty( $out ) ? '' : implode( '; ', $out ) . ';';
+	}
+
+	/**
+	 * Replace 'unsafe-inline' in script-src with the collected sha256 hashes
+	 * plus 'strict-dynamic'. This is the Phase E tightening step: hashes are
+	 * stable across cache hits (unlike nonces), so they are correct under
+	 * full-page caching.
+	 *
+	 * Note: 'strict-dynamic' changes how host allowlists are interpreted —
+	 * once present, https: and host sources in script-src are IGNORED by
+	 * supporting browsers. This is intentional: trust propagates from the
+	 * hashed scripts to any scripts they load.
+	 *
+	 * @param string   $policy  The CSP policy string.
+	 * @param string[] $hashes  Base64-encoded sha256 digests.
+	 * @return string
+	 */
+	private static function inject_script_hashes( $policy, array $hashes ) {
+		$directives = self::parse_policy_to_directives( $policy );
+
+		if ( ! isset( $directives['script-src'] ) || ! is_array( $directives['script-src'] ) ) {
+			return $policy;
+		}
+
+		$script_src = $directives['script-src'];
+
+		// Remove 'unsafe-inline' — the hashes replace it.
+		$script_src = array_filter(
+			$script_src,
+			static function ( $token ) {
+				return "'unsafe-inline'" !== $token;
+			}
+		);
+
+		// Remove host/scheme sources that 'strict-dynamic' would ignore anyway.
+		// Keep 'self', 'none', and nonce/hash sources.
+		$script_src = array_filter(
+			$script_src,
+			static function ( $token ) {
+				// Keep keyword sources and existing hashes/nonces.
+				if ( 0 === strpos( $token, "'" ) ) {
+					return true;
+				}
+				// Drop bare scheme (https:) and host sources.
+				return false;
+			}
+		);
+
+		// Add the collected hashes.
+		foreach ( $hashes as $hash ) {
+			$script_src[] = "'sha256-" . $hash . "'";
+		}
+
+		// Add 'strict-dynamic' so trust propagates to scripts loaded by the
+		// hashed scripts (common in analytics and tag managers).
+		$script_src[] = "'strict-dynamic'";
+
+		$directives['script-src'] = array_values( array_unique( $script_src ) );
+
+		return self::build_policy_from_directives( $directives );
 	}
 
 	/**

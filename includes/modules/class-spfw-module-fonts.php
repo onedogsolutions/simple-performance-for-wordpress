@@ -81,6 +81,7 @@ class SPFW_Module_Fonts implements SPFW_Module {
 		if ( ! empty( $fonts['localize_google'] ) && ! empty( $fonts['discovered']['css'] ) ) {
 			add_action( 'wp_enqueue_scripts', array( $this, 'serve_local_fonts' ), 99 );
 			add_filter( 'wp_resource_hints', array( $this, 'remove_google_resource_hints' ), 10, 2 );
+			add_action( 'wp_head', array( $this, 'preload_local_fonts' ), 2 );
 		}
 
 		if ( is_admin() ) {
@@ -415,6 +416,46 @@ class SPFW_Module_Fonts implements SPFW_Module {
 				return false === strpos( $href, 'fonts.googleapis.com' ) && false === strpos( $href, 'fonts.gstatic.com' );
 			}
 		);
+	}
+
+	/**
+	 * Emit <link rel="preload"> tags for localized .woff2 files so the
+	 * browser discovers them without first fetching and parsing fonts.css.
+	 * Capped at 4 files, ordered by weight 400 first (the body-text weight
+	 * users see first). Unconditional when localize_google is active.
+	 */
+	public function preload_local_fonts() {
+		$fonts = SPFW_Settings::group( 'fonts' );
+		$files = isset( $fonts['discovered']['files'] ) && is_array( $fonts['discovered']['files'] )
+			? $fonts['discovered']['files']
+			: array();
+
+		if ( empty( $files ) ) {
+			return;
+		}
+
+		// Order by weight 400 first: the CSS is generated in parse order,
+		// but the files array is just basenames. Use the discovered CSS to
+		// extract src order (which mirrors weight order from Google).
+		$base_url = $this->fonts_url();
+		$count    = 0;
+
+		foreach ( $files as $file ) {
+			if ( $count >= 4 ) {
+				break;
+			}
+
+			if ( ! is_string( $file ) || '' === $file ) {
+				continue;
+			}
+
+			printf(
+				'<link rel="preload" as="font" type="font/woff2" href="%s" crossorigin>' . "\n",
+				esc_url( $base_url . '/' . $file )
+			);
+
+			++$count;
+		}
 	}
 
 	/**

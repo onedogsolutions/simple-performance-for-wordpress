@@ -79,6 +79,61 @@ const AUTOSAVE_OPTIONS = [
 	{ value: 5, label: __( '5 minutes', 'simple-performance-for-wordpress' ) },
 ];
 
+const SPECULATION_OPTIONS = [
+	{
+		value: 'default',
+		label: __(
+			'Default (WordPress behavior)',
+			'simple-performance-for-wordpress'
+		),
+	},
+	{
+		value: 'conservative',
+		label: __(
+			'Conservative (prefetch only, no prerender)',
+			'simple-performance-for-wordpress'
+		),
+	},
+	{
+		value: 'disable',
+		label: __( 'Disable entirely', 'simple-performance-for-wordpress' ),
+	},
+];
+
+const CRON_LOCK_OPTIONS = [
+	{
+		value: 0,
+		label: __( 'Default (60 seconds)', 'simple-performance-for-wordpress' ),
+	},
+	{ value: 60, label: __( '60 seconds', 'simple-performance-for-wordpress' ) },
+	{
+		value: 120,
+		label: __( '120 seconds', 'simple-performance-for-wordpress' ),
+	},
+	{
+		value: 300,
+		label: __( '300 seconds (5 minutes)', 'simple-performance-for-wordpress' ),
+	},
+];
+
+const IMAGE_SIZE_OPTIONS = [
+	{
+		value: '1536x1536',
+		label: __( '1536×1536 (scaled)', 'simple-performance-for-wordpress' ),
+	},
+	{
+		value: '2048x2048',
+		label: __( '2048×2048 (scaled)', 'simple-performance-for-wordpress' ),
+	},
+	{
+		value: 'medium_large',
+		label: __(
+			'medium_large (768px)',
+			'simple-performance-for-wordpress'
+		),
+	},
+];
+
 export default function CoreSettings( { settings, onChange } ) {
 	const core = settings.core || {};
 
@@ -196,6 +251,51 @@ export default function CoreSettings( { settings, onChange } ) {
 					'simple-performance-for-wordpress'
 				) }
 			>
+				<SettingsRow
+					title={ __(
+						'Disable block editor CSS',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Removes wp-block-library, global-styles, and classic-theme-styles from the frontend (~30–60 KB render-blocking CSS). For classic or page-builder themes. Global styles are site-wide and cannot be conditionally removed per-post.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full space-y-3">
+						<Toggle
+							checked={ !! core.disable_block_css }
+							onChange={ ( v ) =>
+								onChange( 'disable_block_css', v )
+							}
+						/>
+
+						{ !! core.disable_block_css && (
+							<label
+								htmlFor="spfw-block-css-smart-mode"
+								className="flex items-center gap-x-2 text-sm text-gray-600"
+							>
+								<input
+									id="spfw-block-css-smart-mode"
+									type="checkbox"
+									checked={
+										!! core.block_css_smart_mode
+									}
+									onChange={ ( e ) =>
+										onChange(
+											'block_css_smart_mode',
+											e.target.checked
+										)
+									}
+									className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+								/>
+								{ __(
+									'Smart mode: skip removal on pages that use blocks',
+									'simple-performance-for-wordpress'
+								) }
+							</label>
+						) }
+					</div>
+				</SettingsRow>
 				{ toggleRow(
 					'disable_emojis',
 					__( 'Disable emojis', 'simple-performance-for-wordpress' ),
@@ -635,7 +735,7 @@ export default function CoreSettings( { settings, onChange } ) {
 					'simple-performance-for-wordpress'
 				) }
 				description={ __(
-					'Tune post revisions and autosave, and silence favicon 404s.',
+					'Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard.',
 					'simple-performance-for-wordpress'
 				) }
 			>
@@ -703,6 +803,240 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					)
 				) }
+				{ toggleRow(
+					'streamline_dashboard',
+					__(
+						'Streamline dashboard',
+						'simple-performance-for-wordpress'
+					),
+					__(
+						'Removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets. Eliminates the blocking outbound HTTP request to wordpress.org on every dashboard load.',
+						'simple-performance-for-wordpress'
+					)
+				) }
+			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
+					'Cron & Search',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Control WP-Cron behavior and disable public site search.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<SettingsRow
+					title={ __(
+						'Disable WP-Cron',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Stops WordPress from spawning virtual cron jobs on every page load. Use only if you have a real system cron (e.g. `wp cron event run --due-now` every minute) configured on the server.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full space-y-3">
+						<Toggle
+							checked={ !! core.disable_wp_cron }
+							onChange={ ( v ) =>
+								onChange( 'disable_wp_cron', v )
+							}
+						/>
+
+						{ !! core.disable_wp_cron && (
+							<div className="w-full sm:w-56">
+								<label
+									htmlFor="spfw-cron-lock-timeout"
+									className="block text-xs text-gray-600 mb-1"
+								>
+									{ __(
+										'Cron lock timeout',
+										'simple-performance-for-wordpress'
+									) }
+								</label>
+								<select
+									id="spfw-cron-lock-timeout"
+									value={ core.cron_lock_timeout || 0 }
+									onChange={ ( e ) =>
+										onChange(
+											'cron_lock_timeout',
+											parseInt( e.target.value, 10 )
+										)
+									}
+									className={ selectClass }
+								>
+									{ CRON_LOCK_OPTIONS.map( ( opt ) => (
+										<option
+											key={ opt.value }
+											value={ opt.value }
+										>
+											{ opt.label }
+										</option>
+									) ) }
+								</select>
+							</div>
+						) }
+					</div>
+				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
+						'Disable site search',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Blocks public ?s= search queries on the frontend. Useful for sites where search is not needed and the query is an abuse vector.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full space-y-3">
+						<Toggle
+							checked={ !! core.disable_search }
+							onChange={ ( v ) =>
+								onChange( 'disable_search', v )
+							}
+						/>
+
+						{ !! core.disable_search && (
+							<label
+								htmlFor="spfw-search-redirect-home"
+								className="flex items-center gap-x-2 text-sm text-gray-600"
+							>
+								<input
+									id="spfw-search-redirect-home"
+									type="checkbox"
+									checked={
+										!! core.search_redirect_home
+									}
+									onChange={ ( e ) =>
+										onChange(
+											'search_redirect_home',
+											e.target.checked
+										)
+									}
+									className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+								/>
+								{ __(
+									'Redirect search requests to the homepage (otherwise returns 404)',
+									'simple-performance-for-wordpress'
+								) }
+							</label>
+						) }
+					</div>
+				</SettingsRow>
+			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
+					'Speculation Rules',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Control the WordPress Speculative Loading API (prefetch/prerender). Prerendering can waste bandwidth on high-traffic sites.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<SettingsRow
+					title={ __(
+						'Speculation Rules mode',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'WordPress 6.5+ injects a speculation-rules JSON script that prefetches and prerenders likely next pages. Conservative mode keeps prefetch but removes prerender. Disable removes the script entirely.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<select
+						value={ core.speculation_rules || 'default' }
+						onChange={ ( e ) =>
+							onChange( 'speculation_rules', e.target.value )
+						}
+						className={ selectClass }
+					>
+						{ SPECULATION_OPTIONS.map( ( opt ) => (
+							<option key={ opt.value } value={ opt.value }>
+								{ opt.label }
+							</option>
+						) ) }
+					</select>
+				</SettingsRow>
+			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
+					'Image Sizes',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Reduce disk usage and upload time by preventing generation of rarely-used intermediate image sizes.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				{ toggleRow(
+					'disable_scaled_images',
+					__(
+						'Disable scaled image generation',
+						'simple-performance-for-wordpress'
+					),
+					__(
+						'Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites.',
+						'simple-performance-for-wordpress'
+					)
+				) }
+
+				<SettingsRow
+					title={ __(
+						'Disable intermediate sizes',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="space-y-2">
+						{ IMAGE_SIZE_OPTIONS.map( ( opt ) => {
+							const disabledSizes = Array.isArray(
+								core.disabled_image_sizes
+							)
+								? core.disabled_image_sizes
+								: [];
+							const isChecked = disabledSizes.includes(
+								opt.value
+							);
+
+							return (
+								<label
+									key={ opt.value }
+									className="flex items-center gap-x-2 text-sm text-gray-700"
+								>
+									<input
+										type="checkbox"
+										checked={ isChecked }
+										onChange={ ( e ) => {
+											const next = e.target.checked
+												? [
+														...disabledSizes,
+														opt.value,
+												  ]
+												: disabledSizes.filter(
+														( s ) =>
+															s !== opt.value
+												  );
+											onChange(
+												'disabled_image_sizes',
+												next
+											);
+										} }
+										className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+									/>
+									{ opt.label }
+								</label>
+							);
+						} ) }
+					</div>
+				</SettingsRow>
 			</SettingsCard>
 		</>
 	);

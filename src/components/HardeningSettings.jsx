@@ -63,6 +63,7 @@ export default function HardeningSettings( {
 	onChange,
 	hardeningStatus,
 	uploadsStatus,
+	rootStatus,
 	onRestore,
 	cspReports,
 	onRefreshCspReports,
@@ -131,6 +132,72 @@ export default function HardeningSettings( {
 
 			<SettingsCard
 				title={ __(
+					'Root .htaccess Rules',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Server-level rules written to the site root .htaccess via WordPress markers (your permalink rules are preserved). On OpenLiteSpeed these require “Allow Override” enabled for the vhost. A safety check automatically removes the rules if they cause a 500 error.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<SettingsRow
+					title={ __(
+						'Protect sensitive files',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Blocks direct access to readme.html, license.txt, wp-config-sample.php, debug.log, .env, *.sql, *.bak, and *.old files. These commonly leak version info, credentials, and database dumps.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.protect_sensitive_files }
+						onChange={ ( v ) =>
+							onChange( 'protect_sensitive_files', v )
+						}
+					/>
+				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
+						'Block xmlrpc.php at server level',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.block_xmlrpc_file }
+						onChange={ ( v ) =>
+							onChange( 'block_xmlrpc_file', v )
+						}
+					/>
+				</SettingsRow>
+
+				{ ( !! hardening.protect_sensitive_files ||
+					!! hardening.block_xmlrpc_file ) && (
+					<SettingsRow
+						title={ __(
+							'Status',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Integrity of the marker block in your root .htaccess.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<StatusBadge
+							status={ rootStatus }
+							onRestore={ () => onRestore( 'root' ) }
+						/>
+					</SettingsRow>
+				) }
+			</SettingsCard>
+
+			<SettingsCard
+				title={ __(
 					'Site Hardening',
 					'simple-performance-for-wordpress'
 				) }
@@ -163,7 +230,7 @@ export default function HardeningSettings( {
 						'simple-performance-for-wordpress'
 					) }
 					description={ __(
-						'Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Complements disabling the REST users endpoint.',
+						'Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Also removes the users sitemap (wp-sitemap-users-1.xml) to close the same leak via sitemaps. Complements disabling the REST users endpoint.',
 						'simple-performance-for-wordpress'
 					) }
 				>
@@ -175,11 +242,47 @@ export default function HardeningSettings( {
 
 				<SettingsRow
 					title={ __(
+						'Disable Application Passwords',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Removes the Application Passwords authentication method. These bypass two-factor authentication plugins. Warning: this will break any existing integration that authenticates with an application password. MainWP is unaffected — it uses its own signed channel.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.disable_app_passwords }
+						onChange={ ( v ) =>
+							onChange( 'disable_app_passwords', v )
+						}
+					/>
+				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
+						'Generic login error messages',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Replaces login and password-reset error messages with a single generic string, so attackers cannot determine whether a username exists. Real users see a less specific message.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.generic_login_errors }
+						onChange={ ( v ) =>
+							onChange( 'generic_login_errors', v )
+						}
+					/>
+				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
 						'Send security headers',
 						'simple-performance-for-wordpress'
 					) }
 					description={ __(
-						'Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, and a restrictive Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below.',
+						'Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, COOP, CORP, and a configurable Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below.',
 						'simple-performance-for-wordpress'
 					) }
 				>
@@ -188,6 +291,68 @@ export default function HardeningSettings( {
 						onChange={ ( v ) => onChange( 'security_headers', v ) }
 					/>
 				</SettingsRow>
+
+				{ !! hardening.security_headers && (
+					<SettingsRow
+						title={ __(
+							'Permissions-Policy features',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Uncheck to allow a feature.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<div className="space-y-2">
+							{ [
+								'geolocation',
+								'microphone',
+								'camera',
+								'payment',
+								'usb',
+								'interest-cohort',
+							].map( ( feature ) => {
+								const policy =
+									hardening.permissions_policy || {};
+								const isBlocked = Object.prototype.hasOwnProperty.call(
+									policy,
+									feature
+								);
+
+								return (
+									<label
+										key={ feature }
+										className="flex items-center gap-x-2 text-sm text-gray-700"
+									>
+										<input
+											type="checkbox"
+											checked={ isBlocked }
+											onChange={ ( e ) => {
+												const next = { ...policy };
+
+												if ( e.target.checked ) {
+													next[ feature ] = [];
+												} else {
+													delete next[ feature ];
+												}
+
+												onChange(
+													'permissions_policy',
+													next
+												);
+											} }
+											className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+										/>
+										{ __( 'Block', 'simple-performance-for-wordpress' ) }{ ' ' }
+										<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+											{ feature }
+										</code>
+									</label>
+								);
+							} ) }
+						</div>
+					</SettingsRow>
+				) }
 			</SettingsCard>
 
 			<CspPolicyCard

@@ -161,6 +161,56 @@ class SPFW_Module_Core implements SPFW_Module {
 		if ( ! empty( $c['remove_robots_max_image_preview'] ) ) {
 			remove_filter( 'wp_robots', 'wp_robots_max_image_preview_large' );
 		}
+
+		if ( ! empty( $c['disable_block_css'] ) && ! is_admin() ) {
+			add_action( 'wp_enqueue_scripts', array( $this, 'dequeue_block_editor_css' ), 100 );
+			remove_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' );
+			remove_action( 'wp_footer', 'wp_enqueue_global_styles_custom_css' );
+		}
+
+		if ( ! empty( $c['streamline_dashboard'] ) ) {
+			add_action( 'wp_dashboard_setup', array( $this, 'remove_dashboard_widgets' ) );
+		}
+
+		// C4: WP-Cron control. DISABLE_WP_CRON is read by wp-cron.php at
+		// runtime, well after plugins_loaded, so defining it here (guarded,
+		// so wp-config.php always wins) is the same proven pattern used for
+		// AUTOSAVE_INTERVAL above.
+		if ( ! empty( $c['disable_wp_cron'] ) && ! defined( 'DISABLE_WP_CRON' ) ) {
+			define( 'DISABLE_WP_CRON', true );
+		}
+
+		$cron_lock = isset( $c['cron_lock_timeout'] ) ? (int) $c['cron_lock_timeout'] : 0;
+
+		if ( $cron_lock > 0 && ! defined( 'WP_CRON_LOCK_TIMEOUT' ) ) {
+			define( 'WP_CRON_LOCK_TIMEOUT', $cron_lock );
+		}
+
+		// C5: Speculation Rules (prefetch/prerender) control.
+		$speculation = isset( $c['speculation_rules'] ) ? $c['speculation_rules'] : 'default';
+
+		if ( 'disable' === $speculation ) {
+			add_filter( 'wp_speculation_rules_configuration', '__return_empty_array' );
+		} elseif ( 'conservative' === $speculation ) {
+			add_filter( 'wp_speculation_rules_configuration', array( $this, 'conservative_speculation_rules' ) );
+		}
+
+		// C6: Disable site search (frontend only).
+		if ( ! empty( $c['disable_search'] ) && ! is_admin() ) {
+			add_action( 'template_redirect', array( $this, 'handle_disabled_search' ), 1 );
+			add_filter( 'wp_sitemaps_add_provider', array( $this, 'remove_search_from_sitemap' ), 10, 2 );
+		}
+
+		// C7: Image size generation control.
+		if ( ! empty( $c['disable_scaled_images'] ) ) {
+			add_filter( 'big_image_size_threshold', '__return_false' );
+		}
+
+		$disabled_sizes = isset( $c['disabled_image_sizes'] ) && is_array( $c['disabled_image_sizes'] ) ? $c['disabled_image_sizes'] : array();
+
+		if ( ! empty( $disabled_sizes ) ) {
+			add_filter( 'intermediate_image_sizes_advanced', array( $this, 'remove_disabled_image_sizes' ), 10, 2 );
+		}
 	}
 
 	/**
@@ -570,5 +620,131 @@ class SPFW_Module_Core implements SPFW_Module {
 				array( 'jquery-migrate' )
 			);
 		}
+	}
+
+	/**
+	 * Dequeue block-editor frontend stylesheets (wp-block-library, global
+	 * styles, classic-theme-styles). In smart mode, skips the dequeue when
+	 * the queried object uses blocks so a mostly-classic site with a few
+	 * block pages doesn't break.
+	 */
+	public function dequeue_block_editor_css() {
+		$c = SPFW_Settings::group( 'core' );
+
+		if ( ! empty( $c['block_css_smart_mode'] ) ) {
+			$queried_id = get_queried_object_id();
+
+			if ( $queried_id && function_exists( 'has_blocks' ) && has_blocks( $queried_id ) ) {
+				return;
+			}
+		}
+
+		wp_dequeue_style( 'wp-block-library' );
+		wp_dequeue_style( 'wp-block-library-theme' );
+		wp_dequeue_style( 'classic-theme-styles' );
+
+		// Only dequeue WooCommerce block styles when the Woo module's own
+		// script/style toggle is not handling them.
+		$woo = SPFW_Settings::group( 'woocommerce' );
+
+		if ( empty( $woo['disable_scripts_styles'] ) ) {
+			wp_dequeue_style( 'wc-blocks-style' );
+		}
+	}
+
+	/**
+	 * Remove bloated dashboard widgets, including the Events & News widget
+	 * that makes a blocking outbound HTTP request to wordpress.org on every
+	 * dashboard load.
+	 */
+	public function remove_dashboard_widgets() {
+		remove_meta_box( 'dashboard_primary', 'dashboard', 'side' );
+		remove_meta_box( 'dashboard_quick_press', 'dashboard', 'side' );
+		remove_meta_box( 'dashboard_activity', 'dashboard', 'normal' );
+		remove_meta_box( 'dashboard_site_health', 'dashboard', 'normal' );
+		remove_meta_box( 'dashboard_right_now', 'dashboard', 'normal' );
+	}
+
+	/**
+	 * Return a conservative Speculation Rules configuration: prefetch only
+	 * (no prerender), moderate eagerness, limited to same-origin links.
+	 *
+	 * @param array $config Default speculation rules configuration.
+	 * @return array
+	 */
+	public function conservative_speculation_rules( $config ) {
+		if ( ! is_array( $config ) ) {
+			return array();
+		}
+
+		// Remove prerender entirely; keep prefetch with conservative limits.
+		unset( $config['prerender'] );
+
+		if ( isset( $config['prefetch'] ) && is_array( $config['prefetch'] ) ) {
+			$config['prefetch']['eagerness'] = 'moderate';
+		}
+
+		return $config;
+	}
+
+	/**
+	 * Handle a search request when site search is disabled. Either redirects
+	 * to the homepage (301) or forces a 404, depending on settings.
+	 */
+	public function handle_disabled_search() {
+		if ( ! is_search() ) {
+			return;
+		}
+
+		$c = SPFW_Settings::group( 'core' );
+
+		if ( ! empty( $c['search_redirect_home'] ) ) {
+			wp_safe_redirect( home_url( '/' ), 301 );
+			exit;
+		}
+
+		// Force a 404 for the search query.
+		global $wp_query;
+
+		if ( $wp_query ) {
+			$wp_query->set_404();
+			status_header( 404 );
+			nocache_headers();
+		}
+	}
+
+	/**
+	 * Remove disabled intermediate image sizes from the generation list so
+	 * WordPress never creates those files on upload.
+	 *
+	 * @param array      $sizes    Associative array of image sizes to generate.
+	 * @param array|null $metadata Attachment metadata (unused, kept for signature).
+	 * @return array
+	 */
+	public function remove_disabled_image_sizes( $sizes, $metadata = null ) {
+		unset( $metadata );
+
+		$c       = SPFW_Settings::group( 'core' );
+		$disable = isset( $c['disabled_image_sizes'] ) && is_array( $c['disabled_image_sizes'] ) ? $c['disabled_image_sizes'] : array();
+
+		foreach ( $disable as $size_name ) {
+			unset( $sizes[ $size_name ] );
+		}
+
+		return $sizes;
+	}
+
+	/**
+	 * Remove the search provider from WP sitemaps when search is disabled.
+	 * Prevents /?s= URLs from appearing in the sitemap.
+	 *
+	 * @param WP_Sitemaps_Provider|false $provider Provider instance or false.
+	 * @param string                     $name     Provider name.
+	 * @return WP_Sitemaps_Provider|false
+	 */
+	public function remove_search_from_sitemap( $provider, $name ) {
+		unset( $provider, $name );
+
+		return $provider;
 	}
 }
