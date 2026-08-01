@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.0.0
+- **Plugin version target:** 2.0.1
 - **Last updated:** 2026-07-31
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -52,7 +52,8 @@ the authoritative record.)
   control, 1.15.0); ✅ Phase D operational maturity (CI/phpcs, settings
   export/import, configuration presets, 1.16.0); ✅ Phase E CSP
   script-src tightening (hash sources, strict-dynamic, inline script
-  scanner, 2.0.0)
+  scanner, 2.0.0); ✅ Migration recursion hotfix (cache-before-migration
+  ordering, PHPUnit regression test, AllowOverride FAQ, 2.0.1)
 
 ## Shared project facts (true for every step)
 

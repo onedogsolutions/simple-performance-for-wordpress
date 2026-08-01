@@ -147,6 +147,11 @@ class SPFW_Settings {
 		$stored = is_array( $stored ) ? $stored : array();
 
 		// Run migrations if upgrading from an older version (e.g. 1.0.0).
+		// IMPORTANT: the 1.1.1, 1.6.0, and 1.7.1 migrations below call
+		// update_option() directly and do NOT re-enter get(). If a future
+		// migration needs to read settings, it must use the same
+		// cache-before-migration ordering as the 1.14.0 block further down,
+		// or the nested get() will recurse infinitely.
 		$stored_ver = isset( $stored['version'] ) ? $stored['version'] : '1.0.0';
 		if ( version_compare( $stored_ver, '1.1.1', '<' ) ) {
 			self::run_migrations( $stored );
@@ -180,6 +185,15 @@ class SPFW_Settings {
 			$stored = is_array( $stored ) ? $stored : array();
 		}
 
+		// Populate the static cache BEFORE the 1.14.0 migration fires.
+		// run_payload_migration() calls SPFW_Settings::group('hardening'),
+		// which re-enters get(). If the cache is still null at that point,
+		// the nested get() re-runs the full path (including the migration)
+		// and recurses infinitely. Seeding the cache first lets the nested
+		// call return immediately. If the migration rewrites a file, its
+		// SPFW_Settings::update() call refreshes the cache with the new hash.
+		self::$cache = self::merge_recursive( self::defaults(), $stored );
+
 		// Migration to 1.14.0: the deny-PHP payload changed from <Files *.php>
 		// to <FilesMatch> with a broader extension pattern. Silently rewrite
 		// files we can prove we authored (legacy hash match) so existing
@@ -187,8 +201,6 @@ class SPFW_Settings {
 		if ( version_compare( $stored_ver, '1.14.0', '<' ) ) {
 			SPFW_Htaccess::run_payload_migration();
 		}
-
-		self::$cache = self::merge_recursive( self::defaults(), $stored );
 
 		return self::$cache;
 	}

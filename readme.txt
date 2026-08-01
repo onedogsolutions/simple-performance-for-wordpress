@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -91,6 +91,9 @@ Yes. Every feature works on any WordPress host. The directory-hardening `.htacce
 = I enabled the plugins-directory hardening but it doesn't seem to do anything =
 On OpenLiteSpeed, `.htaccess` rules are only honored when "Allow Override" is enabled for your site in the LiteSpeed WebAdmin console (Rewrite → Auto Load from .htaccess). If it's off, the file is written but has no effect — it's fail-safe, never fail-open.
 
+= I enabled directory hardening and now my site returns 500 errors =
+On Apache (not OpenLiteSpeed), the `Require all denied` directive inside the `.htaccess` file requires `AllowOverride AuthConfig` (or `AllowOverride All`) in the virtual-host configuration. If your host has not granted that override, Apache refuses to parse the directive and returns a 500 for every request under the protected directory. Fix: ask your host to add `AllowOverride AuthConfig` (or `All`) to the `<Directory>` block for your site, or disable the hardening toggle via the database (`wp_options` → `spfw_settings` → set `plugins_htaccess` / `uploads_htaccess` to `false`). OpenLiteSpeed is unaffected — it uses its own override mechanism and does not enforce Apache's `AllowOverride` semantics.
+
 = Will disabling REST API namespaces break other plugins? =
 The whitelist is checked before any restriction, so add any route prefix your other plugins rely on (a few common ones, like WooCommerce and Contact Form 7, are pre-seeded). The plugin's own settings API is always exempt, so you can never lock yourself out of this settings screen.
 
@@ -101,6 +104,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.0.1 =
+* Fixed: infinite recursion (stack exhaustion / 500) on any site upgrading from a pre-1.14.0 version. The 1.14.0 payload migration called SPFW_Settings::group() before the static cache was populated, re-entering get() in an unbounded loop. The cache is now seeded before the migration fires.
+* Added: PHPUnit regression test covering the migration recursion path (runs in CI on PHP 7.4, 8.2, 8.3).
+* Note: the deny-PHP and root .htaccess payloads emit `Require all denied`, which requires `AllowOverride AuthConfig` (or `All`) in the Apache vhost. On hosts where that is not granted, Apache returns 500 for requests under the protected directory. OpenLiteSpeed is unaffected (honors .htaccess via its own override mechanism). See the FAQ for details.
 
 = 2.0.0 =
 * Added: CSP script-src tightening via hash sources — scan your site's inline scripts and replace 'unsafe-inline' with sha256 hashes plus 'strict-dynamic'. This provides real XSS protection while remaining compatible with full-page caching (hashes are stable across cache hits, unlike nonces).

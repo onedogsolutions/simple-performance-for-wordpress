@@ -25,6 +25,8 @@ composer.json
 composer.lock
 phpcs.xml.dist
 phpcs-compat.xml.dist
+phpunit.xml.dist
+tests
 
 package.json
 package-lock.json

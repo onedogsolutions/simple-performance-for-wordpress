@@ -7,12 +7,14 @@
 		"squizlabs/php_codesniffer": "^3.10",
 		"wp-coding-standards/wpcs": "^3.1",
 		"phpcompatibility/phpcompatibility-wp": "^2.1",
-		"dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+		"dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+		"phpunit/phpunit": "^9.6 || ^10.5"
 	},
 	"scripts": {
 		"lint": "phpcs",
 		"lint:fix": "phpcbf",
-		"php-compat": "phpcs --standard=phpcs-compat.xml.dist"
+		"php-compat": "phpcs --standard=phpcs-compat.xml.dist",
+		"test": "phpunit"
 	},
 	"config": {
 		"allow-plugins": {
