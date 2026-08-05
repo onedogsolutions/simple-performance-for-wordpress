@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.0.1
-- **Last updated:** 2026-07-31
+- **Plugin version target:** 2.0.2
+- **Last updated:** 2026-08-01
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -33,6 +33,9 @@ the authoritative record.)
   builder coverage gaps fixed (`worker-src` row added, `script-src-elem`/
   `style-src-elem` effective directives collapsed to their base row, 1.9.0,
   branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`); ✅
+  XML-RPC disable toggle moved from Core to Hardening tab (PHP-filter default
+  plus optional server-level `.htaccess` block) and Permissions-Policy
+  save-revert bug fixed (2.0.2); ✅
   Beaver Builder settings-based font discovery removed (was causing fewer fonts
   to be discovered, 1.10.0); ✅ CSP violation
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
@@ -142,7 +145,7 @@ entries to `[A-Za-z0-9/_.-]`.
   'version' => SPFW_VERSION,
   'core' => [
     'disable_emojis' => true, 'disable_embeds' => true, 'disable_dashicons' => true,
-    'disable_xmlrpc' => true, 'remove_rsd' => true, 'remove_wlwmanifest' => true,
+    'remove_rsd' => true, 'remove_wlwmanifest' => true,
     'disable_feeds' => false, 'feed_redirect_home' => true,
     'remove_query_strings' => false,
     'heartbeat_mode' => 'modify', // default|modify|disable
@@ -154,7 +157,7 @@ entries to `[A-Za-z0-9/_.-]`.
     'disabled_namespaces' => ['wp/v2/users', 'wp/v2/themes'],
     'whitelist_routes' => ['contact-form-7/v1', 'wc/v3', 'wc/store'],
   ],
-  'hardening' => ['plugins_htaccess' => false, 'htaccess_hash' => ''],
+  'hardening' => ['plugins_htaccess' => false, 'htaccess_hash' => '', 'disable_xmlrpc' => false, 'block_xmlrpc_file' => false],
   'fonts' => ['localize_google' => false, 'discovered' => [], 'last_scan' => 0],
 ]
 ```
@@ -176,8 +179,6 @@ reads `SPFW_Settings::group('core')` and attaches, per toggle, only when true:
 - **Embeds:** remove oEmbed discovery/host-js/register-route hooks, deregister
   `wp-embed` script on `wp_footer`.
 - **Dashicons:** deregister for logged-out visitors on `wp_enqueue_scripts` (100).
-- **XML-RPC:** `xmlrpc_enabled` → false, strip pingback methods + `X-Pingback`
-  header.
 - **RSD / WLWManifest:** remove their `wp_head` actions.
 - **Feeds:** remove feed-link head tags; redirect (301 home) or `wp_die` every
   `do_feed*` hook depending on `feed_redirect_home`.
@@ -271,7 +272,11 @@ deletes if `sha1_file()` matches the stored hash — never touches a foreign
 `includes/modules/class-spfw-module-hardening.php` → `SPFW_Module_Hardening`:
 on `admin_init`, if `missing`/`altered`, show an `admin_notices` warning (native
 WP notice, above the React root); toggling the setting on/off calls
-`write()`/`remove()`; wire into `SPFW_Plugin::activate()`/`deactivate()`.
+`write()`/`remove()`; wire into `SPFW_Plugin::activate()`/`deactivate()`. Runtime
+behaviors include application-password disable, generic login errors, security
+headers, CSP/HSTS, author-enumeration blocking, and **XML-RPC disable** (`xmlrpc_enabled`
+→ false plus pingback method/header stripping when the PHP-filter path is chosen,
+or a root `.htaccess` block when server-level blocking is selected).
 `SPFW_Rest_Settings::get_settings()` (Step 5) gains a computed read-only
 `hardening_status` field, plus a `spfw/v1/settings/restore-htaccess` POST route
 (cap `manage_options`) so the React Restore button needs no page reload.

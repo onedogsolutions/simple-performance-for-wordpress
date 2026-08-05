@@ -158,24 +158,6 @@ export default function HardeningSettings( {
 					/>
 				</SettingsRow>
 
-				<SettingsRow
-					title={ __(
-						'Block xmlrpc.php at server level',
-						'simple-performance-for-wordpress'
-					) }
-					description={ __(
-						'Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC.',
-						'simple-performance-for-wordpress'
-					) }
-				>
-					<Toggle
-						checked={ !! hardening.block_xmlrpc_file }
-						onChange={ ( v ) =>
-							onChange( 'block_xmlrpc_file', v )
-						}
-					/>
-				</SettingsRow>
-
 				{ ( !! hardening.protect_sensitive_files ||
 					!! hardening.block_xmlrpc_file ) && (
 					<SettingsRow
@@ -260,6 +242,47 @@ export default function HardeningSettings( {
 
 				<SettingsRow
 					title={ __(
+						'Disable XML-RPC',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Disables the XML-RPC endpoint and pingback headers/methods.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<Toggle
+						checked={ !! hardening.disable_xmlrpc }
+						onChange={ ( v ) => {
+							onChange( 'disable_xmlrpc', v );
+							if ( ! v ) {
+								onChange( 'block_xmlrpc_file', false );
+							}
+						} }
+					/>
+				</SettingsRow>
+
+				{ !! hardening.disable_xmlrpc && (
+					<SettingsRow
+						title={ __(
+							'Block xmlrpc.php at server level',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<Toggle
+							checked={ !! hardening.block_xmlrpc_file }
+							onChange={ ( v ) =>
+								onChange( 'block_xmlrpc_file', v )
+							}
+						/>
+					</SettingsRow>
+				) }
+
+				<SettingsRow
+					title={ __(
 						'Generic login error messages',
 						'simple-performance-for-wordpress'
 					) }
@@ -314,10 +337,11 @@ export default function HardeningSettings( {
 							].map( ( feature ) => {
 								const policy =
 									hardening.permissions_policy || {};
-								const isBlocked = Object.prototype.hasOwnProperty.call(
-									policy,
-									feature
-								);
+								const isBlocked =
+									Object.prototype.hasOwnProperty.call(
+										policy,
+										feature
+									) && false !== policy[ feature ];
 
 								return (
 									<label
@@ -333,7 +357,7 @@ export default function HardeningSettings( {
 												if ( e.target.checked ) {
 													next[ feature ] = [];
 												} else {
-													delete next[ feature ];
+													next[ feature ] = false;
 												}
 
 												onChange(

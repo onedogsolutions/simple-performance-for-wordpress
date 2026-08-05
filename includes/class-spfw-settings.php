@@ -33,7 +33,6 @@ class SPFW_Settings {
 				'disable_emojis'         => true,
 				'disable_embeds'         => true,
 				'disable_dashicons'      => true,
-				'disable_xmlrpc'         => true,
 				'remove_rsd'             => true,
 				'remove_wlwmanifest'     => true,
 				'hide_wp_version'        => true,
@@ -84,6 +83,7 @@ class SPFW_Settings {
 				'generic_login_errors'  => false,
 				'protect_sensitive_files' => false,
 				'block_xmlrpc_file'     => false,
+				'disable_xmlrpc'        => false,
 				'root_htaccess_hash'    => '',
 				'permissions_policy'    => array( 'geolocation' => array(), 'microphone' => array(), 'camera' => array(), 'payment' => array(), 'usb' => array(), 'interest-cohort' => array() ),
 				'security_headers'      => false,
@@ -181,6 +181,25 @@ class SPFW_Settings {
 		if ( version_compare( $stored_ver, '1.7.1', '<' )
 			&& ! empty( $stored['fonts']['discovered']['css'] ) ) {
 			self::run_font_rescan_migration( $stored );
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
+		}
+
+		// Migration to 2.0.2: the XML-RPC disable toggle moved from the Core
+		// group to the Hardening group. Preserve the user's existing choice.
+		if ( version_compare( $stored_ver, '2.0.2', '<' )
+			&& isset( $stored['core']['disable_xmlrpc'] )
+			&& ! isset( $stored['hardening']['disable_xmlrpc'] ) ) {
+			$updated = $stored;
+			if ( ! isset( $updated['hardening'] ) || ! is_array( $updated['hardening'] ) ) {
+				$updated['hardening'] = array();
+			}
+			$updated['hardening']['disable_xmlrpc'] = (bool) $stored['core']['disable_xmlrpc'];
+			unset( $updated['core']['disable_xmlrpc'] );
+
+			$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+			update_option( self::OPTION_KEY, $clean );
+
 			$stored = get_option( self::OPTION_KEY, array() );
 			$stored = is_array( $stored ) ? $stored : array();
 		}
@@ -310,7 +329,6 @@ class SPFW_Settings {
 			'disable_emojis',
 			'disable_embeds',
 			'disable_dashicons',
-			'disable_xmlrpc',
 			'remove_rsd',
 			'remove_wlwmanifest',
 			'hide_wp_version',
@@ -399,6 +417,7 @@ class SPFW_Settings {
 			'plugins_htaccess',
 			'uploads_htaccess',
 			'disable_file_editing',
+			'disable_xmlrpc',
 			'block_author_enum',
 			'disable_app_passwords',
 			'generic_login_errors',
@@ -795,6 +814,10 @@ class SPFW_Settings {
 		foreach ( $raw as $feature => $tokens ) {
 			$feature = strtolower( trim( (string) $feature ) );
 
+			if ( false === $tokens ) {
+				continue; // Explicitly removed by the UI.
+			}
+
 			if ( ! in_array( $feature, $allowed_features, true ) ) {
 				continue;
 			}
@@ -912,7 +935,6 @@ class SPFW_Settings {
 						'disable_emojis'         => true,
 						'disable_embeds'         => true,
 						'disable_dashicons'      => true,
-						'disable_xmlrpc'         => true,
 						'remove_rsd'             => true,
 						'remove_wlwmanifest'     => true,
 						'hide_wp_version'        => true,
@@ -934,7 +956,6 @@ class SPFW_Settings {
 						'disable_emojis'         => true,
 						'disable_embeds'         => true,
 						'disable_dashicons'      => true,
-						'disable_xmlrpc'         => true,
 						'remove_rsd'             => true,
 						'remove_wlwmanifest'     => true,
 						'hide_wp_version'        => true,
@@ -964,7 +985,6 @@ class SPFW_Settings {
 						'disable_emojis'         => true,
 						'disable_embeds'         => true,
 						'disable_dashicons'      => true,
-						'disable_xmlrpc'         => true,
 						'remove_rsd'             => true,
 						'remove_wlwmanifest'     => true,
 						'hide_wp_version'        => true,
@@ -990,6 +1010,7 @@ class SPFW_Settings {
 						'generic_login_errors'    => true,
 						'protect_sensitive_files' => true,
 						'block_xmlrpc_file'       => true,
+						'disable_xmlrpc'          => true,
 						'security_headers'        => true,
 					),
 				),

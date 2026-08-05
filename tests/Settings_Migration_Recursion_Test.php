@@ -114,4 +114,29 @@ class Settings_Migration_Recursion_Test extends TestCase {
 		$this->assertIsArray( $hardening );
 		$this->assertTrue( $hardening['plugins_htaccess'] );
 	}
+
+	/**
+	 * The 2.0.2 migration must move a stored core.disable_xmlrpc value into
+	 * the hardening group so existing choices are preserved.
+	 */
+	public function test_xmlrpc_migration_moves_core_value_to_hardening() {
+		global $spfw_test_options;
+
+		$spfw_test_options['spfw_settings'] = array(
+			'version' => '2.0.1',
+			'core'    => array(
+				'disable_xmlrpc' => true,
+				'disable_emojis' => true,
+			),
+		);
+
+		$settings = SPFW_Settings::get();
+
+		$this->assertFalse( isset( $settings['core']['disable_xmlrpc'] ) );
+		$this->assertTrue( $settings['hardening']['disable_xmlrpc'] );
+		// Stored option should have been rewritten so the migration does not re-run.
+		$this->assertSame( '2.0.2', $spfw_test_options['spfw_settings']['version'] );
+		$this->assertFalse( isset( $spfw_test_options['spfw_settings']['core']['disable_xmlrpc'] ) );
+		$this->assertTrue( $spfw_test_options['spfw_settings']['hardening']['disable_xmlrpc'] );
+	}
 }

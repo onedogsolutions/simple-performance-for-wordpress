@@ -469,14 +469,6 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					)
 				) }
-				{ toggleRow(
-					'disable_xmlrpc',
-					__( 'Disable XML-RPC', 'simple-performance-for-wordpress' ),
-					__(
-						'Disables the XML-RPC endpoint and pingback headers/methods.',
-						'simple-performance-for-wordpress'
-					)
-				) }
 			</SettingsCard>
 
 			<SettingsCard

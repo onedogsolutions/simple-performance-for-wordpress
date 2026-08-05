@@ -32,12 +32,6 @@ class SPFW_Module_Core implements SPFW_Module {
 			add_action( 'wp_enqueue_scripts', array( $this, 'maybe_deregister_dashicons' ), 100 );
 		}
 
-		if ( ! empty( $c['disable_xmlrpc'] ) ) {
-			add_filter( 'xmlrpc_enabled', '__return_false' );
-			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
-			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
-		}
-
 		if ( ! empty( $c['remove_rsd'] ) ) {
 			remove_action( 'wp_head', 'rsd_link' );
 		}
@@ -285,30 +279,6 @@ class SPFW_Module_Core implements SPFW_Module {
 		if ( ! is_user_logged_in() ) {
 			wp_deregister_style( 'dashicons' );
 		}
-	}
-
-	/**
-	 * Remove pingback methods from the XML-RPC method list.
-	 *
-	 * @param array $methods Registered XML-RPC methods.
-	 * @return array
-	 */
-	public function strip_pingback_methods( $methods ) {
-		unset( $methods['pingback.ping'], $methods['pingback.extensions.getPingbacks'] );
-
-		return $methods;
-	}
-
-	/**
-	 * Strip the X-Pingback response header.
-	 *
-	 * @param array $headers Response headers.
-	 * @return array
-	 */
-	public function strip_pingback_header( $headers ) {
-		unset( $headers['X-Pingback'] );
-
-		return $headers;
 	}
 
 	/**

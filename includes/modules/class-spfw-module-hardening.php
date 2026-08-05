@@ -115,6 +115,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		if ( ! empty( $h['hsts_enabled'] ) ) {
 			add_action( 'send_headers', array( $this, 'add_hsts_header' ) );
 		}
+
+		// Disable XML-RPC at the PHP level unless the admin prefers the
+		// server-level block (which is handled by the root .htaccess rule).
+		if ( ! empty( $h['disable_xmlrpc'] ) && empty( $h['block_xmlrpc_file'] ) ) {
+			add_filter( 'xmlrpc_enabled', '__return_false' );
+			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
+			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
+		}
 	}
 
 	/**
@@ -813,5 +821,29 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			'scheme' => $scheme,
 			'host'   => $host,
 		);
+	}
+
+	/**
+	 * Remove pingback-related methods from the XML-RPC method list.
+	 *
+	 * @param array $methods XML-RPC methods.
+	 * @return array
+	 */
+	public function strip_pingback_methods( $methods ) {
+		unset( $methods['pingback.ping'], $methods['pingback.extensions.getPingbacks'] );
+
+		return $methods;
+	}
+
+	/**
+	 * Remove the X-Pingback header from front-end responses.
+	 *
+	 * @param array $headers WordPress headers.
+	 * @return array
+	 */
+	public function strip_pingback_header( $headers ) {
+		unset( $headers['X-Pingback'] );
+
+		return $headers;
 	}
 }
