@@ -86,10 +86,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		// Generic login error messages: prevent wp-login.php from disclosing
-		// whether a username exists.
+		// whether a username exists. login_errors receives a rendered HTML
+		// string; wp_login_errors receives the WP_Error object, so each hook
+		// needs its own callback type.
 		if ( ! empty( $h['generic_login_errors'] ) ) {
 			add_filter( 'login_errors', array( $this, 'generic_login_error' ) );
-			add_filter( 'wp_login_errors', array( $this, 'generic_login_error' ) );
+			add_filter( 'wp_login_errors', array( $this, 'generic_login_wp_error' ) );
 		}
 
 		// Emit conservative security response headers on front-end / REST
@@ -330,13 +332,47 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Return a single generic error message for all login failures so
-	 * bad-username and bad-password responses are byte-identical.
+	 * Return the single generic error message string shown above the login
+	 * form. Used on the login_errors filter.
 	 *
 	 * @return string
 	 */
 	public function generic_login_error() {
 		return __( 'Invalid username or password.', 'simple-performance-for-wordpress' );
+	}
+
+	/**
+	 * Replace specific login errors with a single generic WP_Error so the
+	 * displayed message and form-shake behavior are identical for every
+	 * failure type. Success messages (severity 'message') are preserved.
+	 *
+	 * @param WP_Error $errors WP_Error object passed by the wp_login_errors filter.
+	 * @return WP_Error
+	 */
+	public function generic_login_wp_error( $errors ) {
+		if ( ! is_wp_error( $errors ) ) {
+			return $errors;
+		}
+
+		$error_codes = array();
+		foreach ( $errors->get_error_codes() as $code ) {
+			$severity = $errors->get_error_data( $code );
+			if ( 'message' !== $severity ) {
+				$error_codes[] = $code;
+			}
+		}
+
+		if ( empty( $error_codes ) ) {
+			return $errors;
+		}
+
+		foreach ( $error_codes as $code ) {
+			$errors->remove( $code );
+		}
+
+		$errors->add( 'generic', __( 'Invalid username or password.', 'simple-performance-for-wordpress' ) );
+
+		return $errors;
 	}
 
 	/**

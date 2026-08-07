@@ -135,7 +135,7 @@ class Settings_Migration_Recursion_Test extends TestCase {
 		$this->assertFalse( isset( $settings['core']['disable_xmlrpc'] ) );
 		$this->assertTrue( $settings['hardening']['disable_xmlrpc'] );
 		// Stored option should have been rewritten so the migration does not re-run.
-		$this->assertSame( '2.0.2', $spfw_test_options['spfw_settings']['version'] );
+		$this->assertSame( '2.0.3', $spfw_test_options['spfw_settings']['version'] );
 		$this->assertFalse( isset( $spfw_test_options['spfw_settings']['core']['disable_xmlrpc'] ) );
 		$this->assertTrue( $spfw_test_options['spfw_settings']['hardening']['disable_xmlrpc'] );
 	}

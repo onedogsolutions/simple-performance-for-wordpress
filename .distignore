@@ -34,5 +34,6 @@ webpack.config.js
 postcss.config.js
 
 *.log
+.phpunit.result.cache
 .DS_Store
 Thumbs.db

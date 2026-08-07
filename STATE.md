@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.0.2
-- **Last updated:** 2026-08-01
+- **Plugin version target:** 2.0.3
+- **Last updated:** 2026-08-07
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -35,7 +35,9 @@ the authoritative record.)
   branch `claude/policy-builder-coverage-gaps-3dwztj`, merged to `main`); ✅
   XML-RPC disable toggle moved from Core to Hardening tab (PHP-filter default
   plus optional server-level `.htaccess` block) and Permissions-Policy
-  save-revert bug fixed (2.0.2); ✅
+  save-revert bug fixed (2.0.2); ✅ Generic login errors `wp_login_errors`
+  filter fixed to return a `WP_Error` object instead of a string, preventing
+  fatal errors on customized login pages such as Divi + LoginPress (2.0.3); ✅
   Beaver Builder settings-based font discovery removed (was causing fewer fonts
   to be discovered, 1.10.0); ✅ CSP violation
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,

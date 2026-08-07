@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.0.2
+Stable tag: 2.0.3
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.0.3 =
+* Fixed: generic login error messages no longer return a plain string from the `wp_login_errors` filter, which could cause a fatal error on customized login pages such as Divi + LoginPress.
 
 = 2.0.2 =
 * Changed: XML-RPC disable moved to the Hardening tab. The default behavior uses PHP filters (`xmlrpc_enabled`, pingback methods, and `X-Pingback` header); an optional "Block xmlrpc.php at server level" toggle switches the block to the root `.htaccess` instead.

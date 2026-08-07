@@ -10,7 +10,7 @@
 // phpcs:ignoreFile
 
 define( 'ABSPATH', sys_get_temp_dir() . '/spfw-test/' );
-define( 'SPFW_VERSION', '2.0.2' );
+define( 'SPFW_VERSION', '2.0.3' );
 define( 'SPFW_FILE', dirname( __DIR__ ) . '/simple-performance-for-wordpress.php' );
 define( 'SPFW_PATH', dirname( __DIR__ ) . '/' );
 define( 'SPFW_URL', 'http://example.com/wp-content/plugins/simple-performance-for-wordpress/' );
