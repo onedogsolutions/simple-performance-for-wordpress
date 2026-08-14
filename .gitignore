@@ -52,3 +52,8 @@ node_modules/
 build/
 vendor/
 *.zip
+
+# PHPUnit's local run-state cache (per-machine test timings and last-run
+# defects). Purely a local optimization — tracking it means every test run
+# dirties the tree and every branch conflicts on it.
+.phpunit.result.cache
