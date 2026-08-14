@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.0.3
+Stable tag: 2.1.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,16 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.1.0 =
+* Changed: CSP violation collection now runs in a time-boxed window instead of permanently. Previously `report-uri` was attached to every front-end response for as long as CSP was enabled, so every visitor's browser POSTed a violation report on every page view — an uncacheable full WordPress page load each time. On a busy site that made the report endpoint the single most-requested URL on the site. Open a window from the Hardening tab when you want to collect, work through the list, and it closes itself.
+* Added: sample rate for violation collection (100% / 25% / 10% / 1% of page views), so a high-traffic site can find the same broken resources at a fraction of the requests.
+* Added: the violation report endpoint is now fully closed (403, no work done) unless a collection window is open, and repeat sightings of a violation already in the log coalesce instead of writing to the database on every request.
+* Fixed: concurrent violation reports no longer lose counts. The log was read-modify-written with no locking, so under real traffic most increments were discarded — a 150-request burst recorded 70.
+* Security: the violation log can no longer be flooded out by anonymous requests. New origins are rate-limited, and eviction now drops the least-reported entry rather than the least recently seen, so a burst of invented origins cannot push out the real violations you need to act on.
+* Security: "Allow" now asks for confirmation and shows the exact policy token it will add. Violation reports arrive unauthenticated from visitors' browsers, so the origins listed are not trusted input — only allow origins you recognise.
+* Fixed: clicking "Allow" removes the violation from the outstanding list instead of leaving it there, and once the policy is saved, stale reports for an already-allowed origin no longer re-add it.
+* Fixed: the report endpoint's body limit was raised from 8 KB to 32 KB — batched Reporting API payloads above the old limit were being discarded whole.
 
 = 2.0.3 =
 * Fixed: generic login error messages no longer return a plain string from the `wp_login_errors` filter, which could cause a fatal error on customized login pages such as Divi + LoginPress.

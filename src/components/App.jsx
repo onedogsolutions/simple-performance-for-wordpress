@@ -114,6 +114,7 @@ export default function App() {
 				setSettings( ( prev ) => ( {
 					...prev,
 					csp_reports: data.csp_reports || [],
+					csp_report_stats: data.csp_report_stats || {},
 				} ) )
 			)
 			.catch( () => {} );
@@ -131,6 +132,59 @@ export default function App() {
 				} ) )
 			)
 			.catch( () => {} );
+	};
+
+	// Drop a single violation from the log — used after "Allow", which has just
+	// written that origin into the policy, so listing it as outstanding would be
+	// stale. Functional setSettings so the 20s poll can never clobber it.
+	const handleDismissCspReport = ( directive, origin ) => {
+		return apiFetch( {
+			path: '/spfw/v1/csp-report',
+			method: 'DELETE',
+			data: { directive, origin },
+		} )
+			.then( ( data ) =>
+				setSettings( ( prev ) => ( {
+					...prev,
+					csp_reports: data.csp_reports || [],
+				} ) )
+			)
+			.catch( () => {} );
+	};
+
+	// Open / close the violation-collection window. The server computes the
+	// deadline from its own clock, so this only sends the duration.
+	const handleSetCspCollection = ( action, hours = 24 ) => {
+		return apiFetch( {
+			path: '/spfw/v1/csp-report/collect',
+			method: 'POST',
+			data: { action, hours },
+		} )
+			.then( ( data ) => {
+				setSettings( data );
+				showToast(
+					'stop' === action
+						? __(
+								'Violation collection stopped.',
+								'simple-performance-for-wordpress'
+						  )
+						: __(
+								'Collecting violation reports.',
+								'simple-performance-for-wordpress'
+						  ),
+					'success'
+				);
+			} )
+			.catch( ( err ) => {
+				showToast(
+					err.message ||
+						__(
+							'Could not change violation collection.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
 	};
 
 	const handleScanFonts = () => {
@@ -515,8 +569,13 @@ export default function App() {
 								}
 								onRestore={ handleRestoreHtaccess }
 								cspReports={ settings.csp_reports }
+								cspReportStats={
+									settings.csp_report_stats
+								}
 								onRefreshCspReports={ handleRefreshCspReports }
 								onClearCspReports={ handleClearCspReports }
+								onDismissCspReport={ handleDismissCspReport }
+								onSetCspCollection={ handleSetCspCollection }
 							/>
 						),
 						fonts: (

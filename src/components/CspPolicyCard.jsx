@@ -151,18 +151,47 @@ function Chip( { active, children, onClick } ) {
 	);
 }
 
+// Human-readable "time left" for the collection window.
+function formatRemaining( seconds ) {
+	if ( seconds <= 0 ) {
+		return '';
+	}
+
+	const hours = Math.floor( seconds / 3600 );
+	const minutes = Math.floor( ( seconds % 3600 ) / 60 );
+
+	if ( hours > 0 ) {
+		return sprintf(
+			/* translators: 1: hours, 2: minutes */
+			__( '%1$dh %2$dm left', 'simple-performance-for-wordpress' ),
+			hours,
+			minutes
+		);
+	}
+
+	return sprintf(
+		/* translators: %d: minutes */
+		__( '%dm left', 'simple-performance-for-wordpress' ),
+		Math.max( 1, minutes )
+	);
+}
+
 export default function CspPolicyCard( {
 	hardening,
 	settings,
 	onChange,
 	cspReports = [],
+	cspReportStats = {},
 	onRefreshCspReports,
 	onClearCspReports,
+	onDismissCspReport,
+	onSetCspCollection,
 } ) {
 	const enabled = !! hardening.csp_enabled;
 	const reportOnly = !! hardening.csp_report_only;
 	const isCustom = 'custom' === hardening.csp_mode;
 	const directives = hardening.csp_directives || {};
+	const collecting = !! cspReportStats.collecting;
 
 	// Raw text of each "additional hosts" field, kept locally so a trailing
 	// space (needed to type the next host) is not stripped on every keystroke
@@ -170,6 +199,18 @@ export default function CspPolicyCard( {
 	// when a discrete action (Allow, 'none', reset) changes hosts out-of-band.
 	const [ hostText, setHostText ] = useState( {} );
 	const [ scanning, setScanning ] = useState( false );
+	const [ collectHours, setCollectHours ] = useState( 24 );
+
+	// Origins the admin has just allowed, hidden immediately rather than
+	// waiting for the next poll. The server drops them too — this is only so
+	// the row disappears the moment the button is pressed.
+	const [ dismissed, setDismissed ] = useState( [] );
+
+	// Which row is awaiting its "Allow" confirmation. Violation reports are
+	// submitted by unauthenticated browsers, so the origins listed here are
+	// attacker-influencable — allowing one writes it into the live policy, and
+	// that is not something a single stray click should do.
+	const [ confirming, setConfirming ] = useState( null );
 
 	const clearHostText = ( name ) =>
 		setHostText( ( prev ) => {
@@ -178,17 +219,16 @@ export default function CspPolicyCard( {
 			return next;
 		} );
 
-	// While CSP is enabled (Report-Only or enforce), poll the violation log so
-	// warnings surface without a manual refresh. Collection is closed only when
-	// CSP itself is off.
+	// Poll the violation log only while a collection window is open — outside
+	// it nothing can arrive, so polling would just be background noise.
 	useEffect( () => {
-		if ( ! enabled || ! onRefreshCspReports ) {
+		if ( ! enabled || ! collecting || ! onRefreshCspReports ) {
 			return undefined;
 		}
 
 		const id = setInterval( onRefreshCspReports, 20000 );
 		return () => clearInterval( id );
-	}, [ enabled, onRefreshCspReports ] );
+	}, [ enabled, collecting, onRefreshCspReports ] );
 
 	const setDirectiveTokens = ( name, tokens ) => {
 		onChange( 'csp_directives', { ...directives, [ name ]: tokens } );
@@ -253,8 +293,10 @@ export default function CspPolicyCard( {
 		mediastream: 'mediastream:',
 	};
 
+	const tokenFor = ( origin ) => KEYWORD_TOKENS[ origin ] || origin;
+
 	const allowSource = ( name, origin ) => {
-		const token = KEYWORD_TOKENS[ origin ] || origin;
+		const token = tokenFor( origin );
 
 		const current = ( directives[ name ] || [] ).filter(
 			( t ) => t !== NONE
@@ -264,6 +306,18 @@ export default function CspPolicyCard( {
 		}
 		// Let the hosts field recompute so a newly-allowed origin shows up.
 		clearHostText( name );
+
+		// The violation has been actioned: take it out of the outstanding list
+		// straight away, and off the server so a later poll cannot resurrect it.
+		setDismissed( ( prev ) =>
+			prev.includes( `${ name }|${ origin }` )
+				? prev
+				: [ ...prev, `${ name }|${ origin }` ]
+		);
+
+		if ( onDismissCspReport ) {
+			onDismissCspReport( name, origin );
+		}
 	};
 
 	const loadRecommended = () => {
@@ -286,11 +340,16 @@ export default function CspPolicyCard( {
 	};
 
 	// Group reports by directive; anything whose directive is not a builder row
-	// falls into the "other" bucket shown at the bottom.
+	// falls into the "other" bucket shown at the bottom. Locally-allowed
+	// entries are filtered out everywhere they would otherwise still show.
 	const knownNames = CSP_DIRECTIVES.map( ( d ) => d.name );
+	const visibleReports = cspReports.filter(
+		( r ) =>
+			! dismissed.includes( `${ r.directive }|${ r.blocked_origin }` )
+	);
 	const reportsFor = ( name ) =>
-		cspReports.filter( ( r ) => r.directive === name );
-	const otherReports = cspReports.filter(
+		visibleReports.filter( ( r ) => r.directive === name );
+	const otherReports = visibleReports.filter(
 		( r ) => ! knownNames.includes( r.directive )
 	);
 
@@ -564,39 +623,97 @@ export default function CspPolicyCard( {
 													) }
 												</p>
 												<ul className="mt-1 space-y-1">
-													{ reports.map( ( r ) => (
-														<li
-															key={
-																r.blocked_origin
-															}
-															className="flex items-center justify-between gap-x-3 text-xs text-amber-900"
-														>
-															<span className="font-mono truncate">
-																{
+													{ reports.map( ( r ) => {
+														const rowKey = `${ directive.name }|${ r.blocked_origin }`;
+														const isConfirming =
+															confirming ===
+															rowKey;
+
+														return (
+															<li
+																key={
 																	r.blocked_origin
-																}{ ' ' }
-																<span className="text-amber-600">
-																	({ r.count }
-																	)
-																</span>
-															</span>
-															<button
-																type="button"
-																onClick={ () =>
-																	allowSource(
-																		directive.name,
-																		r.blocked_origin
-																	)
 																}
-																className="shrink-0 font-medium text-indigo-600 hover:text-indigo-500"
+																className="flex items-center justify-between gap-x-3 text-xs text-amber-900"
 															>
-																{ __(
-																	'Allow',
-																	'simple-performance-for-wordpress'
+																<span className="font-mono truncate">
+																	{
+																		r.blocked_origin
+																	}{ ' ' }
+																	<span className="text-amber-600">
+																		(
+																		{
+																			r.count
+																		}
+																		)
+																	</span>
+																</span>
+																{ isConfirming ? (
+																	<span className="flex shrink-0 items-center gap-x-2">
+																		<span className="text-amber-700">
+																			{ sprintf(
+																				/* translators: %s: the CSP source token that will be added */
+																				__(
+																					'Add %s?',
+																					'simple-performance-for-wordpress'
+																				),
+																				tokenFor(
+																					r.blocked_origin
+																				)
+																			) }
+																		</span>
+																		<button
+																			type="button"
+																			onClick={ () => {
+																				setConfirming(
+																					null
+																				);
+																				allowSource(
+																					directive.name,
+																					r.blocked_origin
+																				);
+																			} }
+																			className="font-medium text-indigo-600 hover:text-indigo-500"
+																		>
+																			{ __(
+																				'Confirm',
+																				'simple-performance-for-wordpress'
+																			) }
+																		</button>
+																		<button
+																			type="button"
+																			onClick={ () =>
+																				setConfirming(
+																					null
+																				)
+																			}
+																			className="font-medium text-gray-500 hover:text-gray-700"
+																		>
+																			{ __(
+																				'Cancel',
+																				'simple-performance-for-wordpress'
+																			) }
+																		</button>
+																	</span>
+																) : (
+																	<button
+																		type="button"
+																		onClick={ () =>
+																			setConfirming(
+																				rowKey
+																			)
+																		}
+																		className="shrink-0 font-medium text-indigo-600 hover:text-indigo-500"
+																	>
+																		{ __(
+																			'Allow',
+																			'simple-performance-for-wordpress'
+																		) }
+																	</button>
 																) }
-															</button>
-														</li>
-													) ) }
+															</li>
+														);
+													} ) }
 												</ul>
 											</div>
 										) }
@@ -691,7 +808,7 @@ export default function CspPolicyCard( {
 									</button>
 								) }
 								{ onClearCspReports &&
-									cspReports.length > 0 && (
+									visibleReports.length > 0 && (
 										<button
 											type="button"
 											onClick={ onClearCspReports }
@@ -706,7 +823,189 @@ export default function CspPolicyCard( {
 							</div>
 						</div>
 
-						{ ! reportOnly && cspReports.length > 0 && (
+						<div className="mt-2 rounded-md bg-gray-50 p-4">
+							<p className="text-sm text-gray-600">
+								{ __(
+									'Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. So collection runs in a time-boxed window: open one, browse the site (or let real traffic do it), then work through the list below. The window closes itself.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+
+							<div className="mt-3 flex flex-wrap items-center gap-3">
+								{ collecting ? (
+									<>
+										<span className="inline-flex items-center rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+											{ __(
+												'Collecting',
+												'simple-performance-for-wordpress'
+											) }
+											{ cspReportStats.collect_until >
+												cspReportStats.now &&
+												` — ${ formatRemaining(
+													cspReportStats.collect_until -
+														cspReportStats.now
+												) }` }
+										</span>
+										{ onSetCspCollection && (
+											<button
+												type="button"
+												onClick={ () =>
+													onSetCspCollection( 'stop' )
+												}
+												className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+											>
+												{ __(
+													'Stop collecting',
+													'simple-performance-for-wordpress'
+												) }
+											</button>
+										) }
+									</>
+								) : (
+									<>
+										<span className="inline-flex items-center rounded-md bg-gray-200 px-2 py-1 text-xs font-medium text-gray-700">
+											{ __(
+												'Not collecting',
+												'simple-performance-for-wordpress'
+											) }
+										</span>
+										<select
+											value={ collectHours }
+											onChange={ ( e ) =>
+												setCollectHours(
+													parseInt(
+														e.target.value,
+														10
+													)
+												)
+											}
+											className="rounded-md border-0 py-1 pl-2 pr-8 text-xs text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-indigo-600"
+										>
+											<option value={ 1 }>
+												{ __(
+													'for 1 hour',
+													'simple-performance-for-wordpress'
+												) }
+											</option>
+											<option value={ 24 }>
+												{ __(
+													'for 24 hours',
+													'simple-performance-for-wordpress'
+												) }
+											</option>
+											<option value={ 72 }>
+												{ __(
+													'for 3 days',
+													'simple-performance-for-wordpress'
+												) }
+											</option>
+										</select>
+										{ onSetCspCollection && (
+											<button
+												type="button"
+												onClick={ () =>
+													onSetCspCollection(
+														'start',
+														collectHours
+													)
+												}
+												className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+											>
+												{ __(
+													'Start collecting',
+													'simple-performance-for-wordpress'
+												) }
+											</button>
+										) }
+									</>
+								) }
+
+								<label
+									htmlFor="spfw-csp-sample"
+									className="flex items-center gap-x-2 text-xs text-gray-600"
+								>
+									{ __(
+										'Sample',
+										'simple-performance-for-wordpress'
+									) }
+									<select
+										id="spfw-csp-sample"
+										value={
+											hardening.csp_collect_sample || 100
+										}
+										onChange={ ( e ) =>
+											onChange(
+												'csp_collect_sample',
+												parseInt( e.target.value, 10 )
+											)
+										}
+										className="rounded-md border-0 py-1 pl-2 pr-8 text-xs text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-indigo-600"
+									>
+										<option value={ 100 }>
+											{ __(
+												'100% of page views',
+												'simple-performance-for-wordpress'
+											) }
+										</option>
+										<option value={ 25 }>
+											{ __(
+												'25% of page views',
+												'simple-performance-for-wordpress'
+											) }
+										</option>
+										<option value={ 10 }>
+											{ __(
+												'10% of page views',
+												'simple-performance-for-wordpress'
+											) }
+										</option>
+										<option value={ 1 }>
+											{ __(
+												'1% of page views',
+												'simple-performance-for-wordpress'
+											) }
+										</option>
+									</select>
+								</label>
+							</div>
+
+							<p className="mt-2 text-xs text-gray-500">
+								{ __(
+									'On a busy site, lower the sample rate — a representative sample finds the same broken resources at a fraction of the requests. Remember to Save after changing it.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+
+							{ collecting && (
+								<p className="mt-2 text-xs text-gray-500">
+									{ sprintf(
+										/* translators: 1: number of distinct violations, 2: total reports recorded */
+										__(
+											'%1$d distinct violations, %2$d reports recorded.',
+											'simple-performance-for-wordpress'
+										),
+										cspReportStats.entries || 0,
+										cspReportStats.recorded || 0
+									) }
+									{ cspReportStats.full &&
+										` ${ __(
+											'The log is full — clear it to make room for new violations.',
+											'simple-performance-for-wordpress'
+										) }` }
+								</p>
+							) }
+						</div>
+
+						{ visibleReports.length > 0 && (
+							<p className="mt-2 text-xs text-gray-500">
+								{ __(
+									'Violation reports come from visitors’ browsers and are not verified — anyone can post to the report endpoint while a window is open. Only allow origins you recognise as part of your own site.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						) }
+
+						{ ! reportOnly && visibleReports.length > 0 && (
 							<p className="mt-1 text-sm text-amber-700">
 								{ __(
 									'Enforcing: each entry below is a resource currently being blocked on your live site.',
@@ -715,8 +1014,8 @@ export default function CspPolicyCard( {
 							</p>
 						) }
 
-						{ 0 === cspReports.length && (
-							<p className="mt-1 text-sm text-gray-500">
+						{ 0 === visibleReports.length && collecting && (
+							<p className="mt-2 text-sm text-gray-500">
 								{ __(
 									'No violations collected yet. Browse your site as a logged-out visitor to generate reports, then Refresh.',
 									'simple-performance-for-wordpress'
@@ -724,14 +1023,16 @@ export default function CspPolicyCard( {
 							</p>
 						) }
 
-						{ 0 === cspReports.length && ! reportOnly && (
-							<p className="mt-2 text-xs text-gray-400">
-								{ __(
-									'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
-									'simple-performance-for-wordpress'
-								) }
-							</p>
-						) }
+						{ 0 === visibleReports.length &&
+							collecting &&
+							! reportOnly && (
+								<p className="mt-2 text-xs text-gray-400">
+									{ __(
+										'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
+										'simple-performance-for-wordpress'
+									) }
+								</p>
+							) }
 
 						{ otherReports.length > 0 && (
 							<div className="mt-2">

@@ -442,11 +442,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * strict policy would block. Uses the report-only header while the admin is
 	 * still testing so violations are logged without blocking anything.
 	 *
-	 * In Report-Only mode the policy also carries `report-uri`/`report-to`
-	 * pointing at the plugin's violation-report endpoint, so blocked resources
-	 * are collected centrally and surfaced in the admin. Enforcing (Report-Only
-	 * off) sends no reporting directives — collection is a testing-phase
-	 * behavior only.
+	 * While the admin has a violation-collection window open (either mode), the
+	 * policy also carries `report-uri` pointing at the plugin's report endpoint
+	 * so blocked resources are surfaced in the admin. Outside that window no
+	 * reporting directive is emitted at all.
 	 */
 	public function add_csp_header() {
 		if ( headers_sent() ) {
@@ -480,17 +479,27 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
 		}
 
-		// Collect violations whenever CSP is enabled — in enforce mode too, so
-		// real production breakage (a blocked resource) is still surfaced in the
-		// admin, not just during Report-Only testing. Append report-uri so the
-		// browser posts violations to our endpoint. We deliberately use
-		// report-uri ALONE (not the newer report-to): when both are present
-		// Chrome ignores report-uri and switches to the Reporting API, which
-		// batches reports and delays them by up to a minute — so violations
-		// appear to never arrive during interactive testing. report-uri is
-		// deprecated but universally honored and fires immediately per
-		// violation, which is exactly what this admin feedback loop needs.
-		$report_url = self::csp_report_url();
+		// Violation collection is a time-boxed diagnostic window, not a
+		// permanent behavior. Emitting `report-uri` on every response makes
+		// every visitor's browser POST to /wp-json/spfw/v1/csp-report on every
+		// page view — an uncacheable full WordPress bootstrap per report, which
+		// on a busy site makes the report endpoint the site's single busiest
+		// "page" while adding no information (the log saturates in seconds).
+		// So the directive is only attached while the admin has explicitly
+		// opened a collection window, and only on the sampled share of
+		// responses. Outside the window the policy is emitted with no reporting
+		// directive at all and the endpoint is fully closed.
+		//
+		// We deliberately use report-uri ALONE (not the newer report-to): when
+		// both are present Chrome ignores report-uri and switches to the
+		// Reporting API, which batches reports and delays them by up to a
+		// minute — so violations appear to never arrive during interactive
+		// testing. report-uri is deprecated but universally honored and fires
+		// immediately per violation, which is exactly what this feedback loop
+		// needs.
+		$report_url = self::collection_open( $h ) && self::collection_sampled( $h )
+			? self::csp_report_url()
+			: '';
 
 		if ( '' !== $report_url ) {
 			// When a CDN/proxy rewrites the report URL's origin so it differs
@@ -509,6 +518,51 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			: 'Content-Security-Policy';
 
 		header( $header . ': ' . $policy );
+	}
+
+	/**
+	 * Whether the admin's violation-collection window is currently open.
+	 *
+	 * Shared by the header (should we advertise report-uri?) and the REST
+	 * endpoint (should we accept a report at all?), so the two can never
+	 * disagree — an endpoint that stayed open after the window closed would
+	 * keep accepting unauthenticated writes for no reason.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return bool
+	 */
+	public static function collection_open( array $h ) {
+		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+
+		return $until > time();
+	}
+
+	/**
+	 * Whether this particular response is in the sampled share that carries
+	 * `report-uri`. Lets a high-traffic site collect a representative sample
+	 * instead of one report POST per page view.
+	 *
+	 * Note under full-page caching (LiteSpeed Cache, QUIC.cloud): the sample
+	 * decision is made when the page is generated and then cached along with
+	 * the response, so the effective sampling granularity is per cache entry
+	 * rather than per visitor. That only lowers the report volume further,
+	 * which is the direction we want.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return bool
+	 */
+	private static function collection_sampled( array $h ) {
+		$sample = isset( $h['csp_collect_sample'] ) ? (int) $h['csp_collect_sample'] : 100;
+
+		if ( $sample >= 100 ) {
+			return true;
+		}
+
+		if ( $sample < 1 ) {
+			return false;
+		}
+
+		return wp_rand( 1, 100 ) <= $sample;
 	}
 
 	/**

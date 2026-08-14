@@ -66,8 +66,11 @@ export default function HardeningSettings( {
 	rootStatus,
 	onRestore,
 	cspReports,
+	cspReportStats,
 	onRefreshCspReports,
 	onClearCspReports,
+	onDismissCspReport,
+	onSetCspCollection,
 } ) {
 	const hardening = settings.hardening || {};
 
@@ -384,8 +387,11 @@ export default function HardeningSettings( {
 				settings={ settings }
 				onChange={ onChange }
 				cspReports={ cspReports }
+				cspReportStats={ cspReportStats }
 				onRefreshCspReports={ onRefreshCspReports }
 				onClearCspReports={ onClearCspReports }
+				onDismissCspReport={ onDismissCspReport }
+				onSetCspCollection={ onSetCspCollection }
 			/>
 
 			<SettingsCard

@@ -15,6 +15,13 @@ class SPFW_Settings {
 	const OPTION_KEY = 'spfw_settings';
 
 	/**
+	 * Longest a CSP violation-collection window may stay open, in seconds.
+	 *
+	 * @var int
+	 */
+	const CSP_COLLECT_MAX = 604800; // 7 days.
+
+	/**
 	 * Statically cached, fully-merged settings array.
 	 *
 	 * @var array|null
@@ -112,6 +119,15 @@ class SPFW_Settings {
 				'csp_script_hashes'       => array(),
 				'csp_hash_last_scan'      => 0,
 				'csp_tighten_script_src'  => false,
+				// Violation collection is a time-boxed diagnostic window, not a
+				// permanent behavior: `report-uri` is only emitted (and the
+				// public report endpoint only open) while now < csp_collect_until.
+				// 0 = closed. csp_collect_sample is the percentage of responses
+				// that carry `report-uri` while the window is open, so a busy
+				// site can collect a representative sample instead of one POST
+				// per page view.
+				'csp_collect_until'       => 0,
+				'csp_collect_sample'      => 100,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -502,6 +518,15 @@ class SPFW_Settings {
 
 		$clean['hardening']['csp_hash_last_scan']     = isset( $hardening['csp_hash_last_scan'] ) ? absint( $hardening['csp_hash_last_scan'] ) : 0;
 		$clean['hardening']['csp_tighten_script_src'] = self::to_bool( $hardening, 'csp_tighten_script_src', $defaults['hardening']['csp_tighten_script_src'] );
+
+		// Violation collection window. Hard-capped so a stored (or imported)
+		// value can never leave collection open indefinitely — the whole point
+		// of the window is that it closes itself.
+		$collect_until                           = isset( $hardening['csp_collect_until'] ) ? absint( $hardening['csp_collect_until'] ) : 0;
+		$clean['hardening']['csp_collect_until'] = min( $collect_until, time() + self::CSP_COLLECT_MAX );
+
+		$sample                                   = isset( $hardening['csp_collect_sample'] ) ? absint( $hardening['csp_collect_sample'] ) : $defaults['hardening']['csp_collect_sample'];
+		$clean['hardening']['csp_collect_sample'] = min( 100, max( 1, $sample ) );
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 

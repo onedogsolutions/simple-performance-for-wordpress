@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.0.3
-- **Last updated:** 2026-08-07
+- **Plugin version target:** 2.1.0
+- **Last updated:** 2026-08-14
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -38,6 +38,9 @@ the authoritative record.)
   save-revert bug fixed (2.0.2); ✅ Generic login errors `wp_login_errors`
   filter fixed to return a `WP_Error` object instead of a string, preventing
   fatal errors on customized login pages such as Divi + LoginPress (2.0.3); ✅
+  CSP violation collection reworked into a time-boxed window with sampling,
+  write coalescing, locking, flood resistance, and an Allow-confirms-and-clears
+  UI (2.1.0, branch `claude/plugin-report-errors-a6pq5k`); ✅
   Beaver Builder settings-based font discovery removed (was causing fewer fonts
   to be discovered, 1.10.0); ✅ CSP violation
   reporting fixed behind QUIC.cloud/Cloudflare CDN (proxy-aware report-uri,
@@ -332,6 +335,92 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-08-14 (CSP violation collection rework, → 2.1.0, branch
+  `claude/plugin-report-errors-a6pq5k`): user reported that on a
+  high-traffic production site (maddogproducts.com, OpenLiteSpeed) the PHP
+  analytics panel showed `/wp-json/spfw/v1/csp-report` as the **single most
+  requested page on the site** (551 requests/24h, above every real product
+  page) and flagged with status 500.
+  **Investigation:** reproduced the endpoint on a clean WP 6.8 + PHP 8.4
+  install (SQLite drop-in, plugin activated, CSP enabled). Every request
+  shape tried — legacy `application/csp-report`, modern
+  `application/reports+json`, malformed JSON, empty body, 20 KB body,
+  invalid UTF-8, 600-deep nesting, `multipart/form-data`, chunked encoding,
+  `X-HTTP-Method-Override`, `?_method=`, HEAD/PUT/GET/DELETE, CSP on and
+  off — returned 204/403/400/401/404. **The 500 is not a payload-parsing
+  fatal and was not reproducible from request shape**; the endpoint's design
+  made it both likely under load and invisible (it swallows every error and
+  always answers 204). Four defects were proven instead:
+  1. **Design:** `add_csp_header()` attached `report-uri` to every front-end
+     response permanently, in enforce mode too (the deliberate 1.6.0/1.11.0
+     decision). Every visitor's browser therefore POSTed on every page view,
+     forever — an uncacheable full WP bootstrap (~24 ms on a bare install,
+     far more on a WooCommerce site) per report, for a log that saturates its
+     50 deduped slots within seconds. After that, every request was pure cost.
+  2. **Race (proven):** 150 concurrent identical reports recorded a count of
+     **70**. `store_violations()` was an unlocked read-modify-write.
+  3. **Store poisoning (proven, security):** 80 anonymous POSTs with invented
+     origins evicted the entire real log and filled all 50 slots.
+     `CspPolicyCard.jsx` renders each attacker-supplied `blocked_origin` with
+     a one-click **Allow** that writes it straight into the live `script-src`
+     — worse now that Phase E ships `strict-dynamic`.
+  4. **Secondary:** the 8 KB body cap silently discarded batched Reporting API
+     payloads; the 7-day TTL was reset on every write so the log never aged
+     out; `set_transient` fired even when nothing changed.
+  **Fixes (6 files):**
+  - `class-spfw-settings.php`: new `csp_collect_until` (0 = closed) and
+    `csp_collect_sample` (1–100, default 100) in the hardening group, plus
+    `CSP_COLLECT_MAX` (7 days) — the sanitizer hard-caps the deadline so a
+    stored or imported value can never leave collection open indefinitely.
+  - `class-spfw-module-hardening.php`: new `collection_open()` (shared by the
+    header and the endpoint so the two can never disagree) and
+    `collection_sampled()`. `add_csp_header()` now attaches `report-uri` only
+    while a window is open and only on the sampled share of responses.
+  - `class-spfw-rest-settings.php`: endpoint returns 403 before touching the
+    body unless CSP is on **and** a window is open; body cap 8 KB → 32 KB;
+    `{ items, meta }` store envelope (legacy flat shape read transparently —
+    entry keys always contain `|`, so the shape test is unambiguous);
+    `wp_cache_add()` lock around the read-modify-write; write coalescing via
+    `CSP_WRITE_INTERVAL` (5 s) so repeat sightings cost nothing (counts are
+    now an explicit lower bound); `CSP_NEW_PER_MINUTE` (5) ceiling on new
+    origins; `evict_one()` drops the **least-reported** entry rather than the
+    least recently seen; `origin_already_allowed()` suppresses stale reports
+    for origins the live policy already permits; new
+    `POST /csp-report/collect` route (server computes the deadline, browser
+    clock skew can't shorten or extend the window) that purges LSCache since
+    the reporting directive lives in a cached response header; DELETE accepts
+    an optional `directive`/`origin` pair to drop a single entry; new
+    `csp_report_stats` on both GET routes.
+  - `CspPolicyCard.jsx`: collection-window controls (start 1h/24h/3 days,
+    stop, time remaining, sample select, live counts); polling only while a
+    window is open; **Allow is now two-step** — it shows the exact token it
+    will add, and on confirm adds the token, hides the row immediately, and
+    DELETEs the entry server-side so a later poll can't resurrect it; explicit
+    "reports are unauthenticated, only allow origins you recognise" notice.
+  - `App.jsx` / `HardeningSettings.jsx`: `handleDismissCspReport` and
+    `handleSetCspCollection` wired through.
+  - `tests/`: bootstrap gained transient + object-cache stubs and the time
+    constants; new `Csp_Report_Collection_Test.php` (11 cases) covering the
+    window, the deadline cap and sample clamp, the new-origin rate limit,
+    count-based eviction, already-allowed suppression (including keyword
+    tokens), custom-mode fall-through, write coalescing, legacy store shape,
+    and count ordering.
+  **Verified:** 16/16 PHPUnit pass; `php -l` clean; PHPCS clean within all
+  changed lines; `npm run build` succeeds; `wp-scripts lint-js` reports no
+  issues inside changed lines (the three touched JSX files were already at 82
+  pre-existing errors, now 72). End-to-end on the live test install: window
+  closed ⇒ no `report-uri` and endpoint 403; window open ⇒ header carries
+  `report-uri` and reports store; 30 distinct origins in one minute ⇒ capped
+  at 5 new entries; 100 concurrent duplicates ⇒ 1 write; Allow ⇒ entry
+  removed and, once saved, stale reports for it are not re-added; window
+  elapses ⇒ header and endpoint close themselves; sample=10 ⇒ `report-uri`
+  on 6/40 responses.
+  **Outstanding:** `.pot` regeneration for the new UI strings; live QA on
+  maddogproducts.com to confirm the endpoint drops off the top-requested list
+  and the 500s stop. The 500's exact production mechanism remains unconfirmed
+  — if it persists after the request volume drops to near zero, it is not
+  this endpoint and needs server-side logs.
 
 - 2026-07-10: Step 1 built exactly to spec. `plugins_loaded`/activation/deactivation
   callbacks use closures guarded by `class_exists`/`file_exists` checks since

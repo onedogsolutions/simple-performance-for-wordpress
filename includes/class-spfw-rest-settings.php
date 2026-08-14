@@ -87,7 +87,31 @@ class SPFW_Rest_Settings {
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => array( $this, 'clear_csp_reports' ),
 					'permission_callback' => array( $this, 'check_permissions' ),
+					'args'                => array(
+						'directive' => array(
+							'type'     => 'string',
+							'required' => false,
+						),
+						'origin'    => array(
+							'type'     => 'string',
+							'required' => false,
+						),
+					),
 				),
+			)
+		);
+
+		// Open / close the violation-collection window. A dedicated route
+		// rather than a plain setting so the deadline is computed from server
+		// time (the browser's clock may be minutes off, and a skewed deadline
+		// either closes collection early or leaves it open too long).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/csp-report/collect',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'set_csp_collection' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
 
@@ -165,6 +189,7 @@ class SPFW_Rest_Settings {
 		$settings['csp_default']              = SPFW_Module_Hardening::DEFAULT_CSP;
 		$settings['csp_default_directives']   = SPFW_Module_Hardening::default_csp_directives();
 		$settings['csp_reports']              = self::get_csp_reports();
+		$settings['csp_report_stats']         = self::get_csp_report_stats();
 
 		return new WP_REST_Response( $settings, 200 );
 	}
@@ -250,17 +275,60 @@ class SPFW_Rest_Settings {
 	const CSP_REPORTS_TTL = 604800; // 7 days.
 
 	/**
+	 * Largest body we will parse. Generous enough for a batched Reporting API
+	 * payload (the old 8 KB cap silently discarded whole batches), still
+	 * bounded so the endpoint can't be used to make us parse megabytes.
+	 */
+	const CSP_BODY_MAX = 32768;
+
+	/**
+	 * Minimum seconds between persisted count updates. Repeat sightings of a
+	 * violation we already know about are worth very little — the admin needs
+	 * to know *that* it happens, not the exact number — so bumping a counter is
+	 * not worth an option write per request. A newly-seen violation always
+	 * writes immediately; everything else coalesces into this interval, which
+	 * caps writes at ~12/minute regardless of how hard the endpoint is driven.
+	 *
+	 * Counts are therefore a lower bound ("recorded occurrences"), not an exact
+	 * tally. They were never exact anyway: the previous unlocked
+	 * read-modify-write lost over half its increments under concurrency.
+	 */
+	const CSP_WRITE_INTERVAL = 5;
+
+	/**
+	 * Ceiling on how many *new* (directive, origin) pairs may enter the log per
+	 * minute. The endpoint is unauthenticated by necessity — browsers cannot
+	 * authenticate a violation report — so without this an anonymous flood of
+	 * invented origins evicts the entire real log (50 slots) in one burst and
+	 * replaces it with attacker-chosen entries that the admin is then invited
+	 * to one-click into their own policy.
+	 */
+	const CSP_NEW_PER_MINUTE = 5;
+
+	/**
+	 * Object-cache key used to serialize read-modify-write of the log.
+	 */
+	const CSP_LOCK_KEY   = 'spfw_csp_lock';
+	const CSP_LOCK_GROUP = 'spfw';
+
+	/**
 	 * Public POST callback: ingest a browser CSP violation report.
 	 *
-	 * Closed unless CSP is enabled, so the endpoint accepts (and stores)
-	 * reports whenever a policy is active (Report-Only or enforce). Accepts both
-	 * the legacy `application/csp-report` body and the modern Reporting API
+	 * Open only while CSP is enabled AND the admin has an explicit collection
+	 * window open (see SPFW_Module_Hardening::collection_open()); otherwise it
+	 * answers 403 before doing any work. Accepts both the legacy
+	 * `application/csp-report` body and the modern Reporting API
 	 * `application/reports+json` batch, caps the body size, dedupes into a
 	 * bounded transient, and always answers 204 (browsers ignore the response).
 	 *
+	 * Everything here runs on unauthenticated input on a public endpoint, so it
+	 * is deliberately cheap and bounded: no write at all outside the window, at
+	 * most one write per CSP_WRITE_INTERVAL for repeat violations, and a
+	 * per-minute ceiling on new entries.
+	 *
 	 * Sends explicit no-store headers so CDNs (QUIC.cloud, Cloudflare) and
 	 * page-cache plugins never cache the 204/403 response — a cached 403 from
-	 * a moment when CSP was briefly off would silently swallow all subsequent
+	 * a moment when collection was closed would silently swallow all subsequent
 	 * reports until the CDN cache expires.
 	 *
 	 * @param WP_REST_Request $request Incoming request.
@@ -276,17 +344,17 @@ class SPFW_Rest_Settings {
 
 		$h = SPFW_Settings::group( 'hardening' );
 
-		// Open whenever CSP is enabled (enforce mode included), so real blocked
-		// resources are captured, not only Report-Only test violations. Closed
-		// entirely when CSP is off.
-		if ( empty( $h['csp_enabled'] ) ) {
+		// Fully closed unless CSP is on and a collection window is open. Bail
+		// before touching the body so a closed endpoint costs nothing beyond
+		// the settings read WordPress has already cached.
+		if ( empty( $h['csp_enabled'] ) || ! SPFW_Module_Hardening::collection_open( $h ) ) {
 			return new WP_REST_Response( null, 403 );
 		}
 
 		$body = $request->get_body();
 
 		// Ignore anything implausible for a violation report rather than error.
-		if ( ! is_string( $body ) || '' === $body || strlen( $body ) > 8192 ) {
+		if ( ! is_string( $body ) || '' === $body || strlen( $body ) > self::CSP_BODY_MAX ) {
 			return new WP_REST_Response( null, 204 );
 		}
 
@@ -296,11 +364,41 @@ class SPFW_Rest_Settings {
 			$violations = self::extract_violations( $data );
 
 			if ( ! empty( $violations ) ) {
-				self::store_violations( $violations );
+				self::store_violations( $violations, $h );
 			}
 		}
 
 		return new WP_REST_Response( null, 204 );
+	}
+
+	/**
+	 * POST callback: open or close the violation-collection window.
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response
+	 */
+	public function set_csp_collection( $request ) {
+		$params = $request->get_json_params();
+		$params = is_array( $params ) ? $params : array();
+
+		$stop  = isset( $params['action'] ) && 'stop' === $params['action'];
+		$hours = isset( $params['hours'] ) ? absint( $params['hours'] ) : 24;
+		$hours = min( 168, max( 1, $hours ) );
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_collect_until' => $stop ? 0 : time() + ( $hours * HOUR_IN_SECONDS ),
+				),
+			)
+		);
+
+		// The reporting directive lives in a response header, which full-page
+		// caches store alongside the body — without a purge, cached pages would
+		// keep advertising (or keep omitting) report-uri for the cache TTL.
+		do_action( 'litespeed_purge_all' );
+
+		return $this->get_settings();
 	}
 
 	/**
@@ -309,42 +407,200 @@ class SPFW_Rest_Settings {
 	 * @return WP_REST_Response
 	 */
 	public function list_csp_reports() {
+		return new WP_REST_Response(
+			array(
+				'csp_reports'      => self::get_csp_reports(),
+				'csp_report_stats' => self::get_csp_report_stats(),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Admin DELETE callback: clear the collected violation log, or drop a
+	 * single entry when a directive/origin pair is supplied (used by the
+	 * admin's "Allow" action, which has just written that origin into the
+	 * policy and so no longer needs it listed as outstanding).
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response
+	 */
+	public function clear_csp_reports( $request ) {
+		$directive = (string) $request->get_param( 'directive' );
+		$origin    = (string) $request->get_param( 'origin' );
+
+		if ( '' === $directive || '' === $origin ) {
+			delete_transient( self::CSP_REPORTS_KEY );
+
+			return new WP_REST_Response( array( 'csp_reports' => array() ), 200 );
+		}
+
+		$held  = self::acquire_lock();
+		$store = self::read_store();
+
+		unset( $store['items'][ $directive . '|' . $origin ] );
+
+		self::write_store( $store );
+		self::release_lock( $held );
+
 		return new WP_REST_Response( array( 'csp_reports' => self::get_csp_reports() ), 200 );
 	}
 
 	/**
-	 * Admin DELETE callback: clear the collected violation log.
+	 * Read the aggregated violation log, most frequent first.
 	 *
-	 * @return WP_REST_Response
-	 */
-	public function clear_csp_reports() {
-		delete_transient( self::CSP_REPORTS_KEY );
-
-		return new WP_REST_Response( array( 'csp_reports' => array() ), 200 );
-	}
-
-	/**
-	 * Read the aggregated violation log, newest activity first.
+	 * Ordered by count (then recency) rather than recency alone so the entries
+	 * that matter most sit at the top, and so the order matches the eviction
+	 * policy — what the admin sees first is what survives longest.
 	 *
 	 * @return array[]
 	 */
 	public static function get_csp_reports() {
-		$store = get_transient( self::CSP_REPORTS_KEY );
-
-		if ( ! is_array( $store ) ) {
-			return array();
-		}
-
-		$store = array_values( $store );
+		$items = array_values( self::read_store()['items'] );
 
 		usort(
-			$store,
+			$items,
 			static function ( $a, $b ) {
+				$a_count = isset( $a['count'] ) ? (int) $a['count'] : 0;
+				$b_count = isset( $b['count'] ) ? (int) $b['count'] : 0;
+
+				if ( $a_count !== $b_count ) {
+					return $b_count <=> $a_count;
+				}
+
 				return ( isset( $b['last_seen'] ) ? $b['last_seen'] : 0 ) <=> ( isset( $a['last_seen'] ) ? $a['last_seen'] : 0 );
 			}
 		);
 
-		return $store;
+		return $items;
+	}
+
+	/**
+	 * Collection state for the admin card: enough to tell "collection is off"
+	 * from "collection is on but nothing is arriving" without guessing.
+	 *
+	 * Everything here is derived from data the ingest path already persists, so
+	 * reporting it costs no extra writes.
+	 *
+	 * @return array
+	 */
+	public static function get_csp_report_stats() {
+		$h     = SPFW_Settings::group( 'hardening' );
+		$store = self::read_store();
+
+		$recorded = 0;
+		foreach ( $store['items'] as $entry ) {
+			$recorded += isset( $entry['count'] ) ? (int) $entry['count'] : 0;
+		}
+
+		return array(
+			'collecting'    => SPFW_Module_Hardening::collection_open( $h ),
+			'collect_until' => isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0,
+			'now'           => time(),
+			'entries'       => count( $store['items'] ),
+			'recorded'      => $recorded,
+			'last_report'   => (int) $store['meta']['last_write'],
+			'dropped'       => (int) $store['meta']['dropped'],
+			'full'          => count( $store['items'] ) >= self::CSP_REPORTS_MAX,
+		);
+	}
+
+	/**
+	 * Default metadata envelope stored alongside the violation entries.
+	 *
+	 * @return array
+	 */
+	private static function default_meta() {
+		return array(
+			'last_write' => 0,
+			'minute'     => 0,
+			'new_keys'   => 0,
+			'dropped'    => 0,
+		);
+	}
+
+	/**
+	 * Read the violation log as a { items, meta } envelope.
+	 *
+	 * Transparently upgrades the pre-2.1.0 shape, which stored the entry map
+	 * directly with no envelope. Entry keys are always "directive|origin", so a
+	 * legacy map can never contain an 'items' key — the shape test is safe.
+	 *
+	 * @return array
+	 */
+	private static function read_store() {
+		$raw = get_transient( self::CSP_REPORTS_KEY );
+
+		if ( ! is_array( $raw ) ) {
+			return array(
+				'items' => array(),
+				'meta'  => self::default_meta(),
+			);
+		}
+
+		if ( ! isset( $raw['items'] ) || ! is_array( $raw['items'] ) ) {
+			return array(
+				'items' => $raw,
+				'meta'  => self::default_meta(),
+			);
+		}
+
+		return array(
+			'items' => $raw['items'],
+			'meta'  => isset( $raw['meta'] ) && is_array( $raw['meta'] )
+				? array_merge( self::default_meta(), $raw['meta'] )
+				: self::default_meta(),
+		);
+	}
+
+	/**
+	 * Persist the violation log envelope.
+	 *
+	 * @param array $store { items, meta } envelope.
+	 */
+	private static function write_store( array $store ) {
+		$store['meta']['last_write'] = time();
+
+		set_transient( self::CSP_REPORTS_KEY, $store, self::CSP_REPORTS_TTL );
+	}
+
+	/**
+	 * Take a short lock around the log's read-modify-write.
+	 *
+	 * Without this, concurrent reports each read the same log, apply their own
+	 * increment, and write it back — so all but one increment is discarded. A
+	 * 150-request burst against the unlocked version recorded 70.
+	 *
+	 * wp_cache_add() is atomic against a persistent object cache (Redis /
+	 * Memcached / LSMCD), which is what the busy sites this protects are
+	 * running. With only the default in-memory cache there is nothing shared to
+	 * contend on and this degrades to a no-op — no worse than before, and the
+	 * write-coalescing above still bounds the damage. Never blocks the response
+	 * for long: a handful of short spins, then proceed regardless.
+	 *
+	 * @return bool Whether the lock is held (and so must be released).
+	 */
+	private static function acquire_lock() {
+		for ( $i = 0; $i < 5; $i++ ) {
+			if ( wp_cache_add( self::CSP_LOCK_KEY, 1, self::CSP_LOCK_GROUP, 10 ) ) {
+				return true;
+			}
+
+			usleep( 5000 );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Release the lock taken by acquire_lock().
+	 *
+	 * @param bool $held Whether the lock was actually acquired.
+	 */
+	private static function release_lock( $held ) {
+		if ( $held ) {
+			wp_cache_delete( self::CSP_LOCK_KEY, self::CSP_LOCK_GROUP );
+		}
 	}
 
 	/**
@@ -395,12 +651,29 @@ class SPFW_Rest_Settings {
 	 * Merge violations into the bounded transient, deduping by
 	 * (directive, blocked-origin) and bumping counts instead of appending.
 	 *
+	 * Runs under a lock (see acquire_lock()) and only persists when it has
+	 * something worth persisting: a violation the admin has not seen before, or
+	 * a repeat sighting once the coalescing interval has elapsed.
+	 *
 	 * @param array[] $violations Normalized violations.
+	 * @param array   $h          Hardening settings group.
 	 */
-	private static function store_violations( array $violations ) {
-		$store = get_transient( self::CSP_REPORTS_KEY );
-		$store = is_array( $store ) ? $store : array();
-		$now   = time();
+	private static function store_violations( array $violations, array $h ) {
+		$held  = self::acquire_lock();
+		$store = self::read_store();
+		$items = $store['items'];
+		$meta  = $store['meta'];
+
+		$now    = time();
+		$minute = (int) floor( $now / 60 );
+
+		// New rate-limit bucket.
+		if ( (int) $meta['minute'] !== $minute ) {
+			$meta['minute']   = $minute;
+			$meta['new_keys'] = 0;
+		}
+
+		$has_new = false;
 
 		foreach ( $violations as $v ) {
 			$directive = self::normalize_directive( $v['directive'] );
@@ -414,29 +687,32 @@ class SPFW_Rest_Settings {
 			$origin  = self::blocked_origin( $blocked );
 			$key     = $directive . '|' . $origin;
 
-			if ( isset( $store[ $key ] ) ) {
-				$store[ $key ]['count']     = (int) $store[ $key ]['count'] + 1;
-				$store[ $key ]['last_seen'] = $now;
+			if ( isset( $items[ $key ] ) ) {
+				$items[ $key ]['count']     = (int) $items[ $key ]['count'] + 1;
+				$items[ $key ]['last_seen'] = $now;
 				continue;
 			}
 
-			// Evict the least-recently-seen entry when full.
-			if ( count( $store ) >= self::CSP_REPORTS_MAX ) {
-				$oldest_key  = null;
-				$oldest_seen = PHP_INT_MAX;
-				foreach ( $store as $k => $entry ) {
-					$seen = isset( $entry['last_seen'] ) ? $entry['last_seen'] : 0;
-					if ( $seen < $oldest_seen ) {
-						$oldest_seen = $seen;
-						$oldest_key  = $k;
-					}
-				}
-				if ( null !== $oldest_key ) {
-					unset( $store[ $oldest_key ] );
-				}
+			// Already permitted by the live policy: a stale report from a page
+			// the visitor had cached (or from before the admin pressed Allow).
+			// Re-listing it would put an entry the admin has already actioned
+			// straight back into their outstanding list.
+			if ( self::origin_already_allowed( $h, $directive, $origin ) ) {
+				continue;
 			}
 
-			$store[ $key ] = array(
+			// Bound how fast unauthenticated input can introduce new entries,
+			// so a flood of invented origins cannot evict the real log.
+			if ( $meta['new_keys'] >= self::CSP_NEW_PER_MINUTE ) {
+				++$meta['dropped'];
+				continue;
+			}
+
+			if ( count( $items ) >= self::CSP_REPORTS_MAX ) {
+				self::evict_one( $items );
+			}
+
+			$items[ $key ] = array(
 				'directive'      => $directive,
 				'blocked_uri'    => $blocked,
 				'blocked_origin' => $origin,
@@ -445,9 +721,103 @@ class SPFW_Rest_Settings {
 				'first_seen'     => $now,
 				'last_seen'      => $now,
 			);
+
+			++$meta['new_keys'];
+			$has_new = true;
 		}
 
-		set_transient( self::CSP_REPORTS_KEY, $store, self::CSP_REPORTS_TTL );
+		// Coalesce repeat sightings: a counter bump is not worth an option
+		// write on every request from every visitor.
+		if ( $has_new || ( $now - (int) $meta['last_write'] ) >= self::CSP_WRITE_INTERVAL ) {
+			self::write_store(
+				array(
+					'items' => $items,
+					'meta'  => $meta,
+				)
+			);
+		}
+
+		self::release_lock( $held );
+	}
+
+	/**
+	 * Drop one entry to make room, choosing the least-reported one (oldest
+	 * sighting breaks ties).
+	 *
+	 * Deliberately not "least recently seen": that let a burst of one-off
+	 * reports push out the established, high-count violations the admin
+	 * actually needs to act on — which is exactly what an anonymous flood of
+	 * invented origins produces.
+	 *
+	 * @param array $items Entry map, modified in place.
+	 */
+	private static function evict_one( array &$items ) {
+		$victim_key   = null;
+		$victim_count = PHP_INT_MAX;
+		$victim_seen  = PHP_INT_MAX;
+
+		foreach ( $items as $k => $entry ) {
+			$count = isset( $entry['count'] ) ? (int) $entry['count'] : 0;
+			$seen  = isset( $entry['last_seen'] ) ? (int) $entry['last_seen'] : 0;
+
+			if ( $count < $victim_count || ( $count === $victim_count && $seen < $victim_seen ) ) {
+				$victim_key   = $k;
+				$victim_count = $count;
+				$victim_seen  = $seen;
+			}
+		}
+
+		if ( null !== $victim_key ) {
+			unset( $items[ $victim_key ] );
+		}
+	}
+
+	/**
+	 * Keyword blocked-uri values mapped to the CSP source token that permits
+	 * them. Mirrors KEYWORD_TOKENS in CspPolicyCard.jsx — the admin's "Allow"
+	 * writes the token, this reads it back.
+	 *
+	 * @var array<string,string>
+	 */
+	const KEYWORD_TOKENS = array(
+		'inline'      => "'unsafe-inline'",
+		'eval'        => "'unsafe-eval'",
+		'data'        => 'data:',
+		'blob'        => 'blob:',
+		'filesystem'  => 'filesystem:',
+		'mediastream' => 'mediastream:',
+	);
+
+	/**
+	 * Whether the live policy already permits this origin for this directive.
+	 *
+	 * Builder mode only: in raw-policy mode there is no structured directive
+	 * map to consult, and parsing the hand-written string on every report would
+	 * put real work back on the public path we are trying to keep cheap.
+	 *
+	 * @param array  $h         Hardening settings group.
+	 * @param string $directive Normalized directive name.
+	 * @param string $origin    Blocked origin or keyword.
+	 * @return bool
+	 */
+	private static function origin_already_allowed( array $h, $directive, $origin ) {
+		if ( isset( $h['csp_mode'] ) && 'custom' === $h['csp_mode'] ) {
+			return false;
+		}
+
+		$directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
+		$tokens     = isset( $directives[ $directive ] ) && is_array( $directives[ $directive ] ) ? $directives[ $directive ] : array();
+
+		if ( empty( $tokens ) ) {
+			return false;
+		}
+
+		if ( in_array( $origin, $tokens, true ) ) {
+			return true;
+		}
+
+		return isset( self::KEYWORD_TOKENS[ $origin ] )
+			&& in_array( self::KEYWORD_TOKENS[ $origin ], $tokens, true );
 	}
 
 	/**
