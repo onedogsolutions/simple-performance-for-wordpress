@@ -8,6 +8,7 @@ import RestApiSettings from './RestApiSettings';
 import HardeningSettings from './HardeningSettings';
 import FontsSettings from './FontsSettings';
 import WooCommerceSettings from './WooCommerceSettings';
+import OptionCleanerSettings from './OptionCleanerSettings';
 
 const BASE_TABS = [
 	{ id: 'core', label: __( 'Core', 'simple-performance-for-wordpress' ) },
@@ -20,6 +21,10 @@ const BASE_TABS = [
 		label: __( 'Hardening', 'simple-performance-for-wordpress' ),
 	},
 	{ id: 'fonts', label: __( 'Fonts', 'simple-performance-for-wordpress' ) },
+	{
+		id: 'optioncleaner',
+		label: __( 'Option Cleaner', 'simple-performance-for-wordpress' ),
+	},
 ];
 
 export default function App() {
@@ -601,6 +606,7 @@ export default function App() {
 								/>
 							),
 						} ),
+						optioncleaner: <OptionCleanerSettings />,
 					} }
 				</SettingsTabs>
 

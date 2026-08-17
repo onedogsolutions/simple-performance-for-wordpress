@@ -14,8 +14,13 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
+<<<<<<< HEAD
 - **Plugin version target:** 2.1.0
 - **Last updated:** 2026-08-14
+=======
+- **Plugin version target:** 2.0.3
+- **Last updated:** 2026-08-16
+>>>>>>> ee78ffc (feat(option-cleaner): port option and capability cleaner modules with UI and REST API)
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -61,7 +66,10 @@ the authoritative record.)
   export/import, configuration presets, 1.16.0); ✅ Phase E CSP
   script-src tightening (hash sources, strict-dynamic, inline script
   scanner, 2.0.0); ✅ Migration recursion hotfix (cache-before-migration
-  ordering, PHPUnit regression test, AllowOverride FAQ, 2.0.1)
+  ordering, PHPUnit regression test, AllowOverride FAQ, 2.0.1); ✅ Option
+  Cleaner & Ghost Capability Cleaner ported (orphaned wp_options scanner,
+  ghost capability stripper, on-demand REST endpoints, dedicated React tab,
+  simple-performance/v1 namespace)
 
 ## Shared project facts (true for every step)
 
@@ -103,6 +111,7 @@ the authoritative record.)
 | 8 | Module 4 — Google Fonts localizer | ✅ Done | a294f3b |
 | 9 | Uninstall cleanup | ✅ Done | 92afbf5 |
 | 10 | Quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
+| 11 | Option Cleaner & Ghost Capability Cleaner | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
@@ -1328,6 +1337,29 @@ follow-ups deferred. Keep entries dated and terse.
   MainWP's signed dashboard-to-child channel. The class is loaded and
   instantiated in the main plugin bootstrap file. Version bumped to 1.12.0
   (plugin header + `SPFW_VERSION` + `readme.txt` stable tag + changelog).
+
+- 2026-08-16 (Option Cleaner & Ghost Capability Cleaner ported):
+  ported the orphaned-options scanner and ghost-capability stripper from
+  `beaver-builder-custom-admin` into Simple Performance. Created
+  `includes/modules/class-spfw-option-cleaner.php` (`SPFW_Option_Cleaner` —
+  auto-scan with prefix grouping, owned-prefix derivation from installed
+  plugins, core safelist, transient cleanup on delete),
+  `includes/modules/class-spfw-capability-cleaner.php`
+  (`SPFW_Capability_Cleaner` — role scan, core-capability lookup map,
+  prefix-based `remove_cap()` across all roles), and
+  `includes/api/class-rest-option-cleaner.php` (`SPFW_Rest_Option_Cleaner`)
+  registering four endpoints under `simple-performance/v1`:
+  `GET /option-cleaner/scan`, `POST /option-cleaner/delete`,
+  `GET /option-cleaner/capabilities`,
+  `POST /option-cleaner/capabilities/delete`. All endpoints enforce
+  `manage_options` capability; inputs sanitized via `sanitize_key`.
+  The plugin's own `spfw` prefix is always protected from deletion.
+  Both module files and the REST controller are loaded in
+  `SPFW_Plugin::boot()` (on-demand — no runtime hooks). Added
+  `src/components/OptionCleanerSettings.jsx` with auto-scan, manual-prefix
+  search, ghost-capability scan, select-all/delete, and inline status
+  feedback; registered as the "Option Cleaner" tab in `App.jsx`.
+  **Verified:** `php -l` clean on all 4 PHP files.
 
 ## Open questions / blockers
 

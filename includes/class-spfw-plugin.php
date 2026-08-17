@@ -68,6 +68,12 @@ class SPFW_Plugin {
 		require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
 		new SPFW_Rest_Settings();
 
+		// Option / capability cleaner REST controller (on-demand, no runtime hooks).
+		require_once SPFW_PATH . 'includes/modules/class-spfw-option-cleaner.php';
+		require_once SPFW_PATH . 'includes/modules/class-spfw-capability-cleaner.php';
+		require_once SPFW_PATH . 'includes/api/class-rest-option-cleaner.php';
+		new SPFW_Rest_Option_Cleaner();
+
 		foreach ( self::MODULES as $class => $relative_path ) {
 			$file = SPFW_PATH . $relative_path;
 
