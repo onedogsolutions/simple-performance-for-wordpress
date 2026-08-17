@@ -145,6 +145,17 @@ class SPFW_Settings {
 				'disable_password_meter' => false,
 				'disable_marketing_hub'  => false,
 			),
+			'database'    => array(
+				'post_revisions'     => false,
+				'post_auto_drafts'   => false,
+				'trashed_posts'      => false,
+				'spam_comments'      => false,
+				'trashed_comments'   => false,
+				'expired_transients' => false,
+				'all_transients'     => false,
+				'tables'             => false,
+				'optimize_schedule'  => 'off',
+			),
 		);
 	}
 
@@ -546,6 +557,26 @@ class SPFW_Settings {
 		foreach ( array_keys( $defaults['woocommerce'] ) as $key ) {
 			$clean['woocommerce'][ $key ] = self::to_bool( $woo, $key, $defaults['woocommerce'][ $key ] );
 		}
+
+		$db = isset( $input['database'] ) && is_array( $input['database'] ) ? $input['database'] : array();
+
+		$db_bools = array(
+			'post_revisions',
+			'post_auto_drafts',
+			'trashed_posts',
+			'spam_comments',
+			'trashed_comments',
+			'expired_transients',
+			'all_transients',
+			'tables',
+		);
+
+		foreach ( $db_bools as $key ) {
+			$clean['database'][ $key ] = self::to_bool( $db, $key, $defaults['database'][ $key ] );
+		}
+
+		$db_schedule                          = isset( $db['optimize_schedule'] ) ? $db['optimize_schedule'] : $defaults['database']['optimize_schedule'];
+		$clean['database']['optimize_schedule'] = in_array( $db_schedule, array( 'off', 'daily', 'weekly', 'monthly' ), true ) ? $db_schedule : 'off';
 
 		$clean['version'] = SPFW_VERSION;
 

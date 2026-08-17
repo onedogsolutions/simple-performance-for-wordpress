@@ -3,8 +3,9 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import SettingsCard from './SettingsCard';
+import DatabaseSettings from './DatabaseSettings';
 
-export default function OptionCleanerSettings() {
+export default function OptionCleanerSettings( { settings, onChange } ) {
 	const [ optionGroups, setOptionGroups ] = useState( [] );
 	const [ capGroups, setCapGroups ] = useState( [] );
 	const [ selectedOptions, setSelectedOptions ] = useState( {} );
@@ -406,6 +407,9 @@ export default function OptionCleanerSettings() {
 					</div>
 				) }
 			</SettingsCard>
+
+			{ /* ── Database Cleanup & Scheduling ── */ }
+			<DatabaseSettings settings={ settings } onChange={ onChange } />
 		</div>
 	);
 }

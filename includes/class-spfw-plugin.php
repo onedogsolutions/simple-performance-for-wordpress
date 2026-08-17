@@ -25,6 +25,7 @@ class SPFW_Plugin {
 		'SPFW_Module_Hardening'   => 'includes/modules/class-spfw-module-hardening.php',
 		'SPFW_Module_Fonts'       => 'includes/modules/class-spfw-module-fonts.php',
 		'SPFW_Module_WooCommerce' => 'includes/modules/class-spfw-module-woocommerce.php',
+		'SPFW_Module_Database'    => 'includes/modules/class-spfw-module-database.php',
 	);
 
 	/**
@@ -134,5 +135,8 @@ class SPFW_Plugin {
 
 		SPFW_Htaccess::remove( 'plugins' );
 		SPFW_Htaccess::remove( 'uploads' );
+
+		// Clear the scheduled database optimization cron event.
+		wp_clear_scheduled_hook( 'spfw_database_optimization' );
 	}
 }

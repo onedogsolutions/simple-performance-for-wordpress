@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.1.0
+Stable tag: 2.2.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.2.0 =
+* Added: Database cleanup and optimization tool. Scan and clean post revisions, auto-drafts, trashed posts, spam comments, trashed comments, expired transients, all transients, and fragmented tables. Optional WP-Cron scheduling (daily, weekly, or monthly). All cleanup targets are individually toggleable, with a scan-before-clean workflow and per-target deletion counts.
 
 = 2.1.0 =
 * Changed: CSP violation collection now runs in a time-boxed window instead of permanently. Previously `report-uri` was attached to every front-end response for as long as CSP was enabled, so every visitor's browser POSTed a violation report on every page view — an uncacheable full WordPress page load each time. On a busy site that made the report endpoint the single most-requested URL on the site. Open a window from the Hardening tab when you want to collect, work through the list, and it closes itself.

@@ -14,13 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-<<<<<<< HEAD
-- **Plugin version target:** 2.1.0
-- **Last updated:** 2026-08-14
-=======
-- **Plugin version target:** 2.0.3
+- **Plugin version target:** 2.2.0
 - **Last updated:** 2026-08-16
->>>>>>> ee78ffc (feat(option-cleaner): port option and capability cleaner modules with UI and REST API)
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -69,7 +64,9 @@ the authoritative record.)
   ordering, PHPUnit regression test, AllowOverride FAQ, 2.0.1); ✅ Option
   Cleaner & Ghost Capability Cleaner ported (orphaned wp_options scanner,
   ghost capability stripper, on-demand REST endpoints, dedicated React tab,
-  simple-performance/v1 namespace)
+  simple-performance/v1 namespace); ✅ Database cleanup & optimization
+  module (scan/optimize revisions, drafts, trashed content, spam, transients,
+  table fragmentation, WP-Cron scheduling, 2.2.0)
 
 ## Shared project facts (true for every step)
 
@@ -112,6 +109,7 @@ the authoritative record.)
 | 9 | Uninstall cleanup | ✅ Done | 92afbf5 |
 | 10 | Quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
 | 11 | Option Cleaner & Ghost Capability Cleaner | ✅ Done | (this commit) |
+| 12 | Database Cleanup & Optimization Module | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
@@ -1360,6 +1358,25 @@ follow-ups deferred. Keep entries dated and terse.
   search, ghost-capability scan, select-all/delete, and inline status
   feedback; registered as the "Option Cleaner" tab in `App.jsx`.
   **Verified:** `php -l` clean on all 4 PHP files.
+
+### Step 12 — Database Cleanup & Optimization Module ✅
+`includes/modules/class-spfw-module-database.php` (`SPFW_Module_Database`).
+Eight cleanup targets: post revisions, auto-drafts, trashed posts, spam
+comments, trashed comments, expired transients, all transients, table
+optimization. Scan returns counts per target; optimize runs batched
+(500 rows/iteration) cleanup using WordPress APIs (`wp_delete_post_revision`,
+`wp_delete_post`, `wp_delete_comment`, `delete_transient`,
+`delete_site_transient`, `OPTIMIZE TABLE`). Optional WP-Cron scheduling
+(daily/weekly/monthly) registered via `cron_schedules` filter;
+schedule changes clear and re-register the event. Deactivation clears the
+cron hook. REST routes added to `SPFW_Rest_Settings`:
+`GET /spfw/v1/settings/database-scan` and
+`POST /spfw/v1/settings/database-optimize`. Settings group `database`
+added to `SPFW_Settings` with boolean target toggles and whitelisted
+schedule value. React UI (`DatabaseSettings.jsx`) renders inside the
+Option Cleaner tab with scan counts, per-target checkboxes, optimize
+button with result summary, and schedule dropdown.
+**Verified:** `php -l` clean on all modified PHP files.
 
 ## Open questions / blockers
 

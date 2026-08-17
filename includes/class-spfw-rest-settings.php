@@ -164,6 +164,28 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		// Database scan: count items matching each cleanup target.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/database-scan',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'database_scan' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
+
+		// Database optimize: run cleanup on the requested targets.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/database-optimize',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'database_optimize' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -1084,6 +1106,60 @@ class SPFW_Rest_Settings {
 				'urls'       => $urls,
 				'errors'     => $errors,
 				'last_scan'  => time(),
+			),
+			200
+		);
+	}
+
+	/**
+	 * GET callback: scan the database and return counts for each
+	 * cleanup target.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function database_scan() {
+		$module = new SPFW_Module_Database();
+		$counts = $module->scan();
+
+		return new WP_REST_Response(
+			array(
+				'counts' => $counts,
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST callback: run database cleanup on the requested targets and
+	 * return per-target deletion counts.
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function database_optimize( $request ) {
+		$params  = $request->get_json_params();
+		$targets = is_array( $params ) && isset( $params['targets'] ) && is_array( $params['targets'] )
+			? $params['targets']
+			: array();
+
+		// Validate targets against the known whitelist.
+		$targets = array_intersect( $targets, SPFW_Module_Database::TARGETS );
+
+		if ( empty( $targets ) ) {
+			return new WP_Error(
+				'spfw_no_targets',
+				__( 'No valid cleanup targets selected.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$module  = new SPFW_Module_Database();
+		$results = $module->optimize( $targets );
+
+		return new WP_REST_Response(
+			array(
+				'results' => $results,
+				'labels'  => SPFW_Module_Database::get_target_labels(),
 			),
 			200
 		);

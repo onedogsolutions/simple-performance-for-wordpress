@@ -606,7 +606,14 @@ export default function App() {
 								/>
 							),
 						} ),
-						optioncleaner: <OptionCleanerSettings />,
+						optioncleaner: (
+							<OptionCleanerSettings
+								settings={ settings }
+								onChange={ ( key, value ) =>
+									handleChange( 'database', key, value )
+								}
+							/>
+						),
 					} }
 				</SettingsTabs>
 
