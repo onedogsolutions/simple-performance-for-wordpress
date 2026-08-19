@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,14 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.4.0 =
+* Added: PHP execution whitelist for directory hardening. When the plugins/ or uploads/ .htaccess deny rules are active, specific wp-content-relative paths (e.g. plugins/shortpixel-ai/shortpixel-ai.php) can be allowed through via RewriteRule allow-then-deny directives. Chip-based add/remove UI with a "Pre-fill common plugin paths" convenience action, mirroring the CSP builder UX. Whitelist paths are sanitized against traversal, restricted to plugins/ and uploads/ prefixes, and capped at 50 entries (20 per .htaccess file).
+* Added: File integrity monitor. Optional twice-daily WP-Cron scan of wp-content/plugins and wp-content/uploads for new, modified, or removed PHP files (sha256 snapshot comparison). Sends a consolidated email alert listing all changes, flagging entries not on the whitelist; rate-limited to one alert per hour. Alert recipient falls back to the site admin email.
+* Added: "Scan now" on-demand file scan (POST /spfw/v1/settings/scan-files) with a results panel showing added/modified/removed files, highlighting non-whitelisted entries.
+* Added: Hardening .htaccess files are automatically rewritten when the PHP whitelist changes while a directory-hardening toggle is enabled.
+* Changed: Settings export/import now excludes file-monitor snapshot and last-scan timestamp (site-specific volatile data).
+* Changed: "Locked Down" preset now enables the file integrity monitor.
 
 = 2.3.0 =
 * Fixed: CSP violation reports for legitimate third-party origins (Microsoft Clarity, Google Maps, Google Analytics, Facebook Pixel) were silently dropped because `origin_already_allowed()` used only exact-match. It now recognises scheme-sources (`https:`, `wss:`), normalises host tokens with and without a scheme, handles wildcard subdomain tokens (`*.example.com`), and falls back to `default-src` when the violated directive has no explicit tokens.

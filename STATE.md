@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.2.0
-- **Last updated:** 2026-08-16
+- **Plugin version target:** 2.4.0
+- **Last updated:** 2026-08-19
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -66,7 +66,13 @@ the authoritative record.)
   ghost capability stripper, on-demand REST endpoints, dedicated React tab,
   simple-performance/v1 namespace); ✅ Database cleanup & optimization
   module (scan/optimize revisions, drafts, trashed content, spam, transients,
-  table fragmentation, WP-Cron scheduling, 2.2.0)
+  table fragmentation, WP-Cron scheduling, 2.2.0); ✅ CSP reporting
+  diagnostics & origin-allowlist normalization (report-uri CORS fix,
+  connect-src port handling, diagnostics panel, emitted-policy preview,
+  Permissions-Policy allowlists, 2.3.0); ✅ PHP execution whitelist +
+  file integrity monitor (whitelist-aware .htaccess RewriteRule payloads,
+  sha256 snapshot scanner, twice-daily cron, email alerts, on-demand scan
+  endpoint, CSP-style whitelist UI card, 2.4.0)
 
 ## Shared project facts (true for every step)
 
@@ -115,20 +121,17 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.0.0 (Phase E — CSP script-src tightening) is the current release,
-implemented on `main`.** The full Speed & Hardening Gap-Closure Plan is
-now complete. Phase E shipped: CSP script-src tightening via sha256 hash
-sources (compatible with full-page caching, unlike nonces); inline script
-scanner (homepage + recent post + recent page); 'strict-dynamic' for
-trust propagation; advanced opt-in UI with clear documentation of the
-re-scan obligation and strict-dynamic semantics.
-
-Remaining before release is manual QA on a live WordPress + OpenLiteSpeed
-site — confirm: scan collects hashes from all three URLs; tightening
-replaces 'unsafe-inline' with hashes + 'strict-dynamic'; violation
-collector shows any missed scripts in Report-Only mode; re-scan after a
-plugin change updates the hash list. All five phases (A–E) of the
-gap-closure plan are now implemented.
+**2.4.0 (PHP execution whitelist + file integrity monitor) is built and
+packaged for QA on a live WordPress install.** Remaining before release is
+manual testing on a WordPress + OpenLiteSpeed site — confirm: enabling a
+directory-hardening toggle with a whitelist entry emits the RewriteRule
+allow-then-deny `.htaccess` payload and the whitelisted file still executes
+while other PHP files are denied; empty whitelist reproduces the original
+blanket-deny payload exactly; adding/removing whitelist entries rewrites the
+`.htaccess` files; toggling the file monitor schedules/clears the
+twice-daily cron; "Scan now" reports added/modified/removed files correctly
+across consecutive scans; the alert email fires once per hour maximum and
+flags non-whitelisted entries; the "Locked Down" preset enables the monitor.
 
 ---
 
@@ -342,6 +345,56 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-08-19 (PHP execution whitelist + file integrity monitor, → 2.4.0):
+  legitimate tools (ShortPixel and similar image optimizers/backup plugins)
+  execute PHP from inside `wp-content/plugins/` and `wp-content/uploads/`,
+  which the directory-hardening `.htaccess` blanket-deny breaks. Added a
+  whitelist plus a file-integrity monitor to detect unexpected PHP files.
+  **Backend:** `class-spfw-settings.php` — five new `hardening` keys
+  (`php_whitelist`, `file_monitor_enabled`, `file_monitor_email`,
+  `file_monitor_snapshot`, `file_monitor_last_scan`) with
+  `sanitize_php_whitelist()` (traversal rejection, `plugins/`|`uploads/`
+  prefix restriction, PHP-extension requirement, 50-entry cap); Locked Down
+  preset now enables the monitor. `class-spfw-htaccess.php` —
+  `payload_deny_php_for_target( $target )` filters the whitelist to the
+  target directory (20-entry cap) and, when non-empty, emits
+  `RewriteEngine On` + `RewriteCond %{REQUEST_URI}` allow-then-deny rules
+  (`[OR]`-chained, last condition without `[OR]`) ahead of the FilesMatch
+  deny block; URI prefix derived from `home_url()` path so subdirectory
+  installs work; empty whitelist reproduces the exact prior blanket-deny
+  payload (hash-stable). `class-spfw-module-hardening.php` —
+  `scan_wp_content()` builds a `{relative_path: sha256}` map of
+  plugins/ + uploads/ and diffs against the stored snapshot
+  (added/modified/removed); `maybe_send_file_alert()` sends one
+  consolidated `wp_mail()` grouped by change type with `[NOT ON WHITELIST]`
+  flags, rate-limited to 1/hour via the `spfw_file_monitor_cooldown`
+  transient; `run_file_monitor_scan()` is the twice-daily cron callback
+  (`spfw_file_monitor_scan`); `handle_settings_change()` now rewrites both
+  `.htaccess` targets when `php_whitelist` changes while enabled, and
+  schedules/clears the cron when the monitor toggle flips.
+  `class-spfw-rest-settings.php` — `POST /spfw/v1/settings/scan-files`
+  endpoint; GET response gains `file_monitor_last_scan`,
+  `file_monitor_snapshot_count`, and `admin_email`; export/import exclude
+  the snapshot + last-scan keys as volatile. **Frontend:** new
+  `PhpWhitelistCard.jsx` (chip add/remove UI mirroring the CSP builder,
+  "Pre-fill common plugin paths" with confirm step, monitor toggle/email,
+  scan status, "Scan now", results panel with amber highlighting for
+  non-whitelisted entries) rendered between Directory Hardening and Root
+  .htaccess Rules in `HardeningSettings.jsx`; `App.jsx` gains
+  `handleScanFiles`. **Verified:** `php -l` clean on all four PHP files;
+  `npm run build` succeeds (webpack 5.108.4, no errors).
+
+- 2026-08-19 (retroactive — CSP reporting diagnostics, → 2.3.0): 2.3.0
+  shipped without a STATE.md entry (commit 24fb734). It fixed
+  `origin_already_allowed()` to recognise scheme-sources, normalise
+  host tokens, handle wildcard subdomains, and fall back to `default-src`;
+  added report-uri CORS headers + OPTIONS preflight; fixed
+  `ensure_connect_src_allows()` for non-default ports; and added the admin
+  diagnostics panel, emitted-policy preview, per-minute rate-limit selector,
+  bulk "Allow all reported origins", "Pre-fill common third-party origins",
+  and per-feature Permissions-Policy allowlists. Full detail lives in the
+  readme.txt 2.3.0 changelog.
 
 - 2026-08-14 (CSP violation collection rework, → 2.1.0, branch
   `claude/plugin-report-errors-a6pq5k`): user reported that on a

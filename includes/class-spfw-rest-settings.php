@@ -195,6 +195,18 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		// File integrity scan: on-demand scan of wp-content for PHP file
+		// changes (added / modified / removed since last snapshot).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/scan-files',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'scan_files' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -221,10 +233,16 @@ class SPFW_Rest_Settings {
 		$settings['csp_default_directives']   = SPFW_Module_Hardening::default_csp_directives();
 		$settings['csp_reports']              = self::get_csp_reports();
 		$settings['csp_report_stats']         = self::get_csp_report_stats();
+		// Admin email for the file monitor placeholder (not stored in settings).
+		$settings['admin_email']              = get_option( 'admin_email', '' );
 		// The policy string as the front-end header will actually carry it
 		// (including report-uri when collecting), so the admin can compare
 		// directly against DevTools without guessing.
 		$settings['csp_emitted_policy']       = SPFW_Module_Hardening::get_emitted_policy_preview();
+		// File monitor metadata for the Hardening tab UI.
+		$settings['file_monitor_last_scan']      = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
+		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
+		$settings['file_monitor_snapshot_count'] = is_array( $fm_snapshot ) ? count( $fm_snapshot ) : 0;
 
 		return new WP_REST_Response( $settings, 200 );
 	}
@@ -1038,6 +1056,8 @@ class SPFW_Rest_Settings {
 		unset( $settings['hardening']['htaccess_hash'] );
 		unset( $settings['hardening']['uploads_htaccess_hash'] );
 		unset( $settings['hardening']['root_htaccess_hash'] );
+		unset( $settings['hardening']['file_monitor_snapshot'] );
+		unset( $settings['hardening']['file_monitor_last_scan'] );
 		unset( $settings['fonts']['discovered'] );
 		unset( $settings['fonts']['last_scan'] );
 		unset( $settings['fonts']['needs_rescan'] );
@@ -1080,6 +1100,8 @@ class SPFW_Rest_Settings {
 		unset( $incoming['hardening']['htaccess_hash'] );
 		unset( $incoming['hardening']['uploads_htaccess_hash'] );
 		unset( $incoming['hardening']['root_htaccess_hash'] );
+		unset( $incoming['hardening']['file_monitor_snapshot'] );
+		unset( $incoming['hardening']['file_monitor_last_scan'] );
 		unset( $incoming['fonts']['discovered'] );
 		unset( $incoming['fonts']['last_scan'] );
 		unset( $incoming['fonts']['needs_rescan'] );
@@ -1297,6 +1319,24 @@ class SPFW_Rest_Settings {
 	 *
 	 * @return string[]
 	 */
+	/**
+	 * POST callback: run an on-demand file-integrity scan of wp-content and
+	 * return the diff plus updated settings.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function scan_files() {
+		$module  = new SPFW_Module_Hardening();
+		$changes = $module->scan_wp_content();
+
+		$response           = $this->get_settings();
+		$data               = $response->get_data();
+		$data['scan_result'] = $changes;
+		$response->set_data( $data );
+
+		return $response;
+	}
+
 	private function get_scan_urls() {
 		$urls = array( home_url( '/' ) );
 

@@ -130,6 +130,18 @@ class SPFW_Settings {
 				'csp_collect_until'       => 0,
 				'csp_collect_sample'      => 100,
 				'csp_rate_limit'          => 10,
+				// PHP execution whitelist: wp-content-relative paths that are
+				// allowed to execute PHP even when directory hardening is on
+				// (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Used by the
+				// .htaccess RewriteRule generator and the file monitor.
+				'php_whitelist'           => array(),
+				// File integrity monitor: periodic scan of wp-content for new,
+				// modified, or removed PHP files. Sends a consolidated email
+				// alert when changes are detected outside the whitelist.
+				'file_monitor_enabled'    => false,
+				'file_monitor_email'      => '',
+				'file_monitor_snapshot'   => array(),
+				'file_monitor_last_scan'  => 0,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -547,6 +559,26 @@ class SPFW_Settings {
 		$rate_limit                            = isset( $hardening['csp_rate_limit'] ) ? absint( $hardening['csp_rate_limit'] ) : $defaults['hardening']['csp_rate_limit'];
 		$clean['hardening']['csp_rate_limit'] = min( 60, max( 5, $rate_limit ) );
 
+		// PHP execution whitelist: paths within wp-content allowed to run PHP
+		// even when directory hardening is active.
+		$clean['hardening']['php_whitelist'] = self::sanitize_php_whitelist(
+			isset( $hardening['php_whitelist'] ) ? $hardening['php_whitelist'] : $defaults['hardening']['php_whitelist']
+		);
+
+		// File integrity monitor settings.
+		$clean['hardening']['file_monitor_enabled'] = self::to_bool( $hardening, 'file_monitor_enabled', $defaults['hardening']['file_monitor_enabled'] );
+
+		$monitor_email                               = isset( $hardening['file_monitor_email'] ) ? sanitize_email( $hardening['file_monitor_email'] ) : '';
+		$clean['hardening']['file_monitor_email']    = is_email( $monitor_email ) ? $monitor_email : '';
+
+		// Snapshot is internal-only (populated by the scanner, never user-supplied
+		// through the settings form). Pass through if present and array-shaped.
+		$clean['hardening']['file_monitor_snapshot'] = isset( $hardening['file_monitor_snapshot'] ) && is_array( $hardening['file_monitor_snapshot'] )
+			? $hardening['file_monitor_snapshot']
+			: array();
+
+		$clean['hardening']['file_monitor_last_scan'] = isset( $hardening['file_monitor_last_scan'] ) ? absint( $hardening['file_monitor_last_scan'] ) : 0;
+
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
 		$clean['fonts']['localize_google'] = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
@@ -686,6 +718,61 @@ class SPFW_Settings {
 		}
 
 		return $clean;
+	}
+
+	/**
+	 * Sanitize a list of PHP file paths allowed to execute within wp-content.
+	 * Paths are relative to WP_CONTENT_DIR (e.g. plugins/foo/bar.php).
+	 * Rejects directory traversal, normalizes separators, restricts to the
+	 * directories the hardening .htaccess actually protects, and caps the
+	 * total to prevent an unbounded whitelist.
+	 *
+	 * @param mixed $raw Array or newline-separated string of paths.
+	 * @return string[]
+	 */
+	private static function sanitize_php_whitelist( $raw ) {
+		$items = is_array( $raw ) ? $raw : preg_split( '/[\r\n]+/', (string) $raw );
+		$clean = array();
+
+		foreach ( $items as $item ) {
+			$item = trim( (string) $item );
+
+			if ( '' === $item ) {
+				continue;
+			}
+
+			// Normalize backslashes to forward slashes (Windows compatibility).
+			$item = str_replace( '\\', '/', $item );
+
+			// Strip any leading slash — paths are always relative to WP_CONTENT_DIR.
+			$item = ltrim( $item, '/' );
+
+			// Reject directory traversal attempts.
+			if ( false !== strpos( $item, '..' ) ) {
+				continue;
+			}
+
+			// Reject control characters and anything that looks like it could
+			// break out of the intended path context.
+			if ( preg_match( '/[\x00-\x1F\x7F;]/', $item ) ) {
+				continue;
+			}
+
+			// Only allow paths under the directories the hardening .htaccess
+			// actually protects. Anything else would have no effect.
+			if ( 0 !== strpos( $item, 'plugins/' ) && 0 !== strpos( $item, 'uploads/' ) ) {
+				continue;
+			}
+
+			// Must end with a PHP-executable extension that the .htaccess blocks.
+			if ( ! preg_match( '/\.(php[0-9]*|phtml|phps|phar|inc)$/i', $item ) ) {
+				continue;
+			}
+
+			$clean[] = $item;
+		}
+
+		return array_slice( array_values( array_unique( $clean ) ), 0, 50 );
 	}
 
 	/**
@@ -1077,6 +1164,7 @@ class SPFW_Settings {
 						'block_xmlrpc_file'       => true,
 						'disable_xmlrpc'          => true,
 						'security_headers'        => true,
+						'file_monitor_enabled'    => true,
 					),
 				),
 			),

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import SettingsTabs from './SettingsTabs';
@@ -50,6 +50,8 @@ export default function App() {
 	const [ activeTab, setActiveTab ] = useState( 'core' );
 	const [ presets, setPresets ] = useState( [] );
 	const [ showPresetConfirm, setShowPresetConfirm ] = useState( null );
+	const [ fileScanResults, setFileScanResults ] = useState( null );
+	const [ isScanning, setIsScanning ] = useState( false );
 	const fileInputRef = useRef( null );
 
 	useEffect( () => {
@@ -227,6 +229,55 @@ export default function App() {
 					err.message ||
 						__(
 							'Font scan failed.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
+	};
+
+	const handleScanFiles = () => {
+		setIsScanning( true );
+
+		apiFetch( {
+			path: '/spfw/v1/settings/scan-files',
+			method: 'POST',
+		} )
+			.then( ( data ) => {
+				setSettings( data );
+				setFileScanResults( data.scan_result || null );
+				setIsScanning( false );
+
+				const total =
+					( data.scan_result &&
+						data.scan_result.added.length +
+							data.scan_result.modified.length +
+							data.scan_result.removed.length ) ||
+					0;
+
+				showToast(
+					total > 0
+						? sprintf(
+								/* translators: %d: number of changes detected */
+								__(
+									'Scan complete. %d change(s) detected.',
+									'simple-performance-for-wordpress'
+								),
+								total
+						  )
+						: __(
+								'Scan complete. No changes detected.',
+								'simple-performance-for-wordpress'
+						  ),
+					total > 0 ? 'info' : 'success'
+				);
+			} )
+			.catch( ( err ) => {
+				setIsScanning( false );
+				showToast(
+					err.message ||
+						__(
+							'File scan failed.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -581,6 +632,9 @@ export default function App() {
 								onClearCspReports={ handleClearCspReports }
 								onDismissCspReport={ handleDismissCspReport }
 								onSetCspCollection={ handleSetCspCollection }
+								fileScanResults={ fileScanResults }
+								onScanFiles={ handleScanFiles }
+								isScanning={ isScanning }
 							/>
 						),
 						fonts: (

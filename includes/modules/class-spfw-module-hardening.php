@@ -49,6 +49,28 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
+	 * Cron hook name for the periodic file-integrity scan.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
+
+	/**
+	 * Transient key for the file-monitor rate-limit cooldown (one alert
+	 * email per hour maximum).
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_COOLDOWN = 'spfw_file_monitor_cooldown';
+
+	/**
+	 * PHP file extensions the monitor scans for (same set the .htaccess blocks).
+	 *
+	 * @var string[]
+	 */
+	const MONITOR_EXTENSIONS = array( 'php', 'php5', 'php7', 'php8', 'phtml', 'phps', 'phar', 'inc' );
+
+	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
 	 * that writes/removes the .htaccess files when a toggle flips, and the
 	 * runtime hardening behaviors for the currently enabled toggles.
@@ -125,6 +147,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
 			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
 		}
+
+		// File integrity monitor: schedule the twice-daily scan when enabled.
+		// The cron callback scans wp-content for PHP file changes and sends
+		// an email alert when non-whitelisted files appear or change.
+		if ( ! empty( $h['file_monitor_enabled'] ) ) {
+			if ( ! wp_next_scheduled( self::FILE_MONITOR_CRON ) ) {
+				wp_schedule_event( time(), 'twicedaily', self::FILE_MONITOR_CRON );
+			}
+			add_action( self::FILE_MONITOR_CRON, array( $this, 'run_file_monitor_scan' ) );
+		}
 	}
 
 	/**
@@ -185,6 +217,31 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			} elseif ( $was_on && ! $is_on ) {
 				SPFW_Htaccess::remove( $target );
 			}
+		}
+
+		// Rewrite .htaccess when the PHP whitelist changes so any
+		// RewriteRule allow-then-deny directives stay in sync.
+		$old_whitelist = isset( $old_value['hardening']['php_whitelist'] ) ? (array) $old_value['hardening']['php_whitelist'] : array();
+		$new_whitelist = isset( $new_value['hardening']['php_whitelist'] ) ? (array) $new_value['hardening']['php_whitelist'] : array();
+
+		if ( $old_whitelist !== $new_whitelist ) {
+			foreach ( self::HTACCESS_TARGETS as $target => $toggle ) {
+				if ( ! empty( $new_value['hardening'][ $toggle ] ) ) {
+					SPFW_Htaccess::write( $target );
+				}
+			}
+		}
+
+		// File monitor cron: schedule or clear when the toggle flips.
+		$was_monitoring = ! empty( $old_value['hardening']['file_monitor_enabled'] );
+		$is_monitoring  = ! empty( $new_value['hardening']['file_monitor_enabled'] );
+
+		if ( $is_monitoring && ! $was_monitoring ) {
+			if ( ! wp_next_scheduled( self::FILE_MONITOR_CRON ) ) {
+				wp_schedule_event( time(), 'twicedaily', self::FILE_MONITOR_CRON );
+			}
+		} elseif ( $was_monitoring && ! $is_monitoring ) {
+			wp_clear_scheduled_hook( self::FILE_MONITOR_CRON );
 		}
 
 		// Root .htaccess: composed from two toggles.
@@ -995,5 +1052,180 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		unset( $headers['X-Pingback'] );
 
 		return $headers;
+	}
+
+	/**
+	 * Scan wp-content/plugins/ and wp-content/uploads/ for PHP files and
+	 * compare against the stored snapshot. Returns the diff (added, modified,
+	 * removed) and persists the new snapshot + timestamp.
+	 *
+	 * @return array{added:string[],modified:string[],removed:string[],snapshot_time:int}
+	 */
+	public function scan_wp_content() {
+		$dirs = array();
+
+		if ( is_dir( WP_CONTENT_DIR . '/plugins' ) ) {
+			$dirs['plugins'] = WP_CONTENT_DIR . '/plugins';
+		}
+
+		$uploads = wp_upload_dir();
+
+		if ( isset( $uploads['basedir'] ) && is_dir( $uploads['basedir'] ) ) {
+			$dirs['uploads'] = $uploads['basedir'];
+		}
+
+		$snapshot    = array();
+		$extensions  = self::MONITOR_EXTENSIONS;
+		$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', $extensions ) ) . ')$/i';
+
+		foreach ( $dirs as $prefix => $base_dir ) {
+			$iterator = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $base_dir, RecursiveDirectoryIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::SELF_FIRST
+			);
+
+			foreach ( $iterator as $file ) {
+				if ( ! $file->isFile() ) {
+					continue;
+				}
+
+				$filename = $file->getFilename();
+
+				if ( ! preg_match( $ext_pattern, $filename ) ) {
+					continue;
+				}
+
+				$full_path   = $file->getPathname();
+				$relative    = $prefix . '/' . ltrim( substr( $full_path, strlen( $base_dir ) ), '/\\' );
+				$hash        = hash_file( 'sha256', $full_path );
+				$snapshot[ $relative ] = $hash;
+			}
+		}
+
+		// Compare against the stored snapshot.
+		$old_snapshot = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
+		$old_snapshot = is_array( $old_snapshot ) ? $old_snapshot : array();
+
+		$added    = array_diff( array_keys( $snapshot ), array_keys( $old_snapshot ) );
+		$removed  = array_diff( array_keys( $old_snapshot ), array_keys( $snapshot ) );
+		$modified = array();
+
+		foreach ( $snapshot as $path => $hash ) {
+			if ( isset( $old_snapshot[ $path ] ) && $old_snapshot[ $path ] !== $hash ) {
+				$modified[] = $path;
+			}
+		}
+
+		$now = time();
+
+		// Persist the new snapshot and scan timestamp.
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'file_monitor_snapshot'  => $snapshot,
+					'file_monitor_last_scan' => $now,
+				),
+			)
+		);
+
+		return array(
+			'added'         => array_values( $added ),
+			'modified'      => array_values( $modified ),
+			'removed'       => array_values( $removed ),
+			'snapshot_time' => $now,
+		);
+	}
+
+	/**
+	 * Send a consolidated email alert when file changes are detected. Flags
+	 * non-whitelisted additions and modifications. Rate-limits to one alert
+	 * per hour via a transient.
+	 *
+	 * @param array $changes Diff array from scan_wp_content().
+	 */
+	public function maybe_send_file_alert( $changes ) {
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( empty( $h['file_monitor_enabled'] ) ) {
+			return;
+		}
+
+		$total = count( $changes['added'] ) + count( $changes['modified'] ) + count( $changes['removed'] );
+
+		if ( 0 === $total ) {
+			return;
+		}
+
+		// Rate-limit: one alert per hour.
+		if ( get_transient( self::FILE_MONITOR_COOLDOWN ) ) {
+			return;
+		}
+
+		$email = ! empty( $h['file_monitor_email'] ) ? $h['file_monitor_email'] : get_option( 'admin_email' );
+
+		if ( ! is_email( $email ) ) {
+			return;
+		}
+
+		$whitelist  = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
+		$site_name  = wp_specialchars_decode( get_option( 'blogname' ), ENT_QUOTES );
+		$subject    = sprintf(
+			/* translators: %s: site name */
+			__( '[%s] File integrity alert', 'simple-performance-for-wordpress' ),
+			$site_name
+		);
+
+		$body  = sprintf(
+			/* translators: %s: site name */
+			__( "File integrity scan detected changes on %s:\n\n", 'simple-performance-for-wordpress' ),
+			$site_name
+		);
+
+		if ( ! empty( $changes['added'] ) ) {
+			$body .= __( "NEW FILES:\n", 'simple-performance-for-wordpress' );
+
+			foreach ( $changes['added'] as $path ) {
+				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
+				$body .= "  + {$path}{$flag}\n";
+			}
+
+			$body .= "\n";
+		}
+
+		if ( ! empty( $changes['modified'] ) ) {
+			$body .= __( "MODIFIED FILES:\n", 'simple-performance-for-wordpress' );
+
+			foreach ( $changes['modified'] as $path ) {
+				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
+				$body .= "  ~ {$path}{$flag}\n";
+			}
+
+			$body .= "\n";
+		}
+
+		if ( ! empty( $changes['removed'] ) ) {
+			$body .= __( "REMOVED FILES:\n", 'simple-performance-for-wordpress' );
+
+			foreach ( $changes['removed'] as $path ) {
+				$body .= "  - {$path}\n";
+			}
+
+			$body .= "\n";
+		}
+
+		$body .= __( "Review these files immediately if the changes were not expected.\n", 'simple-performance-for-wordpress' );
+
+		wp_mail( $email, $subject, $body );
+
+		set_transient( self::FILE_MONITOR_COOLDOWN, 1, HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Cron callback: run the file-integrity scan and send an alert email
+	 * when changes are detected.
+	 */
+	public function run_file_monitor_scan() {
+		$changes = $this->scan_wp_content();
+		$this->maybe_send_file_alert( $changes );
 	}
 }

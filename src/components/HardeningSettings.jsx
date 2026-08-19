@@ -4,6 +4,7 @@ import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
 import CspPolicyCard from './CspPolicyCard';
+import PhpWhitelistCard from './PhpWhitelistCard';
 
 const STATUS_STYLES = {
 	ok: {
@@ -228,8 +229,12 @@ export default function HardeningSettings( {
 	onClearCspReports,
 	onDismissCspReport,
 	onSetCspCollection,
+	fileScanResults,
+	onScanFiles,
+	isScanning,
 } ) {
 	const hardening = settings.hardening || {};
+	const adminEmail = settings.admin_email || '';
 
 	return (
 		<div className="space-y-6">
@@ -289,6 +294,15 @@ export default function HardeningSettings( {
 					) }
 				</SettingsRow>
 			</SettingsCard>
+
+			<PhpWhitelistCard
+				hardening={ hardening }
+				onChange={ onChange }
+				fileScanResults={ fileScanResults }
+				onScanFiles={ onScanFiles }
+				isScanning={ isScanning }
+				adminEmail={ adminEmail }
+			/>
 
 			<SettingsCard
 				title={ __(
