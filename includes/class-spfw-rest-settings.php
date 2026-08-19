@@ -68,13 +68,22 @@ class SPFW_Rest_Settings {
 		// browsers send violation reports unauthenticated — but its callback
 		// stores nothing unless CSP is enabled, so the endpoint is effectively
 		// closed whenever CSP is off. GET/DELETE are admin-only (view / clear
-		// the collected log).
+		// the collected log). OPTIONS is registered explicitly so CORS
+		// preflights (which arrive when a CDN rewrites the report URI to a
+		// different origin) are answered before WordPress can 404 them.
 		register_rest_route(
 			self::NAMESPACE_,
 			'/csp-report',
 			array(
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'receive_csp_report' ),
+					'permission_callback' => '__return_true',
+				),
+				array(
+					// CORS preflight. The callback emits the right headers and
+					// returns 204; the real payload arrives as a POST.
+					'methods'             => 'OPTIONS',
 					'callback'            => array( $this, 'receive_csp_report' ),
 					'permission_callback' => '__return_true',
 				),
@@ -212,6 +221,10 @@ class SPFW_Rest_Settings {
 		$settings['csp_default_directives']   = SPFW_Module_Hardening::default_csp_directives();
 		$settings['csp_reports']              = self::get_csp_reports();
 		$settings['csp_report_stats']         = self::get_csp_report_stats();
+		// The policy string as the front-end header will actually carry it
+		// (including report-uri when collecting), so the admin can compare
+		// directly against DevTools without guessing.
+		$settings['csp_emitted_policy']       = SPFW_Module_Hardening::get_emitted_policy_preview();
 
 		return new WP_REST_Response( $settings, 200 );
 	}
@@ -293,7 +306,7 @@ class SPFW_Rest_Settings {
 	 * Transient key and limits for the collected violation log.
 	 */
 	const CSP_REPORTS_KEY = 'spfw_csp_reports';
-	const CSP_REPORTS_MAX = 50;
+	const CSP_REPORTS_MAX = 100;
 	const CSP_REPORTS_TTL = 604800; // 7 days.
 
 	/**
@@ -318,14 +331,14 @@ class SPFW_Rest_Settings {
 	const CSP_WRITE_INTERVAL = 5;
 
 	/**
-	 * Ceiling on how many *new* (directive, origin) pairs may enter the log per
-	 * minute. The endpoint is unauthenticated by necessity — browsers cannot
-	 * authenticate a violation report — so without this an anonymous flood of
-	 * invented origins evicts the entire real log (50 slots) in one burst and
-	 * replaces it with attacker-chosen entries that the admin is then invited
-	 * to one-click into their own policy.
+	 * Default ceiling on how many *new* (directive, origin) pairs may enter the
+	 * log per minute. The endpoint is unauthenticated by necessity — browsers
+	 * cannot authenticate a violation report — so without this an anonymous
+	 * flood of invented origins evicts the entire real log in one burst and
+	 * replaces it with attacker-chosen entries. Admins on tracker-heavy sites
+	 * may raise this via the `csp_rate_limit` setting (capped at 60).
 	 */
-	const CSP_NEW_PER_MINUTE = 5;
+	const CSP_NEW_PER_MINUTE_DEFAULT = 10;
 
 	/**
 	 * Object-cache key used to serialize read-modify-write of the log.
@@ -362,6 +375,23 @@ class SPFW_Rest_Settings {
 			header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
 			header( 'Pragma: no-cache' );
 			header( 'X-Robots-Tag: noindex, noarchive' );
+
+			// CORS: browsers will make a cross-origin POST when a CDN or proxy
+			// rewrites the report URI to a different origin than the page. Without
+			// this header the preflight or POST itself is blocked and reports are
+			// silently dropped.
+			$origin = isset( $_SERVER['HTTP_ORIGIN'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_ORIGIN'] ) ) : '';
+			if ( '' !== $origin ) {
+				header( 'Access-Control-Allow-Origin: ' . $origin );
+				header( 'Access-Control-Allow-Methods: POST, OPTIONS' );
+				header( 'Access-Control-Allow-Headers: Content-Type' );
+				header( 'Vary: Origin' );
+			}
+		}
+
+		// Respond to CORS preflight immediately.
+		if ( isset( $_SERVER['REQUEST_METHOD'] ) && 'OPTIONS' === strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) ) ) {
+			return new WP_REST_Response( null, 204 );
 		}
 
 		$h = SPFW_Settings::group( 'hardening' );
@@ -501,8 +531,8 @@ class SPFW_Rest_Settings {
 	 * Collection state for the admin card: enough to tell "collection is off"
 	 * from "collection is on but nothing is arriving" without guessing.
 	 *
-	 * Everything here is derived from data the ingest path already persists, so
-	 * reporting it costs no extra writes.
+	 * Returns extra diagnostic fields so the admin can see exactly why reports
+	 * may not be arriving (wrong report URI, sampling too low, log full, etc.).
 	 *
 	 * @return array
 	 */
@@ -515,15 +545,28 @@ class SPFW_Rest_Settings {
 			$recorded += isset( $entry['count'] ) ? (int) $entry['count'] : 0;
 		}
 
+		$last_write = (int) $store['meta']['last_write'];
+		$now        = time();
+
+		// Build the report_uri the same way add_csp_header() does so the admin
+		// can compare it to the header value shown in DevTools.
+		$report_uri = SPFW_Module_Hardening::collection_open( $h )
+			? SPFW_Module_Hardening::csp_report_url_public()
+			: '';
+
 		return array(
-			'collecting'    => SPFW_Module_Hardening::collection_open( $h ),
-			'collect_until' => isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0,
-			'now'           => time(),
-			'entries'       => count( $store['items'] ),
-			'recorded'      => $recorded,
-			'last_report'   => (int) $store['meta']['last_write'],
-			'dropped'       => (int) $store['meta']['dropped'],
-			'full'          => count( $store['items'] ) >= self::CSP_REPORTS_MAX,
+			'collecting'       => SPFW_Module_Hardening::collection_open( $h ),
+			'collect_until'    => isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0,
+			'now'              => $now,
+			'entries'          => count( $store['items'] ),
+			'recorded'         => $recorded,
+			'last_report'      => $last_write,
+			'last_report_age'  => $last_write > 0 ? max( 0, $now - $last_write ) : -1,
+			'dropped'          => (int) $store['meta']['dropped'],
+			'full'             => count( $store['items'] ) >= self::CSP_REPORTS_MAX,
+			'report_uri'       => $report_uri,
+			'sampling'         => isset( $h['csp_collect_sample'] ) ? (int) $h['csp_collect_sample'] : 100,
+			'rate_limit'       => isset( $h['csp_rate_limit'] ) ? (int) $h['csp_rate_limit'] : self::CSP_NEW_PER_MINUTE_DEFAULT,
 		);
 	}
 
@@ -724,8 +767,10 @@ class SPFW_Rest_Settings {
 			}
 
 			// Bound how fast unauthenticated input can introduce new entries,
-			// so a flood of invented origins cannot evict the real log.
-			if ( $meta['new_keys'] >= self::CSP_NEW_PER_MINUTE ) {
+			// so a flood of invented origins cannot evict the real log. The admin
+			// may raise the ceiling for tracker-heavy sites via csp_rate_limit.
+			$rate_limit = isset( $h['csp_rate_limit'] ) ? (int) $h['csp_rate_limit'] : self::CSP_NEW_PER_MINUTE_DEFAULT;
+			if ( $meta['new_keys'] >= $rate_limit ) {
 				++$meta['dropped'];
 				continue;
 			}
@@ -817,9 +862,19 @@ class SPFW_Rest_Settings {
 	 * map to consult, and parsing the hand-written string on every report would
 	 * put real work back on the public path we are trying to keep cheap.
 	 *
+	 * Checks are performed in this order:
+	 *  1. Keyword token mapping (inline → 'unsafe-inline', etc.).
+	 *  2. Exact match against stored tokens.
+	 *  3. Scheme-source coverage (https:, wss:, data:, blob: cover any matching
+	 *     origin with that scheme).
+	 *  4. Host-token normalization — https://example.com stored token covers a
+	 *     reported origin of https://example.com, and a bare example.com token
+	 *     covers the same.
+	 *  5. Fallback to default-src when the directive has no explicit tokens.
+	 *
 	 * @param array  $h         Hardening settings group.
 	 * @param string $directive Normalized directive name.
-	 * @param string $origin    Blocked origin or keyword.
+	 * @param string $origin    Blocked origin or keyword (scheme://host or bare word).
 	 * @return bool
 	 */
 	private static function origin_already_allowed( array $h, $directive, $origin ) {
@@ -827,19 +882,89 @@ class SPFW_Rest_Settings {
 			return false;
 		}
 
-		$directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
-		$tokens     = isset( $directives[ $directive ] ) && is_array( $directives[ $directive ] ) ? $directives[ $directive ] : array();
+		$all_directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
 
-		if ( empty( $tokens ) ) {
+		// Collect the token lists to check: the specific directive first, then
+		// fall back to default-src if the directive has no explicit tokens.
+		$candidates = array();
+
+		if ( isset( $all_directives[ $directive ] ) && is_array( $all_directives[ $directive ] ) && ! empty( $all_directives[ $directive ] ) ) {
+			$candidates[] = $all_directives[ $directive ];
+		} elseif ( isset( $all_directives['default-src'] ) && is_array( $all_directives['default-src'] ) ) {
+			// No explicit directive — browsers fall back to default-src.
+			$candidates[] = $all_directives['default-src'];
+		}
+
+		if ( empty( $candidates ) ) {
 			return false;
 		}
 
-		if ( in_array( $origin, $tokens, true ) ) {
-			return true;
+		// Keyword mapping (inline, eval, data, blob, …).
+		if ( isset( self::KEYWORD_TOKENS[ $origin ] ) ) {
+			$keyword_token = self::KEYWORD_TOKENS[ $origin ];
+			foreach ( $candidates as $tokens ) {
+				if ( in_array( $keyword_token, $tokens, true ) ) {
+					return true;
+				}
+			}
+			return false;
 		}
 
-		return isset( self::KEYWORD_TOKENS[ $origin ] )
-			&& in_array( self::KEYWORD_TOKENS[ $origin ], $tokens, true );
+		// Determine scheme from the reported origin so we can test scheme-sources.
+		$origin_parts  = wp_parse_url( $origin );
+		$origin_scheme = isset( $origin_parts['scheme'] ) ? strtolower( $origin_parts['scheme'] ) : '';
+		$origin_host   = isset( $origin_parts['host'] ) ? strtolower( $origin_parts['host'] ) : strtolower( $origin );
+
+		foreach ( $candidates as $tokens ) {
+			foreach ( $tokens as $token ) {
+				$token = (string) $token;
+
+				// Exact match.
+				if ( $token === $origin ) {
+					return true;
+				}
+
+				// Scheme-source: https:, wss:, data:, blob: etc. cover any origin
+				// whose scheme matches.
+				if ( preg_match( '#^[a-z][a-z0-9+.-]*:$#', $token ) && '' !== $origin_scheme ) {
+					if ( rtrim( $token, ':' ) === $origin_scheme ) {
+						return true;
+					}
+				}
+
+				// Host-source normalization: both stored token and reported origin may
+				// or may not include a scheme. Normalize both to bare host for
+				// comparison.
+				if ( '' !== $origin_host ) {
+					$token_parts = wp_parse_url( $token );
+					$token_host  = isset( $token_parts['host'] ) ? strtolower( $token_parts['host'] ) : '';
+
+					if ( '' === $token_host ) {
+						// Token has no recognized URL structure — treat as a bare
+						// host or wildcard pattern (strip leading *.).
+						$token_host = strtolower( ltrim( $token, '*.' ) );
+					}
+
+					if ( '' !== $token_host ) {
+						// Exact bare-host match.
+						if ( $token_host === $origin_host ) {
+							return true;
+						}
+
+						// Wildcard subdomain: *.example.com covers sub.example.com.
+						if ( 0 === strpos( $token, '*.' ) ) {
+							$wildcard_base = ltrim( $token_host, '*.' );
+							if ( $origin_host === $wildcard_base ||
+								substr( $origin_host, -( strlen( $wildcard_base ) + 1 ) ) === '.' . $wildcard_base ) {
+								return true;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

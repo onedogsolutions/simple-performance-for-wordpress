@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,23 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.3.0 =
+* Fixed: CSP violation reports for legitimate third-party origins (Microsoft Clarity, Google Maps, Google Analytics, Facebook Pixel) were silently dropped because `origin_already_allowed()` used only exact-match. It now recognises scheme-sources (`https:`, `wss:`), normalises host tokens with and without a scheme, handles wildcard subdomain tokens (`*.example.com`), and falls back to `default-src` when the violated directive has no explicit tokens.
+* Fixed: The `report-uri` CORS headers were missing, so browsers on CDN-rewritten origins could not POST reports. The endpoint now reflects the request `Origin` and responds to OPTIONS preflight requests.
+* Fixed: `ensure_connect_src_allows()` now also injects the report endpoint into `connect-src` when the endpoint uses a non-default port, preventing the report request itself from being blocked.
+* Added: Admin diagnostics panel in the Violation Reports section — shows the configured `report-uri`, last-report age, sampling percentage, and a "Test endpoint" button that POSTs a synthetic report and reports success or failure.
+* Added: "Actual emitted header" display that shows the real server-sent policy (including `report-uri`) when it differs from the builder preview.
+* Added: Configurable `Max new violations per minute` selector (5–60) so tracker-heavy sites do not lose legitimate reports to the rate limiter.
+* Added: Dropped-report count warning — displayed when the rate limiter discarded reports during the current window.
+* Added: "Not collecting" dismissible notice when CSP is enabled but no collection window is open.
+* Added: "Allow all reported origins" bulk action with confirmation modal.
+* Added: "Pre-fill common third-party origins" button that appends known-safe Google Maps, Analytics, Tag Manager, Clarity, and Facebook Pixel origins across `connect-src`, `script-src`, `img-src`, `frame-src`, and `font-src`.
+* Added: Per-feature allowlist builder for Permissions-Policy. Each checked feature now shows an "Add allowlist" link that expands a text field for space-separated allowed origins, and a "Allow embedded maps" preset for `geolocation` that sets `geolocation=('self' https://www.google.com)` so Google Maps embeds can request the visitor's location.
+* Added: Explanatory note for the `geolocation` feature clarifying this is a Permissions-Policy restriction (not a CSP error) and why Google Maps embeds need it allowed.
+* Changed: `CSP_REPORTS_MAX` raised from 50 to 100.
+* Changed: Default new-violations rate limit raised from 5 to 10 per minute.
+* Added: PHPUnit tests for `origin_already_allowed()` — scheme-source coverage, host-token normalisation, wildcard subdomains, and `default-src` fallback.
 
 = 2.2.0 =
 * Added: Database cleanup and optimization tool. Scan and clean post revisions, auto-drafts, trashed posts, spam comments, trashed comments, expired transients, all transients, and fragmented tables. Optional WP-Cron scheduling (daily, weekly, or monthly). All cleanup targets are individually toggleable, with a scan-before-clean workflow and per-target deletion counts.

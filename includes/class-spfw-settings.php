@@ -125,9 +125,11 @@ class SPFW_Settings {
 				// 0 = closed. csp_collect_sample is the percentage of responses
 				// that carry `report-uri` while the window is open, so a busy
 				// site can collect a representative sample instead of one POST
-				// per page view.
+				// per page view. csp_rate_limit caps new (directive, origin) pairs
+				// per minute to prevent anonymous floods; range 5-60.
 				'csp_collect_until'       => 0,
 				'csp_collect_sample'      => 100,
+				'csp_rate_limit'          => 10,
 			),
 			'fonts'       => array(
 				'localize_google' => false,
@@ -539,6 +541,12 @@ class SPFW_Settings {
 		$sample                                   = isset( $hardening['csp_collect_sample'] ) ? absint( $hardening['csp_collect_sample'] ) : $defaults['hardening']['csp_collect_sample'];
 		$clean['hardening']['csp_collect_sample'] = min( 100, max( 1, $sample ) );
 
+		// Per-minute ceiling on new (directive, origin) pairs entering the log.
+		// Whitelist to 5–60 so it can't be set to 0 (fully blocking all reports)
+		// or to an absurdly high value (defeating the flood-protection).
+		$rate_limit                            = isset( $hardening['csp_rate_limit'] ) ? absint( $hardening['csp_rate_limit'] ) : $defaults['hardening']['csp_rate_limit'];
+		$clean['hardening']['csp_rate_limit'] = min( 60, max( 5, $rate_limit ) );
+
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
 		$clean['fonts']['localize_google'] = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
@@ -892,8 +900,9 @@ class SPFW_Settings {
 					continue;
 				}
 
-				// Allow 'self', quoted origins, and bare origins.
-				if ( preg_match( '#^"?[A-Za-z0-9.*:/-]+"?$#', $token ) ) {
+				// Allow keyword tokens like 'self', 'none', and 'src', quoted
+				// origins (Permissions-Policy syntax), and bare host origins.
+				if ( preg_match( '#^(\x27[a-z-]+\x27|"?[A-Za-z0-9.*:/-]+"?)$#', $token ) ) {
 					$valid[] = $token;
 				}
 			}

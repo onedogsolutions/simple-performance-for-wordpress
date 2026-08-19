@@ -1,4 +1,5 @@
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
+import { useState } from '@wordpress/element';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
@@ -55,6 +56,162 @@ function StatusBadge( { status, onRestore } ) {
 				</button>
 			) }
 		</div>
+	);
+}
+
+// Per-feature row with optional allowlist editor and presets.
+// Displayed inside the Site Hardening card when security_headers is on.
+function PermissionsPolicyRow( { hardening, onChange } ) {
+	// Track which feature rows have the allowlist editor open.
+	const [ expanded, setExpanded ] = useState( {} );
+
+	const FEATURES = [
+		'geolocation',
+		'microphone',
+		'camera',
+		'payment',
+		'usb',
+		'interest-cohort',
+	];
+
+	const policy = hardening.permissions_policy || {};
+
+	const setPolicy = ( next ) => onChange( 'permissions_policy', next );
+
+	const isBlocked = ( feature ) =>
+		Object.prototype.hasOwnProperty.call( policy, feature ) &&
+		false !== policy[ feature ];
+
+	const allowlistText = ( feature ) =>
+		( policy[ feature ] || [] ).join( ' ' );
+
+	// Apply the "Allow embedded maps" preset for geolocation:
+	// geolocation=('self' https://www.google.com)
+	const applyMapsPreset = () => {
+		setPolicy( {
+			...policy,
+			geolocation: [ "'self'", 'https://www.google.com' ],
+		} );
+	};
+
+	return (
+		<SettingsRow
+			title={ __(
+				'Permissions-Policy features',
+				'simple-performance-for-wordpress'
+			) }
+			description={ __(
+				'Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Expand a row to allow specific origins instead of blocking entirely.',
+				'simple-performance-for-wordpress'
+			) }
+		>
+			<div className="space-y-3 w-full">
+				{ FEATURES.map( ( feature ) => {
+					const blocked = isBlocked( feature );
+					const isExpanded = !! expanded[ feature ];
+					const hasAllowlist =
+						blocked &&
+						Array.isArray( policy[ feature ] ) &&
+						policy[ feature ].length > 0;
+
+					return (
+						<div key={ feature }>
+							<div className="flex items-center gap-x-2">
+								<input
+									type="checkbox"
+									checked={ blocked }
+									onChange={ ( e ) => {
+										const next = { ...policy };
+										if ( e.target.checked ) {
+											next[ feature ] = [];
+										} else {
+											next[ feature ] = false;
+											setExpanded( ( prev ) => ( { ...prev, [ feature ]: false } ) );
+										}
+										setPolicy( next );
+									} }
+									className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+								/>
+								<span className="text-sm text-gray-700">
+									{ __( 'Block', 'simple-performance-for-wordpress' ) }{ ' ' }
+									<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+										{ feature }
+									</code>
+								</span>
+								{ blocked && (
+									<button
+										type="button"
+										onClick={ () =>
+											setExpanded( ( prev ) => ( {
+												...prev,
+												[ feature ]: ! prev[ feature ],
+											} ) )
+										}
+										className="text-xs font-medium text-indigo-600 hover:text-indigo-500"
+									>
+										{ isExpanded
+											? __( 'Hide allowlist', 'simple-performance-for-wordpress' )
+											: hasAllowlist
+												? sprintf(
+													/* translators: %d: number of allowed origins */
+													__( 'Allowed: %d origin(s)', 'simple-performance-for-wordpress' ),
+													policy[ feature ].length
+												  )
+												: __( 'Add allowlist', 'simple-performance-for-wordpress' ) }
+									</button>
+								) }
+							</div>
+
+							{ blocked && isExpanded && (
+								<div className="mt-2 ml-6 space-y-2">
+									{ 'geolocation' === feature && (
+										<>
+											<p className="text-xs text-gray-500">
+												{ __(
+													'This is a Permissions-Policy restriction, not a CSP error. Google Maps embeds request geolocation from the browser — blocking it stops the "My Location" button from working inside embedded maps.',
+													'simple-performance-for-wordpress'
+												) }
+											</p>
+											<button
+												type="button"
+												onClick={ applyMapsPreset }
+												className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+											>
+												{ __( 'Allow embedded maps', 'simple-performance-for-wordpress' ) }
+											</button>
+											<p className="text-xs text-gray-400">
+												{ __(
+													"Sets geolocation=('self' https://www.google.com) — allows the current page and Google Maps iframes to request the visitor's location.",
+													'simple-performance-for-wordpress'
+												) }
+											</p>
+										</>
+									) }
+									<label
+										className="block text-xs text-gray-600"
+									>
+										{ __( 'Allowed origins (space-separated, or leave empty to block all):', 'simple-performance-for-wordpress' ) }
+										<input
+											type="text"
+											value={ allowlistText( feature ) }
+											placeholder="'self' https://example.com"
+											onChange={ ( e ) => {
+												const tokens = e.target.value
+													.split( /\s+/ )
+													.map( ( t ) => t.trim() )
+													.filter( Boolean );
+												setPolicy( { ...policy, [ feature ]: tokens } );
+											} }
+											className="mt-1 block w-full rounded-md border-0 py-1 px-2 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 text-xs font-mono"
+										/>
+									</label>
+								</div>
+							) }
+						</div>
+					);
+				} ) }
+			</div>
+		</SettingsRow>
 	);
 }
 
@@ -319,66 +476,10 @@ export default function HardeningSettings( {
 				</SettingsRow>
 
 				{ !! hardening.security_headers && (
-					<SettingsRow
-						title={ __(
-							'Permissions-Policy features',
-							'simple-performance-for-wordpress'
-						) }
-						description={ __(
-							'Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Uncheck to allow a feature.',
-							'simple-performance-for-wordpress'
-						) }
-					>
-						<div className="space-y-2">
-							{ [
-								'geolocation',
-								'microphone',
-								'camera',
-								'payment',
-								'usb',
-								'interest-cohort',
-							].map( ( feature ) => {
-								const policy =
-									hardening.permissions_policy || {};
-								const isBlocked =
-									Object.prototype.hasOwnProperty.call(
-										policy,
-										feature
-									) && false !== policy[ feature ];
-
-								return (
-									<label
-										key={ feature }
-										className="flex items-center gap-x-2 text-sm text-gray-700"
-									>
-										<input
-											type="checkbox"
-											checked={ isBlocked }
-											onChange={ ( e ) => {
-												const next = { ...policy };
-
-												if ( e.target.checked ) {
-													next[ feature ] = [];
-												} else {
-													next[ feature ] = false;
-												}
-
-												onChange(
-													'permissions_policy',
-													next
-												);
-											} }
-											className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-										/>
-										{ __( 'Block', 'simple-performance-for-wordpress' ) }{ ' ' }
-										<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-											{ feature }
-										</code>
-									</label>
-								);
-							} ) }
-						</div>
-					</SettingsRow>
+					<PermissionsPolicyRow
+						hardening={ hardening }
+						onChange={ onChange }
+					/>
 				) }
 			</SettingsCard>
 

@@ -521,6 +521,47 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * Return the actual CSP header value that add_csp_header() would emit for
+	 * the current request context (builder or custom mode, with script-hash
+	 * injection if configured, but without the report-uri appended). Provided
+	 * as a separate public method so the REST settings response can include it
+	 * as a reference preview for the admin.
+	 *
+	 * @return string
+	 */
+	public static function get_emitted_policy_preview() {
+		$h    = SPFW_Settings::group( 'hardening' );
+		$mode = isset( $h['csp_mode'] ) ? $h['csp_mode'] : 'builder';
+
+		if ( 'custom' === $mode ) {
+			$policy = isset( $h['csp_policy'] ) ? trim( (string) $h['csp_policy'] ) : '';
+		} else {
+			$directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
+			$policy     = self::build_policy_from_directives( $directives );
+		}
+
+		if ( '' === $policy ) {
+			$policy = self::DEFAULT_CSP;
+		}
+
+		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
+		}
+
+		// Append the report-uri if a collection window is open, mirroring
+		// add_csp_header() so the preview is accurate.
+		if ( self::collection_open( $h ) ) {
+			$report_url = self::csp_report_url_public();
+			$policy     = self::ensure_connect_src_allows( $policy, $report_url );
+			$policy     = rtrim( $policy );
+			$policy    .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
+			$policy    .= ' report-uri ' . $report_url . ';';
+		}
+
+		return $policy;
+	}
+
+	/**
 	 * Whether the admin's violation-collection window is currently open.
 	 *
 	 * Shared by the header (should we advertise report-uri?) and the REST
@@ -581,6 +622,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @return string
 	 */
 	private static function csp_report_url() {
+		return self::csp_report_url_public();
+	}
+
+	/**
+	 * Public alias of csp_report_url() so SPFW_Rest_Settings can include the
+	 * URL in the diagnostic stats payload without duplicating the logic.
+	 *
+	 * @return string
+	 */
+	public static function csp_report_url_public() {
 		$url = rest_url( 'spfw/v1/csp-report' );
 
 		$origin = self::request_origin();
@@ -607,8 +658,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * under connect-src. This injects the report origin into connect-src (or
 	 * creates the directive if absent) so reports are never silently dropped.
 	 *
-	 * No-op when the report origin matches the site's own origin (the common
-	 * case without a proxy) or when connect-src already allows 'self' or 'https:'.
+	 * The plan also calls for always injecting when the report endpoint uses a
+	 * non-default port, even when the hostname matches home_url() — which can
+	 * happen on dev/staging.
+	 *
+	 * No-op when connect-src already allows 'self' or 'https:'.
 	 *
 	 * @param string $policy     Policy string (may be empty).
 	 * @param string $report_url Full report endpoint URL.
@@ -623,7 +677,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		$report_origin = ( isset( $report_parts['scheme'] ) ? $report_parts['scheme'] : 'https' ) . '://' . $report_parts['host'];
 
-		// Compare against the site's own origin (home_url).
+		// Compare against the site's own origin (home_url), also checking port.
 		$home_parts = wp_parse_url( home_url() );
 		$home_origin = '';
 
@@ -631,8 +685,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$home_origin = ( isset( $home_parts['scheme'] ) ? $home_parts['scheme'] : 'https' ) . '://' . $home_parts['host'];
 		}
 
-		// Same origin — 'self' covers it, nothing to inject.
-		if ( '' === $home_origin || strtolower( $report_origin ) === strtolower( $home_origin ) ) {
+		// Inject when: different origin OR when the report endpoint uses a
+		// non-default port (dev/staging scenarios with an explicit port).
+		$report_port = isset( $report_parts['port'] ) ? (int) $report_parts['port'] : 0;
+		$default_ports = array( 80, 443, 0 );
+		$same_origin   = '' !== $home_origin && strtolower( $report_origin ) === strtolower( $home_origin );
+		$non_default_port = $report_port > 0 && ! in_array( $report_port, $default_ports, true );
+
+		if ( $same_origin && ! $non_default_port ) {
 			return $policy;
 		}
 

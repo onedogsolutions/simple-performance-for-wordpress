@@ -1,4 +1,4 @@
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import SettingsCard from './SettingsCard';
@@ -110,6 +110,54 @@ const CSP_DIRECTIVES = [
 
 const NONE = "'none'";
 
+// Trusted third-party origins that are safe to pre-fill for common tracker
+// and map scripts. Keyed by directive; each entry lists origins to ADD
+// (not replace). The admin still gets a confirmation modal before anything
+// is written to the policy.
+const TRUSTED_TRACKER_ORIGINS = {
+	'script-src': [
+		'https://www.googletagmanager.com',
+		'https://www.google-analytics.com',
+		'https://maps.googleapis.com',
+		'https://www.clarity.ms',
+		'https://connect.facebook.net',
+		'https://snap.licdn.com',
+	],
+	'connect-src': [
+		'https://www.google-analytics.com',
+		'https://analytics.google.com',
+		'https://stats.g.doubleclick.net',
+		'https://maps.googleapis.com',
+		'https://places.googleapis.com',
+		'https://l.clarity.ms',
+		'https://h.clarity.ms',
+		'https://b.clarity.ms',
+		'https://e.clarity.ms',
+		'https://j.clarity.ms',
+		'https://f.clarity.ms',
+		'https://mgln.ai',
+		'https://fid.agkn.com',
+		'https://ad.doubleclick.net',
+		'https://www.googleadservices.com',
+		'https://www.facebook.com',
+	],
+	'img-src': [
+		'https://www.google-analytics.com',
+		'https://stats.g.doubleclick.net',
+		'https://maps.googleapis.com',
+		'https://maps.gstatic.com',
+		'https://www.facebook.com',
+	],
+	'frame-src': [
+		'https://www.google.com',
+		'https://www.googletagmanager.com',
+		'https://www.facebook.com',
+	],
+	'font-src': [
+		'https://fonts.gstatic.com',
+	],
+};
+
 // Serialize the structured directive map exactly as the PHP does, for the
 // live preview: skip empty directives, collapse a 'none' to just 'none'.
 function buildPolicyString( directives ) {
@@ -211,6 +259,16 @@ export default function CspPolicyCard( {
 	// attacker-influencable — allowing one writes it into the live policy, and
 	// that is not something a single stray click should do.
 	const [ confirming, setConfirming ] = useState( null );
+
+	// Trusted-tracker pre-fill confirmation modal.
+	const [ showTrustedConfirm, setShowTrustedConfirm ] = useState( false );
+
+	// Bulk-allow confirmation state: null | 'all' | directive-name.
+	const [ bulkConfirm, setBulkConfirm ] = useState( null );
+
+	// Test-endpoint state: null | 'testing' | 'ok' | 'error'.
+	const [ testState, setTestState ] = useState( null );
+	const testTimeoutRef = useRef( null );
 
 	const clearHostText = ( name ) =>
 		setHostText( ( prev ) => {
@@ -328,6 +386,94 @@ export default function CspPolicyCard( {
 				JSON.stringify( settings.csp_default_directives || {} )
 			)
 		);
+	};
+
+	// Add all trusted third-party origins across every directive.
+	const applyTrustedTrackers = () => {
+		setShowTrustedConfirm( false );
+		const next = { ...directives };
+		Object.entries( TRUSTED_TRACKER_ORIGINS ).forEach( ( [ directive, origins ] ) => {
+			const current = ( next[ directive ] || [] ).filter(
+				( t ) => t !== NONE
+			);
+			const merged = [ ...new Set( [ ...current, ...origins ] ) ];
+			next[ directive ] = merged;
+		} );
+		setHostText( {} );
+		onChange( 'csp_directives', next );
+	};
+
+	// Allow all visible violations (bulk).
+	const allowAll = ( forDirective = null ) => {
+		setBulkConfirm( null );
+		const toAllow = forDirective
+			? visibleReports.filter( ( r ) => r.directive === forDirective )
+			: visibleReports;
+
+		if ( ! toAllow.length ) {
+			return;
+		}
+
+		const next = { ...directives };
+
+		toAllow.forEach( ( r ) => {
+			const token = tokenFor( r.blocked_origin );
+			const current = ( next[ r.directive ] || [] ).filter(
+				( t ) => t !== NONE
+			);
+			if ( ! current.includes( token ) ) {
+				next[ r.directive ] = [ ...current, token ];
+			}
+			setDismissed( ( prev ) =>
+				prev.includes( `${ r.directive }|${ r.blocked_origin }` )
+					? prev
+					: [ ...prev, `${ r.directive }|${ r.blocked_origin }` ]
+			);
+			if ( onDismissCspReport ) {
+				onDismissCspReport( r.directive, r.blocked_origin );
+			}
+		} );
+
+		setHostText( {} );
+		onChange( 'csp_directives', next );
+	};
+
+	// POST a synthetic violation report to the configured report_uri to verify
+	// the endpoint is reachable from the browser.
+	const testReportEndpoint = () => {
+		const reportUri = cspReportStats.report_uri;
+		if ( ! reportUri ) {
+			return;
+		}
+		setTestState( 'testing' );
+		clearTimeout( testTimeoutRef.current );
+
+		fetch( reportUri, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/csp-report' },
+			body: JSON.stringify( {
+				'csp-report': {
+					'blocked-uri': 'https://test.example.com',
+					'violated-directive': 'connect-src',
+					'document-uri': window.location.href,
+					'effective-directive': 'connect-src',
+				},
+			} ),
+		} )
+			.then( ( res ) => {
+				setTestState( res.ok || 204 === res.status ? 'ok' : 'error' );
+				testTimeoutRef.current = setTimeout(
+					() => setTestState( null ),
+					5000
+				);
+			} )
+			.catch( () => {
+				setTestState( 'error' );
+				testTimeoutRef.current = setTimeout(
+					() => setTestState( null ),
+					5000
+				);
+			} );
 	};
 
 	const switchMode = ( toCustom ) => {
@@ -537,23 +683,60 @@ export default function CspPolicyCard( {
 
 					{ ! isCustom && (
 						<div className="space-y-5 pt-2">
-							<div className="flex items-center justify-between">
+							<div className="flex items-center justify-between flex-wrap gap-2">
 								<h4 className="text-sm font-semibold text-gray-900">
 									{ __(
 										'Policy builder',
 										'simple-performance-for-wordpress'
 									) }
 								</h4>
-								<button
-									type="button"
-									onClick={ loadRecommended }
-									className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-								>
-									{ __(
-										'Reset to recommended',
-										'simple-performance-for-wordpress'
+								<div className="flex items-center gap-x-3">
+									{ showTrustedConfirm ? (
+										<span className="flex items-center gap-x-2 text-sm">
+											<span className="text-gray-700">
+												{ __(
+													'Add Google Maps, Analytics, Clarity & Facebook origins?',
+													'simple-performance-for-wordpress'
+												) }
+											</span>
+											<button
+												type="button"
+												onClick={ applyTrustedTrackers }
+												className="font-medium text-indigo-600 hover:text-indigo-500"
+											>
+												{ __( 'Confirm', 'simple-performance-for-wordpress' ) }
+											</button>
+											<button
+												type="button"
+												onClick={ () => setShowTrustedConfirm( false ) }
+												className="font-medium text-gray-500 hover:text-gray-700"
+											>
+												{ __( 'Cancel', 'simple-performance-for-wordpress' ) }
+											</button>
+										</span>
+									) : (
+										<button
+											type="button"
+											onClick={ () => setShowTrustedConfirm( true ) }
+											className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+										>
+											{ __(
+												'Pre-fill common third-party origins',
+												'simple-performance-for-wordpress'
+											) }
+										</button>
 									) }
-								</button>
+									<button
+										type="button"
+										onClick={ loadRecommended }
+										className="text-sm font-medium text-gray-500 hover:text-gray-700"
+									>
+										{ __(
+											'Reset to recommended',
+											'simple-performance-for-wordpress'
+										) }
+									</button>
+								</div>
 							</div>
 
 							{ CSP_DIRECTIVES.map( ( directive ) => {
@@ -735,6 +918,19 @@ export default function CspPolicyCard( {
 											'simple-performance-for-wordpress'
 										) }
 								</pre>
+								{ settings.csp_emitted_policy && settings.csp_emitted_policy !== buildPolicyString( directives ) && (
+									<>
+										<p className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+											{ __(
+												'Actual emitted header (including report-uri)',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+										<pre className="whitespace-pre-wrap break-words rounded-md bg-indigo-50 p-3 text-xs font-mono text-indigo-900 ring-1 ring-inset ring-indigo-200">
+											{ settings.csp_emitted_policy }
+										</pre>
+									</>
+								) }
 							</div>
 						</div>
 					) }
@@ -994,17 +1190,159 @@ export default function CspPolicyCard( {
 										) }` }
 								</p>
 							) }
+						
+							{ collecting && cspReportStats.dropped > 0 && (
+								<p className="mt-2 text-xs text-amber-700">
+									{ sprintf(
+										/* translators: %d: count of dropped reports */
+										__(
+											'%d reports were dropped by the rate limiter this session. Raise the rate limit below or clear the log to make room.',
+											'simple-performance-for-wordpress'
+										),
+										cspReportStats.dropped
+									) }
+								</p>
+							) }
+						
+							{ cspReportStats.report_uri && (
+								<div className="mt-3 rounded-md bg-gray-50 p-3 ring-1 ring-inset ring-gray-200 space-y-2">
+									<div className="flex items-center justify-between flex-wrap gap-2">
+										<p className="text-xs font-semibold text-gray-600">
+											{ __( 'Report endpoint', 'simple-performance-for-wordpress' ) }
+										</p>
+										<div className="flex items-center gap-x-2">
+											{ 'ok' === testState && (
+												<span className="text-xs text-green-700">
+													{ __( 'Reachable', 'simple-performance-for-wordpress' ) }
+												</span>
+											) }
+											{ 'error' === testState && (
+												<span className="text-xs text-red-700">
+													{ __( 'Failed — check CORS / CDN config', 'simple-performance-for-wordpress' ) }
+												</span>
+											) }
+											<button
+												type="button"
+												onClick={ testReportEndpoint }
+												disabled={ 'testing' === testState }
+												className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+											>
+												{ 'testing' === testState
+													? __( 'Testing…', 'simple-performance-for-wordpress' )
+													: __( 'Test endpoint', 'simple-performance-for-wordpress' ) }
+											</button>
+										</div>
+									</div>
+									<code className="block text-xs font-mono text-gray-700 break-all">
+										{ cspReportStats.report_uri }
+									</code>
+									<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+										{ null != cspReportStats.last_report_age && (
+											<span>
+												{ cspReportStats.last_report_age < 0
+													? __( 'No reports received yet', 'simple-performance-for-wordpress' )
+													: sprintf(
+														/* translators: %d: seconds since last report */
+														__( 'Last report: %ds ago', 'simple-performance-for-wordpress' ),
+														cspReportStats.last_report_age
+													) }
+											</span>
+										) }
+										{ null != cspReportStats.sampling && (
+											<span>
+												{ sprintf(
+													/* translators: %d: sampling percentage */
+													__( 'Sampling: %d%%', 'simple-performance-for-wordpress' ),
+													cspReportStats.sampling
+												) }
+											</span>
+										) }
+									</div>
+								</div>
+							) }
+						
+							<div className="mt-3">
+								<label
+									htmlFor="spfw-csp-rate-limit"
+									className="flex items-center gap-x-2 text-xs text-gray-600"
+								>
+									{ __( 'Max new violations per minute', 'simple-performance-for-wordpress' ) }
+									<select
+										id="spfw-csp-rate-limit"
+										value={ hardening.csp_rate_limit || 10 }
+										onChange={ ( e ) =>
+											onChange(
+												'csp_rate_limit',
+												parseInt( e.target.value, 10 )
+											)
+										}
+										className="rounded-md border-0 py-1 pl-2 pr-8 text-xs text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-indigo-600"
+									>
+										<option value={ 5 }>{ __( '5 / min', 'simple-performance-for-wordpress' ) }</option>
+										<option value={ 10 }>{ __( '10 / min', 'simple-performance-for-wordpress' ) }</option>
+										<option value={ 20 }>{ __( '20 / min', 'simple-performance-for-wordpress' ) }</option>
+										<option value={ 30 }>{ __( '30 / min', 'simple-performance-for-wordpress' ) }</option>
+										<option value={ 60 }>{ __( '60 / min', 'simple-performance-for-wordpress' ) }</option>
+									</select>
+								</label>
+								<p className="mt-1 text-xs text-gray-400">
+									{ __( 'Raise this on tracker-heavy sites if reports are being dropped. Save after changing.', 'simple-performance-for-wordpress' ) }
+								</p>
+							</div>
 						</div>
 
-						{ visibleReports.length > 0 && (
-							<p className="mt-2 text-xs text-gray-500">
+						{ ! collecting && enabled && (
+							<p className="mt-3 rounded-md bg-yellow-50 px-3 py-2 text-xs text-yellow-800 ring-1 ring-inset ring-yellow-300">
 								{ __(
-									'Violation reports come from visitors’ browsers and are not verified — anyone can post to the report endpoint while a window is open. Only allow origins you recognise as part of your own site.',
+									'CSP is enabled but no collection window is open. Start collecting violation reports above to populate this list.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
 						) }
-
+						
+						{ visibleReports.length > 0 && (
+							<p className="mt-2 text-xs text-gray-500">
+								{ __(
+									"Violation reports come from visitors\u2019 browsers and are not verified \u2014 anyone can post to the report endpoint while a window is open. Only allow origins you recognise as part of your own site.",
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						) }
+						
+						{ visibleReports.length > 0 && (
+							<div className="mt-2 flex flex-wrap items-center gap-x-4">
+								{ bulkConfirm === 'all' ? (
+									<span className="flex items-center gap-x-2 text-sm">
+										<span className="text-gray-700">
+											{ __( 'Allow all reported origins into the policy?', 'simple-performance-for-wordpress' ) }
+										</span>
+										<button
+											type="button"
+											onClick={ () => allowAll() }
+											className="font-medium text-indigo-600 hover:text-indigo-500"
+										>
+											{ __( 'Confirm', 'simple-performance-for-wordpress' ) }
+										</button>
+										<button
+											type="button"
+											onClick={ () => setBulkConfirm( null ) }
+											className="font-medium text-gray-500 hover:text-gray-700"
+										>
+											{ __( 'Cancel', 'simple-performance-for-wordpress' ) }
+										</button>
+									</span>
+								) : (
+									<button
+										type="button"
+										onClick={ () => setBulkConfirm( 'all' ) }
+										className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+									>
+										{ __( 'Allow all reported origins', 'simple-performance-for-wordpress' ) }
+									</button>
+								) }
+							</div>
+						) }
+						
 						{ ! reportOnly && visibleReports.length > 0 && (
 							<p className="mt-1 text-sm text-amber-700">
 								{ __(
@@ -1013,7 +1351,7 @@ export default function CspPolicyCard( {
 								) }
 							</p>
 						) }
-
+						
 						{ 0 === visibleReports.length && collecting && (
 							<p className="mt-2 text-sm text-gray-500">
 								{ __(
@@ -1022,13 +1360,13 @@ export default function CspPolicyCard( {
 								) }
 							</p>
 						) }
-
+						
 						{ 0 === visibleReports.length &&
 							collecting &&
 							! reportOnly && (
 								<p className="mt-2 text-xs text-gray-400">
 									{ __(
-										'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations — they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
+										'Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations \u2014 they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log.',
 										'simple-performance-for-wordpress'
 									) }
 								</p>

@@ -146,9 +146,9 @@ class Csp_Report_Collection_Test extends TestCase {
 		}
 
 		$this->assertCount(
-			SPFW_Rest_Settings::CSP_NEW_PER_MINUTE,
+			SPFW_Rest_Settings::CSP_NEW_PER_MINUTE_DEFAULT,
 			$this->items(),
-			'No more than CSP_NEW_PER_MINUTE new origins may enter the log in one minute.'
+			'No more than CSP_NEW_PER_MINUTE_DEFAULT new origins may enter the log in one minute.'
 		);
 	}
 
@@ -203,6 +203,156 @@ class Csp_Report_Collection_Test extends TestCase {
 
 		$this->report( 'script-src', 'https://not-yet-allowed.example/x.js', $h );
 		$this->assertArrayHasKey( 'script-src|https://not-yet-allowed.example', $this->items() );
+	}
+
+	/**
+	 * A scheme-source token like 'https:' covers any origin whose scheme
+	 * matches — a report for https://anything.example must not be relisted if
+	 * 'https:' is already in the directive.
+	 */
+	public function test_scheme_source_covers_matching_origin() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( "'self'", 'https:' ),
+			),
+		);
+
+		$this->report( 'connect-src', 'https://f.clarity.ms/collect', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			"'https:' scheme token should suppress an https:// violation."
+		);
+	}
+
+	/**
+	 * A wss: scheme-source must cover a WebSocket violation.
+	 */
+	public function test_wss_scheme_source_covers_websocket_origin() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( 'wss:' ),
+			),
+		);
+
+		$this->report( 'connect-src', 'wss://chat.example.com/ws', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			"'wss:' scheme token should suppress a wss:// violation."
+		);
+	}
+
+	/**
+	 * A stored host-source token without a scheme must still match a reported
+	 * origin that includes the scheme.
+	 */
+	public function test_host_token_without_scheme_matches_schemed_origin() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( 'maps.googleapis.com' ),
+			),
+		);
+
+		$this->report( 'connect-src', 'https://maps.googleapis.com/maps/api/js', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			'Host token without scheme must match an origin that has a scheme.'
+		);
+	}
+
+	/**
+	 * Conversely, a stored https://host token must match a plain host:// origin
+	 * report.
+	 */
+	public function test_schemed_token_matches_schemeless_origin() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( 'https://maps.googleapis.com' ),
+			),
+		);
+
+		// Browser sometimes reports just the host (origin) without the path.
+		$this->report( 'connect-src', 'maps.googleapis.com', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			'https:// token should match a schemeless-host violation report.'
+		);
+	}
+
+	/**
+	 * A wildcard subdomain token (*.example.com) must cover any subdomain
+	 * violation.
+	 */
+	public function test_wildcard_subdomain_token_covers_subdomains() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'script-src' => array( '*.googletagmanager.com' ),
+			),
+		);
+
+		$this->report( 'script-src', 'https://www.googletagmanager.com/gtag/js', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			'Wildcard subdomain token must match a subdomain origin.'
+		);
+	}
+
+	/**
+	 * When the violated directive has no explicit tokens, the filter must fall
+	 * back to 'default-src' before deciding the origin is new.
+	 */
+	public function test_default_src_fallback_suppresses_violations() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				// No media-src entry — should fall back to default-src.
+				'default-src' => array( "'self'", 'https://cdn.example.com' ),
+			),
+		);
+
+		$this->report( 'media-src', 'https://cdn.example.com/video.mp4', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			'default-src fallback must suppress an origin covered by default-src when the violated directive has no explicit tokens.'
+		);
+	}
+
+	/**
+	 * If the violated directive has its own tokens, default-src must NOT be
+	 * consulted — explicit directive overrides the fallback.
+	 */
+	public function test_explicit_directive_does_not_use_default_src_fallback() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'default-src' => array( 'https://cdn.example.com' ),
+				'media-src'   => array( "'self'" ), // Explicit but does not include cdn.
+			),
+		);
+
+		$this->report( 'media-src', 'https://cdn.example.com/video.mp4', $h );
+
+		$this->assertArrayHasKey(
+			'media-src|https://cdn.example.com',
+			$this->items(),
+			'When the directive has its own tokens, default-src must not be consulted.'
+		);
 	}
 
 	/**
