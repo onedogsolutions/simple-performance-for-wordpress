@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.4.0
+- **Plugin version target:** 2.5.0
 - **Last updated:** 2026-08-19
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -72,7 +72,8 @@ the authoritative record.)
   Permissions-Policy allowlists, 2.3.0); ✅ PHP execution whitelist +
   file integrity monitor (whitelist-aware .htaccess RewriteRule payloads,
   sha256 snapshot scanner, twice-daily cron, email alerts, on-demand scan
-  endpoint, CSP-style whitelist UI card, 2.4.0)
+  endpoint, CSP-style whitelist UI card, 2.4.0); ✅ Scan results list
+  collapsed by default behind a "Show file list" expand button (2.5.0)
 
 ## Shared project facts (true for every step)
 
@@ -121,8 +122,9 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.4.0 (PHP execution whitelist + file integrity monitor) is built and
-packaged for QA on a live WordPress install.** Remaining before release is
+**2.5.0 (PHP execution whitelist + file integrity monitor, with collapsed
+scan-results list) is built and packaged for QA on a live WordPress
+install.** Remaining before release is
 manual testing on a WordPress + OpenLiteSpeed site — confirm: enabling a
 directory-hardening toggle with a whitelist entry emits the RewriteRule
 allow-then-deny `.htaccess` payload and the whitelisted file still executes
@@ -131,7 +133,9 @@ blanket-deny payload exactly; adding/removing whitelist entries rewrites the
 `.htaccess` files; toggling the file monitor schedules/clears the
 twice-daily cron; "Scan now" reports added/modified/removed files correctly
 across consecutive scans; the alert email fires once per hour maximum and
-flags non-whitelisted entries; the "Locked Down" preset enables the monitor.
+flags non-whitelisted entries; the "Locked Down" preset enables the
+monitor; the scan-results panel shows the count summary collapsed and
+expands/collapses the full file list on demand.
 
 ---
 
@@ -345,6 +349,15 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-08-19 (scan results collapsed by default, → 2.5.0): the scan-results
+  panel in `PhpWhitelistCard.jsx` listed every changed file inline, which is
+  very long on a first scan (every tracked PHP file reports as "added").
+  The list is now collapsed by default: the panel shows a count summary
+  ("N new, N modified, N removed") with a "Show file list" / "Hide file
+  list" toggle button, and a `useEffect` re-collapses it whenever a fresh
+  scan result arrives. Frontend-only change.
+  **Verified:** `npm run build` succeeds (webpack 5.108.4, no errors).
 
 - 2026-08-19 (PHP execution whitelist + file integrity monitor, → 2.4.0):
   legitimate tools (ShortPixel and similar image optimizers/backup plugins)

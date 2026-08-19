@@ -1,4 +1,4 @@
-import { useState } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
@@ -63,6 +63,9 @@ export default function PhpWhitelistCard( {
 	const whitelist = hardening.php_whitelist || [];
 	const [ inputPath, setInputPath ] = useState( '' );
 	const [ showPrefillConfirm, setShowPrefillConfirm ] = useState( false );
+	// The results list can be very long (a first scan reports every tracked
+	// file), so it stays collapsed behind a "Show file list" button.
+	const [ showFileList, setShowFileList ] = useState( false );
 
 	const trimmedInput = inputPath.trim().replace( /\\/g, '/' ).replace( /^\/+/, '' );
 	const isDuplicate = whitelist.includes( trimmedInput );
@@ -115,6 +118,11 @@ export default function PhpWhitelistCard( {
 		( scanResult.added.length > 0 ||
 			scanResult.modified.length > 0 ||
 			scanResult.removed.length > 0 );
+
+	// Collapse the list again whenever a fresh scan result arrives.
+	useEffect( () => {
+		setShowFileList( false );
+	}, [ fileScanResults ] );
 
 	const isOnWhitelist = ( path ) => whitelist.includes( path );
 
@@ -351,7 +359,42 @@ export default function PhpWhitelistCard( {
 							) }
 						>
 							<div className="w-full space-y-3">
-								{ scanResult.added.length > 0 && (
+								<div className="flex items-center justify-between gap-x-3">
+									<p className="text-sm text-gray-700">
+										{ sprintf(
+											/* translators: %1$d: new files, %2$d: modified files, %3$d: removed files */
+											__(
+												'%1$d new, %2$d modified, %3$d removed file(s) since the last scan.',
+												'simple-performance-for-wordpress'
+											),
+											scanResult.added.length,
+											scanResult.modified.length,
+											scanResult.removed.length
+										) }
+									</p>
+									<button
+										type="button"
+										onClick={ () =>
+											setShowFileList(
+												( prev ) => ! prev
+											)
+										}
+										className="shrink-0 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+									>
+										{ showFileList
+											? __(
+													'Hide file list',
+													'simple-performance-for-wordpress'
+											  )
+											: __(
+													'Show file list',
+													'simple-performance-for-wordpress'
+											  ) }
+									</button>
+								</div>
+
+								{ showFileList &&
+									scanResult.added.length > 0 && (
 									<div>
 										<h4 className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">
 											{ __(
@@ -388,7 +431,8 @@ export default function PhpWhitelistCard( {
 									</div>
 								) }
 
-								{ scanResult.modified.length > 0 && (
+								{ showFileList &&
+									scanResult.modified.length > 0 && (
 									<div>
 										<h4 className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">
 											{ __(
@@ -425,7 +469,8 @@ export default function PhpWhitelistCard( {
 									</div>
 								) }
 
-								{ scanResult.removed.length > 0 && (
+								{ showFileList &&
+									scanResult.removed.length > 0 && (
 									<div>
 										<h4 className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-1">
 											{ __(

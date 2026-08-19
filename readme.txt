@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.4.0
+Stable tag: 2.5.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.5.0 =
+* Changed: File integrity scan results are collapsed by default. The results panel now shows a change-count summary with a "Show file list" button to expand the full added/modified/removed list, since a first scan reports every tracked PHP file and the list could be very long. The list collapses again automatically when a new scan runs.
 
 = 2.4.0 =
 * Added: PHP execution whitelist for directory hardening. When the plugins/ or uploads/ .htaccess deny rules are active, specific wp-content-relative paths (e.g. plugins/shortpixel-ai/shortpixel-ai.php) can be allowed through via RewriteRule allow-then-deny directives. Chip-based add/remove UI with a "Pre-fill common plugin paths" convenience action, mirroring the CSP builder UX. Whitelist paths are sanitized against traversal, restricted to plugins/ and uploads/ prefixes, and capped at 50 entries (20 per .htaccess file).
