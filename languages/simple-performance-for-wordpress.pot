@@ -2,21 +2,21 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.6.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.7.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-07T17:16:34+00:00\n"
+"POT-Creation-Date: 2026-09-07T20:00:31+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
 
 #. Plugin Name of the plugin
 #: simple-performance-for-wordpress.php
-#: src/components/App.jsx:574
+#: src/components/App.jsx:632
 msgid "Simple Performance for WordPress"
 msgstr ""
 
@@ -60,43 +60,43 @@ msgid_plural "%d capabilities removed."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/class-spfw-rest-settings.php:1117
+#: includes/class-spfw-rest-settings.php:1243
 msgid "Invalid import payload. Expected a JSON object with a \"settings\" key."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:1186
+#: includes/class-spfw-rest-settings.php:1321
 msgid "Unknown preset name."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:1324
+#: includes/class-spfw-rest-settings.php:1459
 msgid "No valid cleanup targets selected."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:317
+#: includes/class-spfw-rest-settings.php:435
 msgid "Could not write the hardening file. The web server may not have direct write access to this directory."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1083
+#: includes/class-spfw-settings.php:1130
 msgid "Balanced"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1084
+#: includes/class-spfw-settings.php:1131
 msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1104
+#: includes/class-spfw-settings.php:1151
 msgid "Aggressive"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1105
+#: includes/class-spfw-settings.php:1152
 msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1133
+#: includes/class-spfw-settings.php:1180
 msgid "Locked Down"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1134
+#: includes/class-spfw-settings.php:1181
 msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
 msgstr ""
 
@@ -179,85 +179,89 @@ msgid "Localized %1$d font families (%2$d files)."
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1229
+#: includes/modules/class-spfw-module-hardening.php:1525
 #, php-format
 msgid "[%s] File integrity alert"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1235
+#: includes/modules/class-spfw-module-hardening.php:1531
 #, php-format
 msgid "File integrity scan detected changes on %s:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1240
+#: includes/modules/class-spfw-module-hardening.php:1536
 msgid "NEW FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1251
+#: includes/modules/class-spfw-module-hardening.php:1547
 msgid "MODIFIED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1262
+#: includes/modules/class-spfw-module-hardening.php:1558
 msgid "REMOVED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1271
+#: includes/modules/class-spfw-module-hardening.php:1567
 msgid "Review these files immediately if the changes were not expected.\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1374
+#: includes/modules/class-spfw-module-hardening.php:1670
 msgid "Directory does not exist and could not be created."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1387
-#: includes/modules/class-spfw-module-hardening.php:1453
+#: includes/modules/class-spfw-module-hardening.php:1683
+#: includes/modules/class-spfw-module-hardening.php:1749
 msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), which the upgrader requires."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1393
+#: includes/modules/class-spfw-module-hardening.php:1689
 msgid "Not writable by the PHP process."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1405
-#: includes/modules/class-spfw-module-hardening.php:1464
+#: includes/modules/class-spfw-module-hardening.php:1701
+#: includes/modules/class-spfw-module-hardening.php:1760
 msgid "Could not create the probe scratch directories."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1418
+#: includes/modules/class-spfw-module-hardening.php:1714
 msgid "A directory could not be moved out of this location."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1424
+#: includes/modules/class-spfw-module-hardening.php:1720
 msgid "The directory contents could not be listed."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1476
+#: includes/modules/class-spfw-module-hardening.php:1772
 msgid "A plugin directory could not be moved into wp-content/upgrade-temp-backup/. This is what produces \"Could not move the old version to the upgrade-temp-backup directory\"."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1646
+#: includes/modules/class-spfw-module-hardening.php:1942
 msgid "An update appears to be running right now, so the leftovers were not removed. Try again once it finishes."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1656
+#: includes/modules/class-spfw-module-hardening.php:1952
 msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), so the leftovers could not be removed."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:195
+#: includes/modules/class-spfw-module-hardening.php:240
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:209
+#: includes/modules/class-spfw-module-hardening.php:254
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:372
+#: includes/modules/class-spfw-module-hardening.php:417
 msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:453
-#: includes/modules/class-spfw-module-hardening.php:485
+#: includes/modules/class-spfw-module-hardening.php:488
+msgid "Simple Performance: re-synced your root .htaccess to match your current hardening toggles."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:749
+#: includes/modules/class-spfw-module-hardening.php:781
 msgid "Invalid username or password."
 msgstr ""
 
@@ -269,11 +273,11 @@ msgstr ""
 msgid "REST API restricted to authenticated users."
 msgstr ""
 
-#: src/components/App.jsx:102
+#: src/components/App.jsx:103
 msgid "Hardening file restored."
 msgstr ""
 
-#: src/components/App.jsx:112
+#: src/components/App.jsx:113
 msgid "Failed to restore the hardening file."
 msgstr ""
 
@@ -286,15 +290,15 @@ msgstr ""
 msgid "REST API"
 msgstr ""
 
-#: src/components/App.jsx:177
+#: src/components/App.jsx:178
 msgid "Violation collection stopped."
 msgstr ""
 
-#: src/components/App.jsx:181
+#: src/components/App.jsx:182
 msgid "Collecting violation reports."
 msgstr ""
 
-#: src/components/App.jsx:191
+#: src/components/App.jsx:192
 msgid "Could not change violation collection."
 msgstr ""
 
@@ -302,7 +306,7 @@ msgstr ""
 msgid "Hardening"
 msgstr ""
 
-#: src/components/App.jsx:223
+#: src/components/App.jsx:224
 msgid "Font scan complete."
 msgstr ""
 
@@ -311,7 +315,7 @@ msgstr ""
 msgid "Fonts"
 msgstr ""
 
-#: src/components/App.jsx:233
+#: src/components/App.jsx:234
 msgid "Font scan failed."
 msgstr ""
 
@@ -320,43 +324,43 @@ msgid "Option Cleaner"
 msgstr ""
 
 #. translators: %d: number of changes detected
-#: src/components/App.jsx:265
+#: src/components/App.jsx:266
 #, php-format
 msgid "Scan complete. %d change(s) detected."
 msgstr ""
 
-#: src/components/App.jsx:271
+#: src/components/App.jsx:272
 msgid "Scan complete. No changes detected."
 msgstr ""
 
-#: src/components/App.jsx:282
+#: src/components/App.jsx:283
 msgid "File scan failed."
 msgstr ""
 
-#: src/components/App.jsx:312
+#: src/components/App.jsx:313
 msgid "Upgrade check returned no result."
 msgstr ""
 
 #. translators: %d: number of leftover items
-#: src/components/App.jsx:322
+#: src/components/App.jsx:323
 #, php-format
 msgid "Directories are healthy, but %d leftover item(s) remain from an interrupted update."
 msgstr ""
 
-#: src/components/App.jsx:332
+#: src/components/App.jsx:333
 msgid "Upgrade check passed. Every directory the upgrader needs is writable, movable and readable."
 msgstr ""
 
-#: src/components/App.jsx:340
+#: src/components/App.jsx:341
 msgid "Upgrade check found a problem. Plugin installs and updates will fail until it is fixed."
 msgstr ""
 
-#: src/components/App.jsx:352
+#: src/components/App.jsx:353
 msgid "Upgrade check failed."
 msgstr ""
 
 #. translators: %d: number of leftover items removed
-#: src/components/App.jsx:381
+#: src/components/App.jsx:382
 #, php-format
 msgid "Removed %d leftover item(s) and re-checked."
 msgstr ""
@@ -365,75 +369,91 @@ msgstr ""
 msgid "WooCommerce"
 msgstr ""
 
-#: src/components/App.jsx:394
+#: src/components/App.jsx:395
 msgid "Could not clear the leftovers."
 msgstr ""
 
-#: src/components/App.jsx:416
+#: src/components/App.jsx:424
+msgid "Enforcement verified: the web server is applying your .htaccess hardening rules."
+msgstr ""
+
+#: src/components/App.jsx:432
+msgid "The .htaccess rules are present but the web server is not applying them. See the remediation hint on the Hardening tab."
+msgstr ""
+
+#: src/components/App.jsx:440
+msgid "Enforcement could not be determined. The probe was inconclusive (a redirect, a missing canary file, or a proxy in front of the origin)."
+msgstr ""
+
+#: src/components/App.jsx:452
+msgid "Enforcement verification failed."
+msgstr ""
+
+#: src/components/App.jsx:474
 msgid "Settings saved."
 msgstr ""
 
-#: src/components/App.jsx:424
+#: src/components/App.jsx:482
 msgid "Failed to save settings. Please try again."
 msgstr ""
 
-#: src/components/App.jsx:447
+#: src/components/App.jsx:505
 msgid "Settings exported."
 msgstr ""
 
-#: src/components/App.jsx:457
+#: src/components/App.jsx:515
 msgid "Export failed."
 msgstr ""
 
-#: src/components/App.jsx:487
+#: src/components/App.jsx:545
 msgid "Settings imported."
 msgstr ""
 
-#: src/components/App.jsx:497
+#: src/components/App.jsx:555
 msgid "Import failed."
 msgstr ""
 
-#: src/components/App.jsx:506
+#: src/components/App.jsx:564
 msgid "Invalid JSON file."
 msgstr ""
 
-#: src/components/App.jsx:530
+#: src/components/App.jsx:588
 msgid "Preset applied."
 msgstr ""
 
-#: src/components/App.jsx:540
+#: src/components/App.jsx:598
 msgid "Failed to apply preset."
 msgstr ""
 
-#: src/components/App.jsx:580
+#: src/components/App.jsx:638
 msgid "Lightweight performance, REST API, and hardening controls for OpenLiteSpeed + LiteSpeed Cache."
 msgstr ""
 
-#: src/components/App.jsx:601
+#: src/components/App.jsx:659
 msgid "Apply preset…"
 msgstr ""
 
-#: src/components/App.jsx:624
+#: src/components/App.jsx:682
 msgid "Export"
 msgstr ""
 
-#: src/components/App.jsx:638
+#: src/components/App.jsx:696
 msgid "Import"
 msgstr ""
 
-#: src/components/App.jsx:658
+#: src/components/App.jsx:716
 msgid "Apply preset"
 msgstr ""
 
-#: src/components/App.jsx:668
+#: src/components/App.jsx:726
 msgid "This overwrites your current settings. Save first if you want to keep them."
 msgstr ""
 
-#: src/components/App.jsx:683
+#: src/components/App.jsx:741
 msgid "Apply"
 msgstr ""
 
-#: src/components/App.jsx:695
+#: src/components/App.jsx:753
 #: src/components/CspPolicyCard.jsx:714
 #: src/components/CspPolicyCard.jsx:875
 #: src/components/CspPolicyCard.jsx:1331
@@ -441,11 +461,11 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: src/components/App.jsx:801
+#: src/components/App.jsx:877
 msgid "Saving…"
 msgstr ""
 
-#: src/components/App.jsx:805
+#: src/components/App.jsx:881
 msgid "Save Settings"
 msgstr ""
 
@@ -1400,322 +1420,413 @@ msgstr ""
 msgid "Font discovery"
 msgstr ""
 
+#: src/components/HardeningSettings.jsx:1010
+msgid "HTTP Strict Transport Security"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1014
+msgid "Tells browsers to only ever connect to your site over HTTPS for a set duration, protecting against protocol-downgrade attacks and cookie hijacking on insecure networks. Only sent when the request is actually HTTPS (including behind a reverse proxy). Once a browser has seen this header, it will refuse plain HTTP connections until max-age expires — make sure HTTPS works reliably before enabling."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:102
+#: src/components/HardeningSettings.jsx:381
+msgid "Verifying…"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1020
+msgid "Send Strict-Transport-Security header"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1024
+msgid "Only sent on HTTPS responses. Do not enable if your site is not fully served over HTTPS."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:103
+#: src/components/HardeningSettings.jsx:391
+msgid "Verify enforcement"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1038
+msgid "Max age"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1042
+msgid "How long browsers should remember to force HTTPS for this site."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1058
+msgid "1 day"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1064
+msgid "1 week"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1070
+msgid "1 month"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1076
+msgid "6 months"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1082
+msgid "1 year (recommended)"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1088
+msgid "2 years"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:1097
+msgid "Include subdomains"
+msgstr ""
+
 #: src/components/HardeningSettings.jsx:11
 msgid "Active"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:117
-msgid "Permissions-Policy features"
+#: src/components/HardeningSettings.jsx:1101
+msgid "Applies the policy to every subdomain too. Only enable once you have confirmed every subdomain is served over HTTPS — otherwise those subdomains will become unreachable until max-age expires."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:121
-msgid "Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Expand a row to allow specific origins instead of blocking entirely."
+#: src/components/HardeningSettings.jsx:1115
+msgid "Preload"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:154
-msgid "Block"
+#: src/components/HardeningSettings.jsx:1119
+msgid "Opts into browser HSTS preload lists (requires includeSubDomains, max-age of at least 1 year, and submission to hstspreload.org). This is very difficult to reverse — only enable if you are certain every subdomain, now and in the future, will be HTTPS-only."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:126
+msgid "Restore"
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:16
 msgid "File missing"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:171
-msgid "Hide allowlist"
-msgstr ""
-
-#. translators: %d: number of allowed origins
-#: src/components/HardeningSettings.jsx:175
-#, php-format
-msgid "Allowed: %d origin(s)"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:178
-msgid "Add allowlist"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:188
-msgid "This is a Permissions-Policy restriction, not a CSP error. Google Maps embeds request geolocation from the browser — blocking it stops the \"My Location\" button from working inside embedded maps."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:198
-msgid "Allow embedded maps"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:201
-msgid "Sets geolocation=('self' https://www.google.com) — allows the current page and Google Maps iframes to request the visitor's location."
-msgstr ""
-
 #: src/components/HardeningSettings.jsx:21
 msgid "File modified"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:211
+#: src/components/HardeningSettings.jsx:212
+msgid "Permissions-Policy features"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:216
+msgid "Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Expand a row to allow specific origins instead of blocking entirely."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:249
+msgid "Block"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:266
+msgid "Hide allowlist"
+msgstr ""
+
+#. translators: %d: number of allowed origins
+#: src/components/HardeningSettings.jsx:270
+#, php-format
+msgid "Allowed: %d origin(s)"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:273
+msgid "Add allowlist"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:283
+msgid "This is a Permissions-Policy restriction, not a CSP error. Google Maps embeds request geolocation from the browser — blocking it stops the \"My Location\" button from working inside embedded maps."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:293
+msgid "Allow embedded maps"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:296
+msgid "Sets geolocation=('self' https://www.google.com) — allows the current page and Google Maps iframes to request the visitor's location."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:306
 msgid "Allowed origins (space-separated, or leave empty to block all):"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:264
+#: src/components/HardeningSettings.jsx:34
+#: src/components/HardeningSettings.jsx:35
+msgid "Enforced"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:367
 msgid "Checking…"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:268
+#: src/components/HardeningSettings.jsx:371
 msgid "Run check again"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:271
+#: src/components/HardeningSettings.jsx:374
 msgid "Run upgrade check"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:277
+#: src/components/HardeningSettings.jsx:385
+msgid "Verify enforcement again"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:398
+msgid "The web server is applying your .htaccess hardening rules."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:405
+msgid "These files are present and intact, but the web server is not applying their rules — direct requests still get through. The fix is on the server, described above."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:41
+msgid "Present — not enforced by server"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:411
+msgid "Enforcement could not be confirmed. Each canary below was inconclusive — a redirect, a missing canary file, or a proxy/CDN in front of the origin."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:423
 msgid "Directory Hardening"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:281
+#: src/components/HardeningSettings.jsx:427
 msgid "Server-level restrictions that reduce each directory’s attack surface. These rules govern HTTP requests only — they never block plugin or theme installs and updates, which happen entirely in PHP. On OpenLiteSpeed these .htaccess rules are honored only when \"Allow Override\" is enabled for the vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); when override is off they have no effect but cause no harm."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:287
+#: src/components/HardeningSettings.jsx:436
+msgid "This web server is not applying your .htaccess rules."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:442
+msgid "The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. Fix it on the server: on LiteSpeed enable \"Auto Load from .htaccess\" (WebAdmin → Virtual Host → Rewrite), or move the deny rules into the vhost/context config, then reload the web server and run \"Verify enforcement\" again."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:45
+msgid "Not enforced"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:452
 msgid "Block direct PHP execution in wp-content/plugins"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:291
+#: src/components/HardeningSettings.jsx:456
 msgid "Drops an .htaccess file into the plugins directory that denies direct requests to .php files. A small number of legacy plugins serve front-facing PHP from /plugins/ — disable this if something breaks."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:310
+#: src/components/HardeningSettings.jsx:478
 msgid "Block direct PHP execution in uploads"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:314
+#: src/components/HardeningSettings.jsx:482
 msgid "Drops an .htaccess file into wp-content/uploads that denies direct requests to .php files. The uploads directory is the most common place a malicious script is planted through a vulnerable upload form; images and other media are unaffected."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:333
+#: src/components/HardeningSettings.jsx:49
+msgid "The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, enable \"Auto Load from .htaccess\" (WebAdmin → Virtual Host → Rewrite), then reload the server."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:504
+msgid "Runtime enforcement"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:508
+msgid "A .htaccess file can be present and intact yet inert: on a vhost that does not honor .htaccess (for example OpenLiteSpeed with \"Auto Load from .htaccess\" off) the deny rules never run. This probes the live URLs those rules should block — plugins/index.php, readme.html, xmlrpc.php — over a loopback request and reports the code the server actually returned. It runs only when you click it, never on page load."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:525
+msgid "Enforcement results"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:529
+msgid "Each canary should return its expected code. A 403 means the rule is enforced; a 200 (or 405 for xmlrpc.php) means the request got through and the rule is inert."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:55
+msgid "Present (enforcement unverified)"
+msgstr ""
+
+#. translators: %1$s: observed HTTP status code, %2$s: expected code, %3$s: probed URL
+#: src/components/HardeningSettings.jsx:562
+#, php-format
+msgid "Observed HTTP %1$s (expected %2$s) · %3$s"
+msgstr ""
+
+#. translators: %s: date/time of the enforcement check
+#: src/components/HardeningSettings.jsx:578
+#, php-format
+msgid "Checked %s"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:59
+msgid "Unverified"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:594
 msgid "Upgrade compatibility"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:337
+#: src/components/HardeningSettings.jsx:598
 msgid "Replays the file operations WordPress performs during a plugin install or update: creating, moving and listing scratch content in wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Run this when an update fails with \"Could not move the old version to the upgrade-temp-backup directory\" or \"Filesystem error: A directory could not be read\" — those come from the filesystem, not from the rules above, and this tells you which directory is at fault. All scratch content is removed again."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:354
+#: src/components/HardeningSettings.jsx:615
 msgid "Check results"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:358
+#: src/components/HardeningSettings.jsx:619
 msgid "Write, Move and Read must all pass for every directory. When one fails, compare its owner against the user PHP runs as — a mismatch is the usual cause."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:379
+#: src/components/HardeningSettings.jsx:63
+msgid "Enforcement has not been confirmed yet. Run \"Verify enforcement\" to probe whether the server is actually applying these rules."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:640
 msgid "The upgrader can read, write and move files in every directory it needs."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:383
+#: src/components/HardeningSettings.jsx:644
 msgid "At least one directory the upgrader needs is not usable. Plugin uploads and updates will keep failing until this is corrected on the server."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:403
+#: src/components/HardeningSettings.jsx:664
 msgid "Write"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:410
+#: src/components/HardeningSettings.jsx:671
 msgid "Move"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:417
+#: src/components/HardeningSettings.jsx:678
 msgid "Read"
 msgstr ""
 
 #. translators: %1$s: directory owner, %2$s: user PHP runs as
-#: src/components/HardeningSettings.jsx:434
+#: src/components/HardeningSettings.jsx:695
 #, php-format
 msgid "Owner: %1$s · PHP runs as: %2$s"
 msgstr ""
 
 #. translators: %d: number of leftover items
-#: src/components/HardeningSettings.jsx:447
+#: src/components/HardeningSettings.jsx:708
 #, php-format
 msgid "%d leftover item(s) from an interrupted update."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:468
+#: src/components/HardeningSettings.jsx:729
 msgid "plugins → upgrade-temp-backup move (what an update actually does)"
 msgstr ""
 
 #. translators: %d: number of leftover items
-#: src/components/HardeningSettings.jsx:485
+#: src/components/HardeningSettings.jsx:746
 #, php-format
 msgid "%d leftover item(s) are still sitting in the upgrader’s scratch directories. WordPress empties these when an update finishes, so anything left behind means a run was interrupted — and every later update then fails over the debris."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:499
+#: src/components/HardeningSettings.jsx:760
 msgid "Clearing…"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:503
+#: src/components/HardeningSettings.jsx:764
 msgid "Clear leftovers and re-check"
 msgstr ""
 
 #. translators: %1$s: date/time of the check, %2$s: WordPress filesystem method
-#: src/components/HardeningSettings.jsx:514
+#: src/components/HardeningSettings.jsx:775
 #, php-format
 msgid "Checked %1$s · filesystem method: %2$s"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:541
+#: src/components/HardeningSettings.jsx:802
 msgid "Root .htaccess Rules"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:545
+#: src/components/HardeningSettings.jsx:806
 msgid "Server-level rules written to the site root .htaccess via WordPress markers (your permalink rules are preserved). On OpenLiteSpeed these require “Allow Override” enabled for the vhost. A safety check automatically removes the rules if they cause a 500 error."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:551
+#: src/components/HardeningSettings.jsx:812
 msgid "Protect sensitive files"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:555
+#: src/components/HardeningSettings.jsx:816
 msgid "Blocks direct access to readme.html, license.txt, wp-config-sample.php, debug.log, .env, *.sql, *.bak, and *.old files. These commonly leak version info, credentials, and database dumps."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:56
-msgid "Restore"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:571
+#: src/components/HardeningSettings.jsx:832
 msgid "Status"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:575
+#: src/components/HardeningSettings.jsx:836
 msgid "Integrity of the marker block in your root .htaccess."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:589
+#: src/components/HardeningSettings.jsx:853
 msgid "Site Hardening"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:593
+#: src/components/HardeningSettings.jsx:857
 msgid "Application-level protections that apply regardless of the web server configuration."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:599
+#: src/components/HardeningSettings.jsx:863
 msgid "Disable the theme & plugin file editor"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:603
+#: src/components/HardeningSettings.jsx:867
 msgid "Removes the built-in code editor under Appearance and Plugins (sets DISALLOW_FILE_EDIT), so an attacker who gains admin access cannot edit PHP directly from the dashboard."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:617
+#: src/components/HardeningSettings.jsx:881
 msgid "Block author enumeration"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:621
+#: src/components/HardeningSettings.jsx:885
 msgid "Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Also removes the users sitemap (wp-sitemap-users-1.xml) to close the same leak via sitemaps. Complements disabling the REST users endpoint."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:633
+#: src/components/HardeningSettings.jsx:897
 msgid "Disable Application Passwords"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:637
+#: src/components/HardeningSettings.jsx:901
 msgid "Removes the Application Passwords authentication method. These bypass two-factor authentication plugins. Warning: this will break any existing integration that authenticates with an application password. MainWP is unaffected — it uses its own signed channel."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:651
+#: src/components/HardeningSettings.jsx:915
 msgid "Disable XML-RPC"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:655
+#: src/components/HardeningSettings.jsx:919
 msgid "Disables the XML-RPC endpoint and pingback headers/methods."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:673
+#: src/components/HardeningSettings.jsx:937
 msgid "Block xmlrpc.php at server level"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:677
-msgid "Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC."
+#: src/components/HardeningSettings.jsx:941
+msgid "Layers a server-level 403 for xmlrpc.php on top of the PHP disable above — it does not replace it. When the vhost honors .htaccess the request is denied before PHP boots, turning a full WordPress bootstrap into a static denial (a performance win against brute-force and system.multicall floods); when .htaccess is inert the PHP disable still blocks XML-RPC, so you are never left unprotected. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:692
+#: src/components/HardeningSettings.jsx:956
 msgid "Generic login error messages"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:696
+#: src/components/HardeningSettings.jsx:960
 msgid "Replaces login and password-reset error messages with a single generic string, so attackers cannot determine whether a username exists. Real users see a less specific message."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:710
+#: src/components/HardeningSettings.jsx:974
 msgid "Send security headers"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:714
+#: src/components/HardeningSettings.jsx:978
 msgid "Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, COOP, CORP, and a configurable Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:746
-msgid "HTTP Strict Transport Security"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:750
-msgid "Tells browsers to only ever connect to your site over HTTPS for a set duration, protecting against protocol-downgrade attacks and cookie hijacking on insecure networks. Only sent when the request is actually HTTPS (including behind a reverse proxy). Once a browser has seen this header, it will refuse plain HTTP connections until max-age expires — make sure HTTPS works reliably before enabling."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:756
-msgid "Send Strict-Transport-Security header"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:760
-msgid "Only sent on HTTPS responses. Do not enable if your site is not fully served over HTTPS."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:774
-msgid "Max age"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:778
-msgid "How long browsers should remember to force HTTPS for this site."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:794
-msgid "1 day"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:800
-msgid "1 week"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:806
-msgid "1 month"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:812
-msgid "6 months"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:818
-msgid "1 year (recommended)"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:824
-msgid "2 years"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:833
-msgid "Include subdomains"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:837
-msgid "Applies the policy to every subdomain too. Only enable once you have confirmed every subdomain is served over HTTPS — otherwise those subdomains will become unreachable until max-age expires."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:851
-msgid "Preload"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx:855
-msgid "Opts into browser HSTS preload lists (requires includeSubDomains, max-age of at least 1 year, and submission to hstspreload.org). This is very difficult to reverse — only enable if you are certain every subdomain, now and in the future, will be HTTPS-only."
 msgstr ""
 
 #: src/components/OptionCleanerSettings.jsx:169

@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.6.0
+- **Plugin version target:** 2.7.0
 - **Last updated:** 2026-09-07
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -75,7 +75,11 @@ the authoritative record.)
   endpoint, CSP-style whitelist UI card, 2.4.0); ✅ Scan results list
   collapsed by default behind a "Show file list" expand button (2.5.0); ✅
   Upgrade-compatibility probe + leftover cleanup, and root `.htaccess`
-  self-check deferred off update/upload requests (2.6.0)
+  self-check deferred off update/upload requests (2.6.0); ✅ `.htaccess`
+  enforcement honesty — runtime verification of whether the vhost actually
+  applies the file-protection rules, three-state integrity+enforcement badges,
+  self-healing `reconcile()` of authored root-block drift, root Restore +
+  import mapping fixes, and always-on XML-RPC PHP fallback (2.7.0)
 
 ## Shared project facts (true for every step)
 
@@ -124,36 +128,57 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.6.0 (upgrade-compatibility probe + leftover cleanup, root `.htaccess`
-self-check deferred off update requests) is built and packaged for QA on a live
-WordPress install.**
+**2.7.0 (`.htaccess` enforcement honesty — runtime verification, three-state
+integrity+enforcement badges, self-healing `reconcile()` of authored drift, root
+Restore + import fixes, always-on XML-RPC PHP fallback) is built and packaged for
+QA on a live WordPress install.**
 
-The 2.6.0 work came out of a report that plugin uploads failed with
-"Could not move the old version to the upgrade-temp-backup directory" and
-"Filesystem error. A directory could not be read" while file-protection toggles
-were on. Live forensics established the `.htaccess` rules were **not** the
-cause — they govern HTTP requests only and cannot make `rename()` or
-`opendir()` fail. The actual cause was orphaned debris stranded in
-`wp-content/upgrade-temp-backup/plugins/` by an interrupted bulk-update run,
-with a blocking 10-second loopback self-check on `admin_init` competing for the
-PHP execution budget as a contributing factor. 2.6.0 ships the diagnostic and
-the remedy rather than a speculative change to the hardening payloads.
+The 2.7.0 work came out of two reports on the ott-dev LiteSpeed vhost. (a) The
+Directory Hardening card showed a green "Active" badge while `readme.html` and
+`license.txt` returned HTTP 200 and `wp-content/plugins/index.php` executed —
+the vhost has "Auto Load from .htaccess" effectively off, so the deny rules are
+inert, but `SPFW_Htaccess::status()` only checks *file present + sha1 == stored
+hash* and reported `ok`. (b) The root marker block had drifted (missing its
+`# group: block_xmlrpc` section) yet still read `ok`, because status compares
+disk to the *stored hash*, never to the payload the *current toggles* require;
+root was also excluded from `run_payload_migration()`, and the root card's
+Restore was mis-mapped to the plugins file. A latent gap was closed too: the PHP
+`xmlrpc_enabled` filter ran only when `disable_xmlrpc && ! block_xmlrpc_file`,
+so with the server block inert, enabling it left XML-RPC protected by neither
+layer. 2.7.0 verifies enforcement at runtime and reports it honestly, self-heals
+authored drift, fixes the mis-mapped actions, and keeps the PHP fallback on
+whenever `disable_xmlrpc` is set. Governing constraint: `readme.html`,
+`license.txt`, and `plugins/*.php` are served directly by the web server (no WP
+bootstrap), so **no PHP hook can intercept them** — the honest fix is detection
++ guidance, not a PHP fallback for the file rules (only `xmlrpc.php` bootstraps
+WP and has a viable PHP path).
+
+**Part E (live ott-dev vhost remediation) is approval-gated and was NOT executed
+— this is a code-only change.** It needs explicit go-ahead + host access: enable
+LiteSpeed "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite) or move
+the deny rules into the vhost/context config, graceful-reload OpenLiteSpeed,
+then re-sync the root block in SPFW (Restore, or let `reconcile()` run) with
+`disable_xmlrpc` on, and run "Verify enforcement" to confirm `readme.html`,
+`license.txt`, `plugins/index.php`, and `xmlrpc.php` all return 403 (cross-check
+via Novamira MCP per prior practice).
 
 Remaining before release is manual testing on a WordPress + OpenLiteSpeed site —
-confirm: "Run check" reports a pass on a healthy install with correct
-owner/PHP-user values; the check reproduces a real failure when a directory is
-made unwritable or unowned; stale leftovers are counted and surfaced without
-failing the check; "Clear leftovers and re-check" removes them and reports the
-repaired state, and refuses while `.maintenance` exists; a plugin install and a
-bulk update both succeed with every hardening toggle enabled; the root
-`.htaccess` self-check still runs (and still rolls back on a 500) on an ordinary
-admin request after an update request skipped it. Also still outstanding from
-2.5.0: enabling a directory-hardening toggle with a whitelist entry emits the
-RewriteRule allow-then-deny payload and the whitelisted file still executes
-while other PHP files are denied; empty whitelist reproduces the original
-blanket-deny payload exactly; toggling the file monitor schedules/clears the
-twice-daily cron; the alert email fires once per hour maximum and flags
-non-whitelisted entries; the "Locked Down" preset enables the monitor.
+confirm: "Verify enforcement" reports `not_enforced` (amber badge + card banner)
+on a vhost that ignores `.htaccess` and `enforced` (green) once the server
+applies the rules; the shaped result is cached and read without probing on load;
+the one automatic read rides the existing post-write root self-check (no new
+per-load loopback); a drifted root block (missing `block_xmlrpc`) is silently
+re-synced by `reconcile()` on the next non-update admin request and via the
+version-gated upgrade path; foreign edits are never clobbered (stay `altered` +
+Restore); the root card's Restore rewrites the root block (not plugins) and
+re-arms `spfw_root_htaccess_check`; settings import re-derives the root block
+when a root toggle is on; and with `disable_xmlrpc` on but the server block
+inert, XML-RPC is still denied by the PHP filter. Also still outstanding from
+2.5.0/2.6.0: the upgrade-compatibility "Run check" / "Clear leftovers" flows; a
+plugin install and bulk update both succeeding with every hardening toggle on;
+the root self-check still rolling back on a 500; the PHP-whitelist
+allow-then-deny payload; the file-integrity monitor cron + hourly-capped alert;
+and the "Locked Down" preset enabling the monitor.
 
 ---
 
@@ -367,6 +392,67 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-07 (`.htaccess` enforcement honesty + root-block drift, → 2.7.0):
+  two reports on the ott-dev LiteSpeed vhost. (a) Directory Hardening showed a
+  green "Active" badge while `readme.html`/`license.txt` returned HTTP 200 and
+  `wp-content/plugins/index.php` executed — the vhost has "Auto Load from
+  .htaccess" effectively off, so the deny rules are inert, but
+  `SPFW_Htaccess::status()` only checks *file present + sha1 == stored hash* and
+  reported `ok`. (b) The root marker block had drifted (missing its
+  `# group: block_xmlrpc` section) yet still read `ok`, because status compares
+  disk to the *stored hash*, never to the payload the *current toggles* require
+  (`payload_root()`); root was also excluded from `run_payload_migration()`, and
+  the root card's Restore was mis-mapped to the plugins file. A latent gap was
+  also closed: `register()` added the PHP `xmlrpc_enabled` filter only when
+  `disable_xmlrpc && ! block_xmlrpc_file`, so with the server block inert,
+  enabling it left XML-RPC protected by neither layer.
+  **Governing constraint:** `readme.html`, `license.txt`, and
+  `wp-content/plugins/*.php` are served directly by the web server (Apache/OLS
+  `!-f` rewrite skip) — WordPress never bootstraps for those requests, so **no
+  PHP hook can intercept them**; only `xmlrpc.php` bootstraps WP and is the one
+  protection with a viable PHP path. The honest fix is therefore runtime
+  detection + guidance, not a PHP fallback for the file rules.
+  **Decisions:** (1) verify enforcement on demand and cache it — a loopback on
+  every admin load repeats the cost 2.6.0 deliberately removed, and behind
+  QUIC.cloud it risks false readings; one automatic read piggybacks the existing
+  post-write root self-check (no new per-load loopback). (2) Enforcement is a
+  *separate dimension* from `status()` — the integrity enum is consumed in three
+  places (`get_settings`, `maybe_show_notice`, `class-spfw-mainwp-child.php`),
+  so folding enforcement in would ripple the contract and conflate two concerns.
+  (3) `reconcile()` silently self-heals only *authored* drift (on-disk sha1 ==
+  stored hash but content differs from the freshly generated payload), matching
+  `run_payload_migration()`'s philosophy — foreign edits are never clobbered
+  (stay `altered` + Restore); it now includes root, which the migration skipped.
+  (4) The XML-RPC PHP disable now runs whenever `disable_xmlrpc` is set, with
+  the server block a performance optimization layered on top.
+  **Deviations:** (i) the plan named two stored keys (`htaccess_enforcement`,
+  `htaccess_enforcement_time`); only `htaccess_enforcement` is persisted — the
+  timestamp lives in `htaccess_enforcement['checked']` and `get_settings()`
+  derives `htaccess_enforcement_time` from it, because a 27-char stored key
+  would exceed the hardening defaults array's longest key and re-anchor
+  `WordPress.Arrays.MultipleStatementAlignment`, flagging ~22 unrelated entries
+  (a PHPCS regression). (ii) The plan said to assert the Restore mapping "via a
+  spy/stub on `SPFW_Htaccess::write`"; PHP cannot stub a static method and the
+  real `write()` fatals on the unstubbed `WP_Filesystem`/`insert_with_markers`,
+  so the mapping was extracted into a pure `resolve_restore_target()` static and
+  unit-tested directly.
+  **Verified:** 53 PHPUnit tests / 207 assertions pass (19 new in
+  `tests/Htaccess_Enforcement_Test.php`; the 2 pre-existing CSP deprecations are
+  unchanged); `vendor/bin/phpcs` reports byte-identical findings to the HEAD
+  baseline on all four touched `includes/` files (htaccess 14E/0W, rest-settings
+  5E/27W, settings 24E/65W, hardening 1E/14W); `npm run lint:css` clean;
+  `npm run lint:js` has zero errors on the 343 added JSX lines (the repo-wide
+  278-error prettier baseline is separately red and CI runs it
+  `continue-on-error: true`); `npm run build` succeeds (webpack 5.108.4) and
+  `build/index.js` contains the new strings; `.pot` regenerated 470→495 entries
+  via `tools/make-pot.php` (exactly one msgid dropped — the old
+  `block_xmlrpc_file` copy intentionally replaced in Part D); ZIP packaged as
+  `simple-performance-for-wordpress-2.7.0.zip` (32 files, top-level wrapper,
+  structure identical to 2.6.0, no dev artifacts).
+  **Part E (live ott-dev vhost remediation) is approval-gated and was NOT
+  executed** — this is a code-only change; it needs explicit go-ahead + host
+  access (see Next action).
 
 - 2026-09-07 (upgrade-compatibility probe, → 2.6.0): plugin installs/updates
   were reported failing with "Could not move the old version to the

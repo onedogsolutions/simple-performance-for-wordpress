@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.6.0
+Stable tag: 2.7.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,14 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.7.0 =
+* Added: Runtime .htaccess enforcement verification on the Directory Hardening tab. A loopback probe checks whether the server is actually applying the file-protection rules (plugins/index.php, readme.html/license.txt, xmlrpc.php, and uploads/index.php when present) and reports a per-target Enforced / Not enforced / Unverified verdict plus an overall "does this vhost honor .htaccess" headline. Exposed as POST /spfw/v1/settings/verify-htaccess, with a "Verify enforcement" button and results panel. Enforcement is cached, so it is read without probing on every page load; one automatic read rides the existing post-write root self-check.
+* Added: Status badges now distinguish integrity from enforcement. An intact .htaccess that the server ignores reads "Present — not enforced by server" (amber, with the LiteSpeed "Auto Load from .htaccess" fix) instead of a misleading green "Active"; an unverified file reads "Present (enforcement unverified)". A card-level banner appears when the vhost is not honoring .htaccess at all.
+* Added: Self-healing reconciliation of authored .htaccess drift. When a file or block SPFW wrote no longer matches what the current toggles require (for example a root block missing its xmlrpc section after an upgrade), it is silently re-synced — but only content SPFW authored is ever rewritten; foreign edits remain flagged as altered with a Restore button.
+* Fixed: The root .htaccess card's Restore button rewrote the plugins file instead of the root block. Restore now targets the correct file and re-arms the root self-check.
+* Fixed: Settings import now re-derives the root .htaccess block when a root toggle is enabled, matching the plugins/uploads behavior.
+* Changed: The PHP XML-RPC disable now always runs when "Disable XML-RPC" is on. The server-level xmlrpc.php block layers on top as a performance optimization (denying the request before WordPress boots) rather than replacing the PHP protection, so XML-RPC is never left unprotected when .htaccess is inert.
 
 = 2.6.0 =
 * Added: Upgrade compatibility check on the Hardening tab. Replays the exact filesystem operations the WordPress upgrader performs — creating a scratch directory, moving it across parents into wp-content/upgrade-temp-backup, and listing the moved contents — against wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Reports a per-directory Write/Move/Read verdict alongside the directory owner and the PHP user, so a failed plugin install or update can be attributed to a real cause instead of to the directory-hardening rules. Exposed as POST /spfw/v1/settings/upgrade-check.

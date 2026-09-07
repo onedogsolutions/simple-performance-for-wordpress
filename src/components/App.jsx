@@ -55,6 +55,7 @@ export default function App() {
 	const [ upgradeCheck, setUpgradeCheck ] = useState( null );
 	const [ isCheckingUpgrade, setIsCheckingUpgrade ] = useState( false );
 	const [ isCleaningUpgrade, setIsCleaningUpgrade ] = useState( false );
+	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const fileInputRef = useRef( null );
 
 	useEffect( () => {
@@ -393,6 +394,63 @@ export default function App() {
 					err.message ||
 						__(
 							'Could not clear the leftovers.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
+	};
+
+	// Probes whether the web server actually applies the .htaccess rules this
+	// plugin wrote. A file can be present and intact yet inert on a vhost that
+	// does not honor .htaccess (for example OpenLiteSpeed with "Auto Load from
+	// .htaccess" off), so this reports what is really enforced instead of
+	// implying protection the server is not applying.
+	const handleVerifyHtaccess = () => {
+		setIsVerifyingHtaccess( true );
+
+		apiFetch( {
+			path: '/spfw/v1/settings/verify-htaccess',
+			method: 'POST',
+		} )
+			.then( ( data ) => {
+				setSettings( data );
+				setIsVerifyingHtaccess( false );
+
+				const honored = data.htaccess_honored || 'unknown';
+
+				if ( 'yes' === honored ) {
+					showToast(
+						__(
+							'Enforcement verified: the web server is applying your .htaccess hardening rules.',
+							'simple-performance-for-wordpress'
+						),
+						'success'
+					);
+				} else if ( 'no' === honored ) {
+					showToast(
+						__(
+							'The .htaccess rules are present but the web server is not applying them. See the remediation hint on the Hardening tab.',
+							'simple-performance-for-wordpress'
+						),
+						'error'
+					);
+				} else {
+					showToast(
+						__(
+							'Enforcement could not be determined. The probe was inconclusive (a redirect, a missing canary file, or a proxy in front of the origin).',
+							'simple-performance-for-wordpress'
+						),
+						'info'
+					);
+				}
+			} )
+			.catch( ( err ) => {
+				setIsVerifyingHtaccess( false );
+				showToast(
+					err.message ||
+						__(
+							'Enforcement verification failed.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -755,6 +813,24 @@ export default function App() {
 								onUpgradeCleanup={ handleUpgradeCleanup }
 								isCheckingUpgrade={ isCheckingUpgrade }
 								isCleaningUpgrade={ isCleaningUpgrade }
+								hardeningEnforcement={
+									settings.hardening_enforcement
+								}
+								uploadsEnforcement={
+									settings.uploads_hardening_enforcement
+								}
+								rootEnforcement={
+									settings.root_hardening_enforcement
+								}
+								htaccessHonored={ settings.htaccess_honored }
+								enforcementTargets={
+									settings.htaccess_enforcement_targets
+								}
+								enforcementTime={
+									settings.htaccess_enforcement_time
+								}
+								onVerifyHtaccess={ handleVerifyHtaccess }
+								isVerifyingHtaccess={ isVerifyingHtaccess }
 							/>
 						),
 						fonts: (

@@ -233,6 +233,19 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		// .htaccess enforcement verification: probe whether the web server
+		// actually applies the hardening rules (a file can be intact yet inert
+		// on a vhost that does not honor .htaccess) and cache the verdict.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/verify-htaccess',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'verify_htaccess' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -270,7 +283,88 @@ class SPFW_Rest_Settings {
 		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
 		$settings['file_monitor_snapshot_count'] = is_array( $fm_snapshot ) ? count( $fm_snapshot ) : 0;
 
+		// Enforcement is a separate dimension from the integrity status() above:
+		// status() proves a file is present and matches the hash we stored,
+		// while these fields report whether the web server actually APPLIED the
+		// rules, read from the cached probe (never re-probed on page load). A
+		// file can be perfectly intact yet inert on a vhost that does not honor
+		// .htaccess, which is the false-assurance case this now exposes.
+		$enforcement = SPFW_Settings::value( 'hardening', 'htaccess_enforcement', array() );
+		$enf         = self::derive_enforcement( $enforcement );
+
+		$settings['hardening_enforcement']         = $enf['plugins'];
+		$settings['uploads_hardening_enforcement'] = $enf['uploads'];
+		$settings['root_hardening_enforcement']    = $enf['root'];
+		$settings['htaccess_honored']              = $enf['honored'];
+		$settings['htaccess_enforcement_time']     = isset( $enforcement['checked'] ) ? (int) $enforcement['checked'] : 0;
+		$settings['htaccess_enforcement_targets']  = is_array( $enforcement ) && isset( $enforcement['targets'] ) ? $enforcement['targets'] : array();
+
 		return new WP_REST_Response( $settings, 200 );
+	}
+
+	/**
+	 * Derive per-card enforcement states from the cached probe result.
+	 *
+	 * The probe caches one shaped report (see
+	 * SPFW_Module_Hardening::shape_enforcement_result()) keyed by canary
+	 * target. The root card owns two canaries (sensitive_files and xmlrpc), so
+	 * its verdict combines them the way the headline does. A canary that was not
+	 * probed (its toggle is off, or the file is absent) contributes nothing, so
+	 * that card reads 'unknown' rather than implying enforcement.
+	 *
+	 * @param array $enforcement Cached shaped report (may be empty).
+	 * @return array{plugins:string,uploads:string,root:string,honored:string}
+	 */
+	private static function derive_enforcement( $enforcement ) {
+		$states = array();
+
+		if ( is_array( $enforcement ) && isset( $enforcement['targets'] ) && is_array( $enforcement['targets'] ) ) {
+			foreach ( $enforcement['targets'] as $row ) {
+				if ( is_array( $row ) && isset( $row['target'], $row['state'] ) ) {
+					$states[ (string) $row['target'] ] = (string) $row['state'];
+				}
+			}
+		}
+
+		$honored = is_array( $enforcement ) && isset( $enforcement['htaccess_honored'] )
+			? (string) $enforcement['htaccess_honored']
+			: 'unknown';
+
+		return array(
+			'plugins' => isset( $states['plugins'] ) ? $states['plugins'] : 'unknown',
+			'uploads' => isset( $states['uploads'] ) ? $states['uploads'] : 'unknown',
+			'root'    => self::combine_enforcement( $states, array( 'sensitive_files', 'xmlrpc' ) ),
+			'honored' => $honored,
+		);
+	}
+
+	/**
+	 * Combine several canary states into one card verdict: any clear bypass
+	 * wins, else any enforced, else unknown. Mirrors the headline derivation in
+	 * shape_enforcement_result() so a card and the headline never disagree.
+	 *
+	 * @param array<string,string> $states Map of canary target => state.
+	 * @param string[]             $keys   Canary targets belonging to one card.
+	 * @return string 'enforced'|'not_enforced'|'unknown'
+	 */
+	private static function combine_enforcement( $states, $keys ) {
+		$any_enforced = false;
+
+		foreach ( $keys as $key ) {
+			if ( ! isset( $states[ $key ] ) ) {
+				continue;
+			}
+
+			if ( 'not_enforced' === $states[ $key ] ) {
+				return 'not_enforced';
+			}
+
+			if ( 'enforced' === $states[ $key ] ) {
+				$any_enforced = true;
+			}
+		}
+
+		return $any_enforced ? 'enforced' : 'unknown';
 	}
 
 	/**
@@ -296,7 +390,33 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
-	 * POST callback: rewrite a hardening file (plugins or uploads) and
+	 * Resolve a requested restore target to one of the three known targets.
+	 *
+	 * Extracted from restore_htaccess() as a pure helper so the mapping can be
+	 * unit-tested without touching the filesystem. Previously any non-'uploads'
+	 * value was coerced to 'plugins', so the root card's Restore button
+	 * silently rewrote the plugins file instead of the root marker block; the
+	 * explicit mapping is the fix, and this pins it down.
+	 *
+	 * @param mixed $raw Requested target from the REST payload.
+	 * @return string 'root', 'uploads', or 'plugins'.
+	 */
+	public static function resolve_restore_target( $raw ) {
+		$req = is_scalar( $raw ) ? (string) $raw : '';
+
+		if ( 'root' === $req ) {
+			return 'root';
+		}
+
+		if ( 'uploads' === $req ) {
+			return 'uploads';
+		}
+
+		return 'plugins';
+	}
+
+	/**
+	 * POST callback: rewrite a hardening file (plugins, uploads, or root) and
 	 * return the refreshed state (used by the Hardening tab's Restore
 	 * button — no page reload needed). Surfaces a 500 when the write fails
 	 * (e.g. the server has no direct filesystem write access) so the button
@@ -307,9 +427,7 @@ class SPFW_Rest_Settings {
 	 */
 	public function restore_htaccess( $request ) {
 		$params = $request->get_json_params();
-		$target = ( is_array( $params ) && isset( $params['target'] ) && 'uploads' === $params['target'] )
-			? 'uploads'
-			: 'plugins';
+		$target = self::resolve_restore_target( is_array( $params ) && isset( $params['target'] ) ? $params['target'] : '' );
 
 		if ( ! SPFW_Htaccess::write( $target ) ) {
 			return new WP_REST_Response(
@@ -318,6 +436,13 @@ class SPFW_Rest_Settings {
 				),
 				500
 			);
+		}
+
+		// Re-arm the root safety self-check: a Restore rewrites the marker
+		// block, and if the restored rules 500 this vhost the self-check rolls
+		// them back automatically, exactly like a fresh enable.
+		if ( 'root' === $target ) {
+			update_option( 'spfw_root_htaccess_check', true );
 		}
 
 		return $this->get_settings();
@@ -1082,6 +1207,7 @@ class SPFW_Rest_Settings {
 		unset( $settings['hardening']['htaccess_hash'] );
 		unset( $settings['hardening']['uploads_htaccess_hash'] );
 		unset( $settings['hardening']['root_htaccess_hash'] );
+		unset( $settings['hardening']['htaccess_enforcement'] );
 		unset( $settings['hardening']['file_monitor_snapshot'] );
 		unset( $settings['hardening']['file_monitor_last_scan'] );
 		unset( $settings['fonts']['discovered'] );
@@ -1126,6 +1252,7 @@ class SPFW_Rest_Settings {
 		unset( $incoming['hardening']['htaccess_hash'] );
 		unset( $incoming['hardening']['uploads_htaccess_hash'] );
 		unset( $incoming['hardening']['root_htaccess_hash'] );
+		unset( $incoming['hardening']['htaccess_enforcement'] );
 		unset( $incoming['hardening']['file_monitor_snapshot'] );
 		unset( $incoming['hardening']['file_monitor_last_scan'] );
 		unset( $incoming['fonts']['discovered'] );
@@ -1144,6 +1271,14 @@ class SPFW_Rest_Settings {
 
 		if ( ! empty( $h['uploads_htaccess'] ) ) {
 			SPFW_Htaccess::write( 'uploads' );
+		}
+
+		// Root marker block: re-sync for parity when either root toggle is on.
+		// The import stripped any foreign root hash, so rewrite the block to
+		// match this site's toggles and re-arm the safety self-check.
+		if ( ! empty( $h['protect_sensitive_files'] ) || ! empty( $h['block_xmlrpc_file'] ) ) {
+			SPFW_Htaccess::write( 'root' );
+			update_option( 'spfw_root_htaccess_check', true );
 		}
 
 		do_action( 'litespeed_purge_all' );
@@ -1400,6 +1535,26 @@ class SPFW_Rest_Settings {
 		$data                   = $response->get_data();
 		$data['cleanup_result'] = $cleanup;
 		$data['upgrade_check']  = $module->run_upgrade_compat_check();
+		$response->set_data( $data );
+
+		return $response;
+	}
+
+	/**
+	 * POST callback: run the .htaccess enforcement probe and return the report
+	 * alongside the refreshed settings, mirroring upgrade_check(). The probe is
+	 * also cached in settings (see run_htaccess_enforcement_check()), so the
+	 * refreshed get_settings() already carries the new verdict for the UI.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function verify_htaccess() {
+		$module = new SPFW_Module_Hardening();
+		$result = $module->run_htaccess_enforcement_check();
+
+		$response                     = $this->get_settings();
+		$data                         = $response->get_data();
+		$data['htaccess_enforcement'] = $result;
 		$response->set_data( $data );
 
 		return $response;

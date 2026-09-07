@@ -83,6 +83,45 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	);
 
 	/**
+	 * Enforcement canaries for the .htaccess rule groups this plugin authors.
+	 *
+	 * Each entry maps a target key to the response codes that prove whether the
+	 * web server actually applied the rule: 'deny' codes mean enforced (the
+	 * server refused a request the rule targets), 'allow' codes mean the rule is
+	 * on disk but the server served the request anyway (not_enforced). Any other
+	 * code — a redirect, a 404 for an absent canary, a connection failure (0), a
+	 * CDN interstitial — is classified 'unknown' by the shaper, so a proxied or
+	 * unusual server never produces a false verdict.
+	 *
+	 * Labels are plain path descriptors (not translated) to keep
+	 * shape_enforcement_result() pure; the admin UI supplies its own copy.
+	 *
+	 * @var array<string,array{label:string,deny:int[],allow:int[]}>
+	 */
+	const ENFORCEMENT_CANARIES = array(
+		'plugins'         => array(
+			'label' => 'wp-content/plugins/index.php',
+			'deny'  => array( 403 ),
+			'allow' => array( 200 ),
+		),
+		'uploads'         => array(
+			'label' => 'wp-content/uploads/index.php',
+			'deny'  => array( 403 ),
+			'allow' => array( 200 ),
+		),
+		'sensitive_files' => array(
+			'label' => 'readme.html / license.txt',
+			'deny'  => array( 403 ),
+			'allow' => array( 200 ),
+		),
+		'xmlrpc'          => array(
+			'label' => 'xmlrpc.php',
+			'deny'  => array( 403 ),
+			'allow' => array( 200, 405 ),
+		),
+	);
+
+	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
 	 * that writes/removes the .htaccess files when a toggle flips, and the
 	 * runtime hardening behaviors for the currently enabled toggles.
@@ -90,6 +129,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	public function register() {
 		add_action( 'admin_init', array( $this, 'maybe_show_notice' ) );
 		add_action( 'admin_init', array( $this, 'maybe_run_root_self_check' ) );
+		add_action( 'admin_init', array( $this, 'maybe_reconcile_htaccess' ) );
 		add_action( 'update_option_' . SPFW_Settings::OPTION_KEY, array( $this, 'handle_settings_change' ), 10, 2 );
 
 		$h = SPFW_Settings::group( 'hardening' );
@@ -152,9 +192,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			add_action( 'send_headers', array( $this, 'add_hsts_header' ) );
 		}
 
-		// Disable XML-RPC at the PHP level unless the admin prefers the
-		// server-level block (which is handled by the root .htaccess rule).
-		if ( ! empty( $h['disable_xmlrpc'] ) && empty( $h['block_xmlrpc_file'] ) ) {
+		// Disable XML-RPC at the PHP level whenever the admin has disabled it.
+		// The server-level <Files xmlrpc.php> block (block_xmlrpc_file) is a
+		// performance optimization layered on top — it 403s the request before
+		// PHP boots — not a replacement for this filter: on a vhost that does
+		// not honor .htaccess the server block is inert, so the PHP filter is
+		// the real protection. Running both is harmless — when the server block
+		// is honored the request never reaches PHP, so these filters never fire.
+		if ( ! empty( $h['disable_xmlrpc'] ) ) {
 			add_filter( 'xmlrpc_enabled', '__return_false' );
 			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
 			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
@@ -373,7 +418,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 					);
 				}
 			);
+
+			return;
 		}
+
+		// One-shot enforcement read: this loopback already proved the site is
+		// healthy after a root write, so record whether the server actually
+		// honors the .htaccess rules now. No new per-load probe (that is the
+		// blocking loopback 2.6.0 deliberately removed from update requests).
+		// Cached so get_settings() returns the verdict without probing on load.
+		$this->run_htaccess_enforcement_check();
 	}
 
 	/**
@@ -404,6 +458,248 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$action = isset( $_REQUEST['action'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['action'] ) ) : '';
 
 		return 1 === preg_match( '/^(update|upgrade|install|upload)-(plugin|theme|core)/', $action );
+	}
+
+	/**
+	 * Self-heal authored .htaccess drift on ordinary admin requests.
+	 *
+	 * Reconcile re-reads each managed file and rewrites only the ones whose
+	 * on-disk content still matches the stored hash (so we authored them) but no
+	 * longer equals the payload the current toggles require. This is the drift
+	 * status() cannot see: a root marker block that lost its block_xmlrpc group
+	 * still reads 'ok' on a hash comparison yet is missing a rule the enabled
+	 * toggle requires. Cheap on the common path (a read + hash per target) and
+	 * writes only on real drift. Deferred on update/upload requests for the same
+	 * reason the root self-check is (see maybe_run_root_self_check()).
+	 */
+	public function maybe_reconcile_htaccess() {
+		if ( self::is_update_request() ) {
+			return;
+		}
+
+		$rewritten = SPFW_Htaccess::reconcile();
+
+		if ( in_array( 'root', $rewritten, true ) ) {
+			add_action(
+				'admin_notices',
+				function () {
+					printf(
+						'<div class="notice notice-success"><p>%s</p></div>',
+						esc_html__( 'Simple Performance: re-synced your root .htaccess to match your current hardening toggles.', 'simple-performance-for-wordpress' )
+					);
+				}
+			);
+		}
+	}
+
+	/**
+	 * Run the .htaccess enforcement probe and cache the shaped result.
+	 *
+	 * Mirrors run_upgrade_compat_check(): probe (impure) then shape (pure) then
+	 * persist, so get_settings() can return the verdict without re-probing on
+	 * every admin load. The stored result is what the admin UI reads until the
+	 * next explicit "Verify enforcement" or the one-shot post-write read.
+	 *
+	 * @return array Shaped enforcement report (see shape_enforcement_result()).
+	 */
+	public function run_htaccess_enforcement_check() {
+		$result = $this->probe_htaccess_enforcement();
+
+		// The shaped result carries its own 'checked' timestamp, so no separate
+		// time key is stored; get_settings() reads the timestamp from there.
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'htaccess_enforcement' => $result,
+				),
+			)
+		);
+
+		return $result;
+	}
+
+	/**
+	 * Probe whether the web server actually applies the .htaccess rules this
+	 * plugin authored, by requesting a canary each enabled rule group is meant
+	 * to deny and reading the response code. A rule that should deny but returns
+	 * an allow code is on disk yet inert (for example an OpenLiteSpeed vhost
+	 * with "Auto Load from .htaccess" off); a deny code proves the server
+	 * honored it.
+	 *
+	 * Only canaries whose toggle is enabled are probed, and only when the canary
+	 * file exists on disk, so an absent canary degrades to 'unknown' rather than
+	 * guessing. Impure: performs loopback HTTP. Classification is delegated to
+	 * the pure shape_enforcement_result() so it stays unit-testable.
+	 *
+	 * @return array Shaped enforcement report (see shape_enforcement_result()).
+	 */
+	public function probe_htaccess_enforcement() {
+		$h       = SPFW_Settings::group( 'hardening' );
+		$targets = array();
+
+		// plugins deny-PHP: index.php under plugins/ should be denied when the
+		// rule is honored.
+		if ( ! empty( $h['plugins_htaccess'] ) ) {
+			$targets[] = $this->probe_canary( 'plugins', plugins_url( 'index.php' ) );
+		}
+
+		// uploads deny-PHP: only meaningful when the canary file exists.
+		if ( ! empty( $h['uploads_htaccess'] ) ) {
+			$uploads = wp_upload_dir();
+			$disk    = trailingslashit( $uploads['basedir'] ) . 'index.php';
+
+			if ( file_exists( $disk ) ) {
+				$targets[] = $this->probe_canary( 'uploads', trailingslashit( $uploads['baseurl'] ) . 'index.php' );
+			}
+		}
+
+		// Root sensitive-file block: readme.html, falling back to license.txt.
+		if ( ! empty( $h['protect_sensitive_files'] ) ) {
+			foreach ( array( 'readme.html', 'license.txt' ) as $candidate ) {
+				if ( file_exists( ABSPATH . $candidate ) ) {
+					$targets[] = $this->probe_canary( 'sensitive_files', home_url( '/' . $candidate ) );
+					break;
+				}
+			}
+		}
+
+		// Root xmlrpc.php server block.
+		if ( ! empty( $h['block_xmlrpc_file'] ) ) {
+			$targets[] = $this->probe_canary( 'xmlrpc', home_url( '/xmlrpc.php' ) );
+		}
+
+		return self::shape_enforcement_result(
+			array(
+				'targets' => $targets,
+				'checked' => time(),
+			)
+		);
+	}
+
+	/**
+	 * Fetch one canary URL over loopback and record its response code.
+	 *
+	 * Reuses the font scanner's cache-busting and no-store pattern so a CDN or
+	 * page cache in front of the origin cannot serve a stale code and skew the
+	 * verdict. redirection=0 so a redirect is observed as-is and classified
+	 * 'unknown', never 'enforced'. sslverify=false because loopback TLS often
+	 * fails on self-signed or mismatched certs and we only read a status code.
+	 *
+	 * @param string $target Canary key (an ENFORCEMENT_CANARIES key).
+	 * @param string $url    Absolute canary URL.
+	 * @return array{target:string,url:string,code:int} Raw row; code 0 on error.
+	 */
+	private function probe_canary( $target, $url ) {
+		$row = array(
+			'target' => $target,
+			'url'    => $url,
+			'code'   => 0,
+		);
+
+		$probe_url = add_query_arg( 'spfw_nocache', (string) time(), $url );
+
+		$response = wp_remote_get(
+			$probe_url,
+			array(
+				'timeout'     => 8,
+				'redirection' => 0,
+				'sslverify'   => false,
+				'headers'     => array(
+					'Cache-Control' => 'no-cache, no-store, must-revalidate',
+					'Pragma'        => 'no-cache',
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $row;
+		}
+
+		$row['code'] = (int) wp_remote_retrieve_response_code( $response );
+
+		return $row;
+	}
+
+	/**
+	 * Classify raw canary response codes into an honest enforcement verdict.
+	 *
+	 * Pure: no filesystem, WordPress, network, or translation access, so the
+	 * classification is unit-testable without an install (wp_remote_get() is not
+	 * stubbed in tests/bootstrap.php), exactly like shape_upgrade_check_result().
+	 * Conservative by design: only a code a rule is meant to deny proves
+	 * 'enforced', only a clear allow code proves 'not_enforced', and everything
+	 * else (a redirect, a 404 for an absent canary, a connection failure of 0, a
+	 * CDN interstitial, any unexpected code) is 'unknown', so a proxied or
+	 * unusual server never yields a false alarm.
+	 *
+	 * The headline htaccess_honored is a vhost-level property: if the server
+	 * ignores one .htaccess we wrote it ignores all, so a single clear bypass
+	 * (any 'not_enforced' target) makes it 'no'; otherwise any 'enforced' target
+	 * makes it 'yes'; with nothing decisive it is 'unknown'.
+	 *
+	 * @param array $raw Raw probe output: 'targets' (rows of {target,url,code})
+	 *                   and 'checked'.
+	 * @return array Report: 'htaccess_honored' (yes|no|unknown), 'targets' (rows
+	 *               of {target,label,url,observed_code,expected,state}), and
+	 *               'checked'.
+	 */
+	public static function shape_enforcement_result( array $raw ) {
+		$raw_targets  = isset( $raw['targets'] ) && is_array( $raw['targets'] ) ? $raw['targets'] : array();
+		$targets      = array();
+		$any_enforced = false;
+		$any_bypassed = false;
+
+		foreach ( $raw_targets as $row ) {
+			if ( ! is_array( $row ) || ! isset( $row['target'] ) ) {
+				continue;
+			}
+
+			$key    = (string) $row['target'];
+			$canary = isset( self::ENFORCEMENT_CANARIES[ $key ] )
+				? self::ENFORCEMENT_CANARIES[ $key ]
+				: array(
+					'label' => $key,
+					'deny'  => array( 403 ),
+					'allow' => array( 200 ),
+				);
+
+			$code  = isset( $row['code'] ) ? (int) $row['code'] : 0;
+			$deny  = isset( $canary['deny'] ) ? (array) $canary['deny'] : array( 403 );
+			$allow = isset( $canary['allow'] ) ? (array) $canary['allow'] : array( 200 );
+
+			if ( in_array( $code, $deny, true ) ) {
+				$state        = 'enforced';
+				$any_enforced = true;
+			} elseif ( in_array( $code, $allow, true ) ) {
+				$state        = 'not_enforced';
+				$any_bypassed = true;
+			} else {
+				$state = 'unknown';
+			}
+
+			$targets[] = array(
+				'target'        => $key,
+				'label'         => isset( $canary['label'] ) ? (string) $canary['label'] : $key,
+				'url'           => isset( $row['url'] ) ? (string) $row['url'] : '',
+				'observed_code' => $code,
+				'expected'      => implode( '/', array_map( 'strval', $deny ) ),
+				'state'         => $state,
+			);
+		}
+
+		if ( $any_bypassed ) {
+			$honored = 'no';
+		} elseif ( $any_enforced ) {
+			$honored = 'yes';
+		} else {
+			$honored = 'unknown';
+		}
+
+		return array(
+			'htaccess_honored' => $honored,
+			'targets'          => $targets,
+			'checked'          => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
+		);
 	}
 
 	/**

@@ -24,18 +24,88 @@ const STATUS_STYLES = {
 	},
 };
 
-function StatusBadge( { status, onRestore } ) {
-	const style = STATUS_STYLES[ status ];
+// Enforcement verdicts layer onto the 'ok' integrity state. A file can be
+// present and byte-for-byte intact (status 'ok') yet completely inert on a
+// vhost that ignores .htaccess, so 'ok' is split into three honest runtime
+// verdicts read from the cached probe. 'missing'/'altered' keep STATUS_STYLES:
+// enforcement is meaningless until the file is restored.
+const ENFORCEMENT_STYLES = {
+	enforced: {
+		label: __( 'Enforced', 'simple-performance-for-wordpress' ),
+		short: __( 'Enforced', 'simple-performance-for-wordpress' ),
+		glyph: '✓',
+		badge: 'bg-green-50 text-green-700 ring-green-600/20',
+		dot: 'bg-green-600',
+	},
+	not_enforced: {
+		label: __(
+			'Present — not enforced by server',
+			'simple-performance-for-wordpress'
+		),
+		short: __( 'Not enforced', 'simple-performance-for-wordpress' ),
+		glyph: '✗',
+		badge: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+		dot: 'bg-amber-600',
+		hint: __(
+			'The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, enable "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite), then reload the server.',
+			'simple-performance-for-wordpress'
+		),
+	},
+	unknown: {
+		label: __(
+			'Present (enforcement unverified)',
+			'simple-performance-for-wordpress'
+		),
+		short: __( 'Unverified', 'simple-performance-for-wordpress' ),
+		glyph: '?',
+		badge: 'bg-gray-50 text-gray-600 ring-gray-500/20',
+		dot: 'bg-gray-400',
+		hint: __(
+			'Enforcement has not been confirmed yet. Run "Verify enforcement" to probe whether the server is actually applying these rules.',
+			'simple-performance-for-wordpress'
+		),
+	},
+};
+
+// Tone for the results-panel headline, keyed by the server-wide
+// htaccess_honored verdict (yes | no | unknown).
+const HONORED_TONES = {
+	yes: { box: 'bg-green-50 ring-green-600/20', text: 'text-green-800' },
+	no: { box: 'bg-amber-50 ring-amber-600/20', text: 'text-amber-800' },
+	unknown: { box: 'bg-gray-50 ring-gray-500/20', text: 'text-gray-700' },
+};
+
+function StatusBadge( {
+	status,
+	enforcement,
+	onRestore,
+	onVerify,
+	isVerifying,
+} ) {
+	// 'ok' only proves the file is present and matches the hash we stored; it
+	// says nothing about whether the server applies the rules. When the file is
+	// intact, report the runtime-enforcement verdict instead of a bare "Active";
+	// otherwise fall back to the integrity styling.
+	const isIntact = 'ok' === status;
+	const resolved = isIntact ? enforcement || 'unknown' : status;
+	const style = isIntact
+		? ENFORCEMENT_STYLES[ resolved ]
+		: STATUS_STYLES[ status ];
 
 	if ( ! style ) {
 		return null;
 	}
 
 	const needsRestore = 'missing' === status || 'altered' === status;
+	const showVerify = isIntact && 'enforced' !== resolved && !! onVerify;
+	const verifyButtonLabel = isVerifying
+		? __( 'Verifying…', 'simple-performance-for-wordpress' )
+		: __( 'Verify enforcement', 'simple-performance-for-wordpress' );
 
 	return (
 		<div className="flex items-center gap-x-3">
 			<span
+				title={ style.hint }
 				className={ `inline-flex items-center gap-x-1.5 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${ style.badge }` }
 			>
 				<svg
@@ -56,7 +126,32 @@ function StatusBadge( { status, onRestore } ) {
 					{ __( 'Restore', 'simple-performance-for-wordpress' ) }
 				</button>
 			) }
+			{ showVerify && (
+				<button
+					type="button"
+					onClick={ onVerify }
+					disabled={ isVerifying }
+					className="text-sm font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					{ verifyButtonLabel }
+				</button>
+			) }
 		</div>
+	);
+}
+
+// Three-state enforcement chip for one canary row in the results panel. Reuses
+// ENFORCEMENT_STYLES so a row and its card badge never disagree.
+function EnforcementPill( { state } ) {
+	const style = ENFORCEMENT_STYLES[ state ] || ENFORCEMENT_STYLES.unknown;
+
+	return (
+		<span
+			className={ `inline-flex items-center gap-x-1 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${ style.badge }` }
+		>
+			<span aria-hidden="true">{ style.glyph }</span>
+			{ style.short }
+		</span>
 	);
 }
 
@@ -254,6 +349,14 @@ export default function HardeningSettings( {
 	onUpgradeCleanup,
 	isCheckingUpgrade,
 	isCleaningUpgrade,
+	hardeningEnforcement,
+	uploadsEnforcement,
+	rootEnforcement,
+	htaccessHonored,
+	enforcementTargets,
+	enforcementTime,
+	onVerifyHtaccess,
+	isVerifyingHtaccess,
 } ) {
 	const hardening = settings.hardening || {};
 	const adminEmail = settings.admin_email || '';
@@ -271,6 +374,49 @@ export default function HardeningSettings( {
 		return __( 'Run upgrade check', 'simple-performance-for-wordpress' );
 	};
 
+	// Same idea as upgradeCheckLabel: keeps the Verify button label free of a
+	// nested ternary in the JSX.
+	const verifyLabel = () => {
+		if ( isVerifyingHtaccess ) {
+			return __( 'Verifying…', 'simple-performance-for-wordpress' );
+		}
+
+		if ( enforcementTargets && enforcementTargets.length ) {
+			return __(
+				'Verify enforcement again',
+				'simple-performance-for-wordpress'
+			);
+		}
+
+		return __( 'Verify enforcement', 'simple-performance-for-wordpress' );
+	};
+
+	// Headline for the results panel, keyed by the server-wide verdict. Kept in
+	// a helper (not inline) to avoid a nested ternary in the JSX.
+	const honoredHeadline = () => {
+		if ( 'yes' === htaccessHonored ) {
+			return __(
+				'The web server is applying your .htaccess hardening rules.',
+				'simple-performance-for-wordpress'
+			);
+		}
+
+		if ( 'no' === htaccessHonored ) {
+			return __(
+				'These files are present and intact, but the web server is not applying their rules — direct requests still get through. The fix is on the server, described above.',
+				'simple-performance-for-wordpress'
+			);
+		}
+
+		return __(
+			'Enforcement could not be confirmed. Each canary below was inconclusive — a redirect, a missing canary file, or a proxy/CDN in front of the origin.',
+			'simple-performance-for-wordpress'
+		);
+	};
+
+	const honoredTone =
+		HONORED_TONES[ htaccessHonored ] || HONORED_TONES.unknown;
+
 	return (
 		<div className="space-y-6">
 			<SettingsCard
@@ -283,6 +429,25 @@ export default function HardeningSettings( {
 					'simple-performance-for-wordpress'
 				) }
 			>
+				{ 'no' === htaccessHonored && (
+					<div className="py-6">
+						<div className="rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">
+							<p className="text-sm font-medium text-amber-800">
+								{ __(
+									'This web server is not applying your .htaccess rules.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+							<p className="mt-1 text-xs text-amber-700">
+								{ __(
+									'The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. Fix it on the server: on LiteSpeed enable "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite), or move the deny rules into the vhost/context config, then reload the web server and run "Verify enforcement" again.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						</div>
+					</div>
+				) }
+
 				<SettingsRow
 					title={ __(
 						'Block direct PHP execution in wp-content/plugins',
@@ -301,7 +466,10 @@ export default function HardeningSettings( {
 					{ !! hardening.plugins_htaccess && (
 						<StatusBadge
 							status={ hardeningStatus }
+							enforcement={ hardeningEnforcement }
 							onRestore={ () => onRestore( 'plugins' ) }
+							onVerify={ onVerifyHtaccess }
+							isVerifying={ isVerifyingHtaccess }
 						/>
 					) }
 				</SettingsRow>
@@ -324,10 +492,103 @@ export default function HardeningSettings( {
 					{ !! hardening.uploads_htaccess && (
 						<StatusBadge
 							status={ uploadsStatus }
+							enforcement={ uploadsEnforcement }
 							onRestore={ () => onRestore( 'uploads' ) }
+							onVerify={ onVerifyHtaccess }
+							isVerifying={ isVerifyingHtaccess }
 						/>
 					) }
 				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
+						'Runtime enforcement',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'A .htaccess file can be present and intact yet inert: on a vhost that does not honor .htaccess (for example OpenLiteSpeed with "Auto Load from .htaccess" off) the deny rules never run. This probes the live URLs those rules should block — plugins/index.php, readme.html, xmlrpc.php — over a loopback request and reports the code the server actually returned. It runs only when you click it, never on page load.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<button
+						type="button"
+						onClick={ onVerifyHtaccess }
+						disabled={ isVerifyingHtaccess }
+						className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{ verifyLabel() }
+					</button>
+				</SettingsRow>
+
+				{ enforcementTargets && enforcementTargets.length > 0 && (
+					<SettingsRow
+						title={ __(
+							'Enforcement results',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Each canary should return its expected code. A 403 means the rule is enforced; a 200 (or 405 for xmlrpc.php) means the request got through and the rule is inert.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<div className="w-full space-y-3">
+							<div
+								className={ `rounded-md p-3 ring-1 ring-inset ${ honoredTone.box }` }
+							>
+								<p
+									className={ `text-sm font-medium ${ honoredTone.text }` }
+								>
+									{ honoredHeadline() }
+								</p>
+							</div>
+
+							<ul className="space-y-2">
+								{ enforcementTargets.map( ( row ) => (
+									<li
+										key={ row.target }
+										className="rounded-md p-2.5 ring-1 ring-inset ring-gray-200"
+									>
+										<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+											<code className="text-xs font-mono text-gray-800">
+												{ row.label }
+											</code>
+											<EnforcementPill
+												state={ row.state }
+											/>
+										</div>
+										<p className="mt-1 text-xs text-gray-500">
+											{ sprintf(
+												/* translators: %1$s: observed HTTP status code, %2$s: expected code, %3$s: probed URL */
+												__(
+													'Observed HTTP %1$s (expected %2$s) · %3$s',
+													'simple-performance-for-wordpress'
+												),
+												row.observed_code || '—',
+												row.expected || '—',
+												row.url || '—'
+											) }
+										</p>
+									</li>
+								) ) }
+							</ul>
+
+							<p className="text-xs text-gray-400">
+								{ sprintf(
+									/* translators: %s: date/time of the enforcement check */
+									__(
+										'Checked %s',
+										'simple-performance-for-wordpress'
+									),
+									enforcementTime > 0
+										? new Date(
+												enforcementTime * 1000
+										  ).toLocaleString()
+										: '—'
+								) }
+							</p>
+						</div>
+					</SettingsRow>
+				) }
 
 				<SettingsRow
 					title={ __(
@@ -579,7 +840,10 @@ export default function HardeningSettings( {
 					>
 						<StatusBadge
 							status={ rootStatus }
+							enforcement={ rootEnforcement }
 							onRestore={ () => onRestore( 'root' ) }
+							onVerify={ onVerifyHtaccess }
+							isVerifying={ isVerifyingHtaccess }
 						/>
 					</SettingsRow>
 				) }
@@ -675,7 +939,7 @@ export default function HardeningSettings( {
 							'simple-performance-for-wordpress'
 						) }
 						description={ __(
-							'Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC.',
+							'Layers a server-level 403 for xmlrpc.php on top of the PHP disable above — it does not replace it. When the vhost honors .htaccess the request is denied before PHP boots, turning a full WordPress bootstrap into a static denial (a performance win against brute-force and system.multicall floods); when .htaccess is inert the PHP disable still blocks XML-RPC, so you are never left unprotected. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC.',
 							'simple-performance-for-wordpress'
 						) }
 					>

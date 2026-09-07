@@ -92,6 +92,12 @@ class SPFW_Settings {
 				'block_xmlrpc_file'     => false,
 				'disable_xmlrpc'        => false,
 				'root_htaccess_hash'    => '',
+				// Runtime enforcement verification: the shaped probe result
+				// (per-canary evidence rows + the server-wide htaccess_honored
+				// verdict) cached here so get_settings() can report whether the
+				// rules are actually applied by the web server without probing
+				// on every load. Volatile / site-specific — stripped on export.
+				'htaccess_enforcement'    => array(),
 				'permissions_policy'    => array( 'geolocation' => array(), 'microphone' => array(), 'camera' => array(), 'payment' => array(), 'usb' => array(), 'interest-cohort' => array() ),
 				'security_headers'      => false,
 				'csp_enabled'             => false,
@@ -260,6 +266,15 @@ class SPFW_Settings {
 		// installs don't see a false "file has been modified" alarm.
 		if ( version_compare( $stored_ver, '1.14.0', '<' ) ) {
 			SPFW_Htaccess::run_payload_migration();
+		}
+
+		// Migration to 2.7.0: reconcile the .htaccess files we authored against
+		// the payload the current toggles require, healing a drifted block once
+		// on upgrade (see reconcile_htaccess_on_upgrade()). Runs after the cache
+		// is seeded, per the ordering note above, so reconcile()'s nested reads
+		// return immediately instead of recursing.
+		if ( version_compare( $stored_ver, '2.7.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
 		}
 
 		return self::$cache;
@@ -485,6 +500,13 @@ class SPFW_Settings {
 
 		$root_hash                                = isset( $hardening['root_htaccess_hash'] ) ? sanitize_text_field( $hardening['root_htaccess_hash'] ) : '';
 		$clean['hardening']['root_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $root_hash ) ? $root_hash : '';
+
+		// Enforcement probe cache: internal-only (populated by the verification
+		// probe, never user-supplied through the settings form). Pass the shaped
+		// array through when present and array-shaped.
+		$clean['hardening']['htaccess_enforcement'] = isset( $hardening['htaccess_enforcement'] ) && is_array( $hardening['htaccess_enforcement'] )
+			? $hardening['htaccess_enforcement']
+			: array();
 
 		// Permissions-Policy: feature => allowlist map.
 		$clean['hardening']['permissions_policy'] = self::sanitize_permissions_policy(
@@ -1068,6 +1090,31 @@ class SPFW_Settings {
 
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Migration to 2.7.0: reconcile the .htaccess files we authored against
+	 * the payload the current toggles require. This heals a drifted block once
+	 * on upgrade — notably a root marker block that lost its block_xmlrpc
+	 * group, which the hash-only status() check is blind to and
+	 * run_payload_migration() skips (it covers plugins/uploads only).
+	 *
+	 * Called after the static cache is seeded, so reconcile()'s nested
+	 * SPFW_Settings reads return immediately instead of recursing. When
+	 * reconcile() rewrites a file it bumps the stored version as a side effect;
+	 * when there is no drift nothing is written, so the version is persisted
+	 * here to guarantee this migration runs exactly once.
+	 */
+	private static function reconcile_htaccess_on_upgrade() {
+		SPFW_Htaccess::reconcile();
+
+		$stored = get_option( self::OPTION_KEY, array() );
+		$ver    = is_array( $stored ) && isset( $stored['version'] ) ? $stored['version'] : '';
+
+		if ( version_compare( $ver, SPFW_VERSION, '<' ) ) {
+			self::$cache = self::sanitize( self::$cache );
+			update_option( self::OPTION_KEY, self::$cache );
+		}
 	}
 
 	/**

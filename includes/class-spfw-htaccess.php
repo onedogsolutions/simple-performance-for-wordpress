@@ -651,4 +651,77 @@ class SPFW_Htaccess {
 			self::write( $target );
 		}
 	}
+
+	/**
+	 * Whether a target we authored has drifted from the payload its current
+	 * toggles require.
+	 *
+	 * "Authored" means the on-disk content still matches the stored integrity
+	 * hash (status() === 'ok'), so we only ever resync our own files — a foreign
+	 * edit stays 'altered' and is left for Restore. "Drifted" means that
+	 * authored content no longer equals what payload() generates for the
+	 * current settings. This is the gap status() cannot see: it compares disk
+	 * to the *stored hash*, so a root marker block that lost its block_xmlrpc
+	 * group still reads 'ok' even though the current toggles require that group.
+	 *
+	 * @param string $target One of 'plugins'|'uploads'|'root'.
+	 * @return bool
+	 */
+	public static function needs_resync( $target = 'plugins' ) {
+		if ( 'ok' !== self::status( $target ) ) {
+			return false;
+		}
+
+		$config   = self::config( $target );
+		$expected = self::payload( $target );
+
+		if ( 'marker_block' === $config['mode'] ) {
+			// The stored hash is the sha1 of the extracted block (markers and
+			// surrounding newlines stripped), so compare against the payload
+			// normalized the same way write_marker_block() stores it.
+			$block = self::extract_marker_block( $config['path'] );
+
+			return rtrim( $expected, "\n" ) !== $block;
+		}
+
+		if ( ! file_exists( $config['path'] ) ) {
+			return false;
+		}
+
+		return sha1_file( $config['path'] ) !== sha1( $expected );
+	}
+
+	/**
+	 * Self-heal authored drift: for every target, rewrite the file when
+	 * needs_resync() reports the content we authored no longer matches what the
+	 * current toggles require. Hash-gated — only ever rewrites content whose
+	 * on-disk hash still matches the stored hash, so a foreign edit is never
+	 * clobbered (it remains 'altered' for the admin to Restore). Includes the
+	 * root marker block, which run_payload_migration() does not cover.
+	 *
+	 * @return string[] Targets that were rewritten.
+	 */
+	public static function reconcile() {
+		$rewritten = array();
+
+		foreach ( array( 'plugins', 'uploads', 'root' ) as $target ) {
+			if ( ! self::needs_resync( $target ) ) {
+				continue;
+			}
+
+			if ( self::write( $target ) ) {
+				$rewritten[] = $target;
+
+				// Re-arm the root safety self-check: reconcile can re-add a
+				// rule group (e.g. block_xmlrpc) whose presence the server may
+				// reject with a 500, exactly like a fresh enable. The self-check
+				// rolls the block back automatically if that happens.
+				if ( 'root' === $target ) {
+					update_option( 'spfw_root_htaccess_check', true );
+				}
+			}
+		}
+
+		return $rewritten;
+	}
 }
