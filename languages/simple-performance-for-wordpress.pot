@@ -2,21 +2,21 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.0.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.6.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-07-31T12:00:00+00:00\n"
+"POT-Creation-Date: 2026-09-07T17:16:34+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"X-Generator: WP-CLI 2.12.0\n"
+"X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
 
 #. Plugin Name of the plugin
 #: simple-performance-for-wordpress.php
-#: src/components/App.jsx:224
+#: src/components/App.jsx:574
 msgid "Simple Performance for WordPress"
 msgstr ""
 
@@ -44,12 +44,112 @@ msgstr ""
 msgid "Loading settings…"
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:162
+#. translators: %d: number of rows deleted
+#: includes/api/class-rest-option-cleaner.php:157
+#, php-format
+msgid "%d row deleted."
+msgid_plural "%d rows deleted."
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: %d: number of capabilities removed
+#: includes/api/class-rest-option-cleaner.php:202
+#, php-format
+msgid "%d capability removed."
+msgid_plural "%d capabilities removed."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/class-spfw-rest-settings.php:1117
+msgid "Invalid import payload. Expected a JSON object with a \"settings\" key."
+msgstr ""
+
+#: includes/class-spfw-rest-settings.php:1186
+msgid "Unknown preset name."
+msgstr ""
+
+#: includes/class-spfw-rest-settings.php:1324
+msgid "No valid cleanup targets selected."
+msgstr ""
+
+#: includes/class-spfw-rest-settings.php:317
 msgid "Could not write the hardening file. The web server may not have direct write access to this directory."
 msgstr ""
 
-#: includes/modules/class-spfw-module-core.php:276
+#: includes/class-spfw-settings.php:1083
+msgid "Balanced"
+msgstr ""
+
+#: includes/class-spfw-settings.php:1084
+msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
+msgstr ""
+
+#: includes/class-spfw-settings.php:1104
+msgid "Aggressive"
+msgstr ""
+
+#: includes/class-spfw-settings.php:1105
+msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
+msgstr ""
+
+#: includes/class-spfw-settings.php:1133
+msgid "Locked Down"
+msgstr ""
+
+#: includes/class-spfw-settings.php:1134
+msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
+msgstr ""
+
+#: includes/modules/class-spfw-module-core.php:296
 msgid "Feeds are disabled on this site."
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:144
+#: src/components/DatabaseSettings.jsx:10
+msgid "Revisions"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:145
+#: src/components/DatabaseSettings.jsx:14
+msgid "Auto Drafts"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:146
+#: src/components/DatabaseSettings.jsx:18
+msgid "Trashed Posts"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:147
+#: src/components/DatabaseSettings.jsx:22
+msgid "Spam Comments"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:148
+#: src/components/DatabaseSettings.jsx:26
+msgid "Trashed Comments"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:149
+#: src/components/DatabaseSettings.jsx:30
+msgid "Expired Transients"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:150
+#: src/components/DatabaseSettings.jsx:34
+msgid "All Transients"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:151
+#: src/components/DatabaseSettings.jsx:38
+msgid "Table Optimization"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:75
+msgid "Once Weekly"
+msgstr ""
+
+#: includes/modules/class-spfw-module-database.php:82
+msgid "Once Monthly"
 msgstr ""
 
 #: includes/modules/class-spfw-module-fonts.php:111
@@ -60,99 +160,317 @@ msgstr ""
 msgid "Go to the Fonts tab and click \"Scan fonts now\" to fix it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-fonts.php:258
+#: includes/modules/class-spfw-module-fonts.php:250
 msgid "Could not load your homepage to scan for fonts. Your server may block loopback requests — check your site is reachable from itself, then try again."
 msgstr ""
 
-#: includes/modules/class-spfw-module-fonts.php:264
+#: includes/modules/class-spfw-module-fonts.php:256
 msgid "No Google Fonts were detected. If your site uses a CDN/optimizer that strips font tags, add the families and weights manually below and scan again."
 msgstr ""
 
-#: includes/modules/class-spfw-module-fonts.php:305
+#: includes/modules/class-spfw-module-fonts.php:297
 msgid "Google Fonts were detected but none of the font files could be downloaded. Check that your server can reach fonts.gstatic.com."
 msgstr ""
 
 #. translators: 1: number of font families, 2: number of font files.
-#: includes/modules/class-spfw-module-fonts.php:322
+#: includes/modules/class-spfw-module-fonts.php:314
 #, php-format
 msgid "Localized %1$d font families (%2$d files)."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:106
+#. translators: %s: site name
+#: includes/modules/class-spfw-module-hardening.php:1229
+#, php-format
+msgid "[%s] File integrity alert"
+msgstr ""
+
+#. translators: %s: site name
+#: includes/modules/class-spfw-module-hardening.php:1235
+#, php-format
+msgid "File integrity scan detected changes on %s:\n\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1240
+msgid "NEW FILES:\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1251
+msgid "MODIFIED FILES:\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1262
+msgid "REMOVED FILES:\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1271
+msgid "Review these files immediately if the changes were not expected.\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1374
+msgid "Directory does not exist and could not be created."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1387
+#: includes/modules/class-spfw-module-hardening.php:1453
+msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), which the upgrader requires."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1393
+msgid "Not writable by the PHP process."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1405
+#: includes/modules/class-spfw-module-hardening.php:1464
+msgid "Could not create the probe scratch directories."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1418
+msgid "A directory could not be moved out of this location."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1424
+msgid "The directory contents could not be listed."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1476
+msgid "A plugin directory could not be moved into wp-content/upgrade-temp-backup/. This is what produces \"Could not move the old version to the upgrade-temp-backup directory\"."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1646
+msgid "An update appears to be running right now, so the leftovers were not removed. Try again once it finishes."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:1656
+msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), so the leftovers could not be removed."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:195
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:120
+#: includes/modules/class-spfw-module-hardening.php:209
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-restapi.php:92
-msgid "REST API restricted to authenticated users."
+#: includes/modules/class-spfw-module-hardening.php:372
+msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:453
+#: includes/modules/class-spfw-module-hardening.php:485
+msgid "Invalid username or password."
 msgstr ""
 
 #: includes/modules/class-spfw-module-restapi.php:100
 msgid "No route was found matching the URL and request method."
 msgstr ""
 
-#: src/components/App.jsx:13
-msgid "Core"
+#: includes/modules/class-spfw-module-restapi.php:92
+msgid "REST API restricted to authenticated users."
 msgstr ""
 
-#: src/components/App.jsx:16
-#: src/components/RestApiSettings.jsx:57
-msgid "REST API"
-msgstr ""
-
-#: src/components/App.jsx:20
-msgid "Hardening"
-msgstr ""
-
-#: src/components/App.jsx:22
-#: src/components/CspPolicyCard.jsx:50
-msgid "Fonts"
-msgstr ""
-
-#: src/components/App.jsx:34
-msgid "WooCommerce"
-msgstr ""
-
-#: src/components/App.jsx:85
+#: src/components/App.jsx:102
 msgid "Hardening file restored."
 msgstr ""
 
-#: src/components/App.jsx:95
+#: src/components/App.jsx:112
 msgid "Failed to restore the hardening file."
 msgstr ""
 
-#: src/components/App.jsx:152
+#: src/components/App.jsx:14
+msgid "Core"
+msgstr ""
+
+#: src/components/App.jsx:17
+#: src/components/RestApiSettings.jsx:62
+msgid "REST API"
+msgstr ""
+
+#: src/components/App.jsx:177
+msgid "Violation collection stopped."
+msgstr ""
+
+#: src/components/App.jsx:181
+msgid "Collecting violation reports."
+msgstr ""
+
+#: src/components/App.jsx:191
+msgid "Could not change violation collection."
+msgstr ""
+
+#: src/components/App.jsx:21
+msgid "Hardening"
+msgstr ""
+
+#: src/components/App.jsx:223
 msgid "Font scan complete."
 msgstr ""
 
-#: src/components/App.jsx:162
+#: src/components/App.jsx:23
+#: src/components/CspPolicyCard.jsx:51
+msgid "Fonts"
+msgstr ""
+
+#: src/components/App.jsx:233
 msgid "Font scan failed."
 msgstr ""
 
-#: src/components/App.jsx:184
+#: src/components/App.jsx:26
+msgid "Option Cleaner"
+msgstr ""
+
+#. translators: %d: number of changes detected
+#: src/components/App.jsx:265
+#, php-format
+msgid "Scan complete. %d change(s) detected."
+msgstr ""
+
+#: src/components/App.jsx:271
+msgid "Scan complete. No changes detected."
+msgstr ""
+
+#: src/components/App.jsx:282
+msgid "File scan failed."
+msgstr ""
+
+#: src/components/App.jsx:312
+msgid "Upgrade check returned no result."
+msgstr ""
+
+#. translators: %d: number of leftover items
+#: src/components/App.jsx:322
+#, php-format
+msgid "Directories are healthy, but %d leftover item(s) remain from an interrupted update."
+msgstr ""
+
+#: src/components/App.jsx:332
+msgid "Upgrade check passed. Every directory the upgrader needs is writable, movable and readable."
+msgstr ""
+
+#: src/components/App.jsx:340
+msgid "Upgrade check found a problem. Plugin installs and updates will fail until it is fixed."
+msgstr ""
+
+#: src/components/App.jsx:352
+msgid "Upgrade check failed."
+msgstr ""
+
+#. translators: %d: number of leftover items removed
+#: src/components/App.jsx:381
+#, php-format
+msgid "Removed %d leftover item(s) and re-checked."
+msgstr ""
+
+#: src/components/App.jsx:39
+msgid "WooCommerce"
+msgstr ""
+
+#: src/components/App.jsx:394
+msgid "Could not clear the leftovers."
+msgstr ""
+
+#: src/components/App.jsx:416
 msgid "Settings saved."
 msgstr ""
 
-#: src/components/App.jsx:192
+#: src/components/App.jsx:424
 msgid "Failed to save settings. Please try again."
 msgstr ""
 
-#: src/components/App.jsx:230
+#: src/components/App.jsx:447
+msgid "Settings exported."
+msgstr ""
+
+#: src/components/App.jsx:457
+msgid "Export failed."
+msgstr ""
+
+#: src/components/App.jsx:487
+msgid "Settings imported."
+msgstr ""
+
+#: src/components/App.jsx:497
+msgid "Import failed."
+msgstr ""
+
+#: src/components/App.jsx:506
+msgid "Invalid JSON file."
+msgstr ""
+
+#: src/components/App.jsx:530
+msgid "Preset applied."
+msgstr ""
+
+#: src/components/App.jsx:540
+msgid "Failed to apply preset."
+msgstr ""
+
+#: src/components/App.jsx:580
 msgid "Lightweight performance, REST API, and hardening controls for OpenLiteSpeed + LiteSpeed Cache."
 msgstr ""
 
-#: src/components/App.jsx:309
+#: src/components/App.jsx:601
+msgid "Apply preset…"
+msgstr ""
+
+#: src/components/App.jsx:624
+msgid "Export"
+msgstr ""
+
+#: src/components/App.jsx:638
+msgid "Import"
+msgstr ""
+
+#: src/components/App.jsx:658
+msgid "Apply preset"
+msgstr ""
+
+#: src/components/App.jsx:668
+msgid "This overwrites your current settings. Save first if you want to keep them."
+msgstr ""
+
+#: src/components/App.jsx:683
+msgid "Apply"
+msgstr ""
+
+#: src/components/App.jsx:695
+#: src/components/CspPolicyCard.jsx:714
+#: src/components/CspPolicyCard.jsx:875
+#: src/components/CspPolicyCard.jsx:1331
+#: src/components/PhpWhitelistCard.jsx:220
+msgid "Cancel"
+msgstr ""
+
+#: src/components/App.jsx:801
 msgid "Saving…"
 msgstr ""
 
-#: src/components/App.jsx:313
+#: src/components/App.jsx:805
 msgid "Save Settings"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:106
+msgid "Default (60 seconds)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:115
+msgid "300 seconds (5 minutes)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:122
+msgid "1536×1536 (scaled)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:126
+msgid "2048×2048 (scaled)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:130
+msgid "medium_large (768px)"
+msgstr ""
+
 #: src/components/CoreSettings.jsx:14
+#: src/components/CoreSettings.jsx:85
 msgid "Default (WordPress behavior)"
 msgstr ""
 
@@ -160,8 +478,72 @@ msgstr ""
 msgid "Disable everywhere"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:245
+msgid "Head Cleanup"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:249
+msgid "Remove unused markup, scripts, and discovery links WordPress adds to your site header."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:25
 msgid "Only allow when editing posts/pages"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:255
+msgid "Disable block editor CSS"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:259
+msgid "Removes wp-block-library, global-styles, and classic-theme-styles from the frontend (~30–60 KB render-blocking CSS). For classic or page-builder themes. Global styles are site-wide and cannot be conditionally removed per-post."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:291
+msgid "Smart mode: skip removal on pages that use blocks"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:301
+msgid "Disable emojis"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:302
+msgid "Removes emoji detection scripts, styles, and the s.w.org DNS-prefetch hint from the frontend and admin."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:309
+msgid "Disable embeds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:310
+msgid "Removes oEmbed discovery links and the wp-embed script."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:317
+msgid "Disable Dashicons for visitors"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:321
+msgid "Stops loading the Dashicons stylesheet for logged-out visitors."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:328
+msgid "Remove RSD link"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:329
+msgid "Removes the Really Simple Discovery link from the site header."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:336
+msgid "Remove Windows Live Writer manifest"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:340
+msgid "Removes the wlwmanifest link from the site header."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:347
+msgid "Remove shortlink"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:35
@@ -169,28 +551,211 @@ msgstr ""
 msgid "Default"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:351
+msgid "Removes the shortlink tag from the header and HTTP headers."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:358
+msgid "Hide WordPress version"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:362
+msgid "Removes the generator meta tag and strips the WordPress version from core asset URLs."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:369
+msgid "Remove REST API header links"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:373
+msgid "Removes the REST API link tag and HTTP header. Does not disable the API — use the REST API tab for that."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:380
+msgid "Remove robots max-image-preview"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:384
+msgid "Strip the default max-image-preview:large directive WordPress adds to the robots meta tag."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:39
 msgid "15 seconds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:391
+msgid "Disable WP sitemaps"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:395
+msgid "Disable the WordPress core XML sitemap (wp-sitemap.xml). Leave off if you rely on it; enable if your SEO plugin generates its own."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:403
+msgid "Feeds & Pingbacks"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:407
+msgid "Control RSS feeds, feed discovery links, XML-RPC, and self-pingbacks."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:413
+msgid "Disable RSS feeds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:417
+msgid "Blocks all feed URLs (post, comment, category, etc.)."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:43
 msgid "30 seconds"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:443
+msgid "Redirect feed requests to the homepage (otherwise shows a 403)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:452
+msgid "Remove feed links"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:456
+msgid "Removes feed discovery links from the header without blocking the feed URLs themselves."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:463
+msgid "Disable self pingbacks"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:467
+msgid "Stops the site from sending pingbacks to itself when you link to your own posts."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:47
+#: src/components/CoreSettings.jsx:108
 msgid "60 seconds"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:475
+msgid "Scripts & Assets"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:479
+msgid "Trim script dependencies, third-party embeds, and the WordPress Heartbeat API."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:486
+msgid "Disable jQuery Migrate"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:490
+msgid "Removes jquery-migrate from jQuery’s dependencies on the frontend."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:497
+msgid "Remove query strings from static assets"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:501
+msgid "Strips ?ver= from enqueued scripts and styles. Low value under LiteSpeed Cache, which already caches by full URL — kept for completeness."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:507
+msgid "Disable Google Maps"
+msgstr ""
+
 #: src/components/CoreSettings.jsx:51
+#: src/components/CoreSettings.jsx:111
 msgid "120 seconds"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:511
+msgid "Strips Google Maps scripts and embedded map iframes from the frontend HTML. May not catch maps rendered entirely by JavaScript."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:530
+msgid "Page exceptions (auto-populated as you type)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:568
+msgid "Type to search page…"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:583
+msgid "Searching…"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:612
+msgid "Google Maps will still load on these pages. Press Enter or comma to add a custom slug."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:62
 msgid "Disable"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:623
+#: src/components/WooCommerceSettings.jsx:51
+msgid "Disable password strength meter"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:627
+msgid "Dequeues the zxcvbn password-strength scripts on front-end forms (e.g. registration and account pages)."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:634
+msgid "Heartbeat API"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:638
+msgid "Controls the WordPress Heartbeat API, which drives autosave, post locking, and admin notifications."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:663
+msgid "Frequency"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:694
+msgid "Comments"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:695
+msgid "Reduce comment-related bloat and spam surface."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:702
+msgid "Disable comments"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:706
+msgid "Turns off comments site-wide: closes comment/ping status, hides existing comments, and removes the Comments admin menu, toolbar item, and dashboard widget."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:713
+msgid "Remove comment author URLs"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:717
+msgid "Removes the website field from the comment form to cut spam incentive."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:725
+msgid "Database & Misc"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:729
+msgid "Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:73
 msgid "Default (1 minute)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:735
+msgid "Limit post revisions"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:739
+msgid "Caps how many revisions WordPress stores per post. Applies going forward; does not delete existing revisions."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:75
@@ -201,6 +766,14 @@ msgstr ""
 msgid "2 minutes"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:760
+msgid "Autosave interval"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:764
+msgid "How often the editor autosaves a draft."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:77
 msgid "3 minutes"
 msgstr ""
@@ -209,659 +782,1153 @@ msgstr ""
 msgid "4 minutes"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:789
+msgid "Add blank favicon"
+msgstr ""
+
 #: src/components/CoreSettings.jsx:79
 msgid "5 minutes"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:190
-msgid "Head Cleanup"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:194
-msgid "Remove unused markup, scripts, and discovery links WordPress adds to your site header."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:201
-msgid "Disable emojis"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:202
-msgid "Removes emoji detection scripts, styles, and the s.w.org DNS-prefetch hint from the frontend and admin."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:209
-msgid "Disable embeds"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:210
-msgid "Removes oEmbed discovery links and the wp-embed script."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:217
-msgid "Disable Dashicons for visitors"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:221
-msgid "Stops loading the Dashicons stylesheet for logged-out visitors."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:228
-msgid "Remove RSD link"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:229
-msgid "Removes the Really Simple Discovery link from the site header."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:236
-msgid "Remove Windows Live Writer manifest"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:240
-msgid "Removes the wlwmanifest link from the site header."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:247
-msgid "Remove shortlink"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:251
-msgid "Removes the shortlink tag from the header and HTTP headers."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:258
-msgid "Hide WordPress version"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:262
-msgid "Removes the generator meta tag and strips the WordPress version from core asset URLs."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:269
-msgid "Remove REST API header links"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:273
-msgid "Removes the REST API link tag and HTTP header. Does not disable the API — use the REST API tab for that."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:280
-msgid "Remove robots max-image-preview"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:284
-msgid "Strip the default max-image-preview:large directive WordPress adds to the robots meta tag."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:291
-msgid "Disable WP sitemaps"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:295
-msgid "Disable the WordPress core XML sitemap (wp-sitemap.xml). Leave off if you rely on it; enable if your SEO plugin generates its own."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:303
-msgid "Feeds & Pingbacks"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:307
-msgid "Control RSS feeds, feed discovery links, XML-RPC, and self-pingbacks."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:313
-msgid "Disable RSS feeds"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:317
-msgid "Blocks all feed URLs (post, comment, category, etc.)."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:343
-msgid "Redirect feed requests to the homepage (otherwise shows a 403)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:352
-msgid "Remove feed links"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:356
-msgid "Removes feed discovery links from the header without blocking the feed URLs themselves."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:363
-msgid "Disable self pingbacks"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:367
-msgid "Stops the site from sending pingbacks to itself when you link to your own posts."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:374
-msgid "Disable XML-RPC"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:375
-msgid "Disables the XML-RPC endpoint and pingback headers/methods."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:383
-msgid "Scripts & Assets"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:387
-msgid "Trim script dependencies, third-party embeds, and the WordPress Heartbeat API."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:394
-msgid "Disable jQuery Migrate"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:398
-msgid "Removes jquery-migrate from jQuery’s dependencies on the frontend."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:405
-msgid "Remove query strings from static assets"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:409
-msgid "Strips ?ver= from enqueued scripts and styles. Low value under LiteSpeed Cache, which already caches by full URL — kept for completeness."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:415
-msgid "Disable Google Maps"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:419
-msgid "Strips Google Maps scripts and embedded map iframes from the frontend HTML. May not catch maps rendered entirely by JavaScript."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:438
-msgid "Page exceptions (auto-populated as you type)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:476
-msgid "Type to search page…"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:491
-msgid "Searching…"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:520
-msgid "Google Maps will still load on these pages. Press Enter or comma to add a custom slug."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:531
-#: src/components/WooCommerceSettings.jsx:51
-msgid "Disable password strength meter"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:535
-msgid "Dequeues the zxcvbn password-strength scripts on front-end forms (e.g. registration and account pages)."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:542
-msgid "Heartbeat API"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:546
-msgid "Controls the WordPress Heartbeat API, which drives autosave, post locking, and admin notifications."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:571
-msgid "Frequency"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:602
-msgid "Comments"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:603
-msgid "Reduce comment-related bloat and spam surface."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:610
-msgid "Disable comments"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:614
-msgid "Turns off comments site-wide: closes comment/ping status, hides existing comments, and removes the Comments admin menu, toolbar item, and dashboard widget."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:621
-msgid "Remove comment author URLs"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:625
-msgid "Removes the website field from the comment form to cut spam incentive."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:633
-msgid "Database & Misc"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:637
-msgid "Tune post revisions and autosave, and silence favicon 404s."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:643
-msgid "Limit post revisions"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:647
-msgid "Caps how many revisions WordPress stores per post. Applies going forward; does not delete existing revisions."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:668
-msgid "Autosave interval"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:672
-msgid "How often the editor autosaves a draft."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:697
-msgid "Add blank favicon"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:701
+#: src/components/CoreSettings.jsx:793
 msgid "Outputs an empty favicon link to stop /favicon.ico 404s, unless a Site Icon is set."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:15
-msgid "Default (fallback)"
+#: src/components/CoreSettings.jsx:800
+msgid "Streamline dashboard"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:20
-msgid "Scripts"
+#: src/components/CoreSettings.jsx:804
+msgid "Removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets. Eliminates the blocking outbound HTTP request to wordpress.org on every dashboard load."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:33
-msgid "Styles"
+#: src/components/CoreSettings.jsx:812
+msgid "Cron & Search"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:45
-msgid "Images"
+#: src/components/CoreSettings.jsx:816
+msgid "Control WP-Cron behavior and disable public site search."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:55
-msgid "Connections (XHR / fetch / WebSocket)"
+#: src/components/CoreSettings.jsx:822
+msgid "Disable WP-Cron"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:63
-msgid "Audio / video"
+#: src/components/CoreSettings.jsx:826
+msgid "Stops WordPress from spawning virtual cron jobs on every page load. Use only if you have a real system cron (e.g. `wp cron event run --due-now` every minute) configured on the server."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:68
-msgid "Workers (Web / Service / Shared Workers)"
+#: src/components/CoreSettings.jsx:845
+msgid "Cron lock timeout"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:76
-msgid "Plugins (<object> / <embed>)"
+#: src/components/CoreSettings.jsx:876
+msgid "Disable site search"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:84
-msgid "Frames (embedded content)"
+#: src/components/CoreSettings.jsx:880
+msgid "Blocks public ?s= search queries on the frontend. Useful for sites where search is not needed and the query is an abuse vector."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:92
-msgid "Who may embed this site"
+#: src/components/CoreSettings.jsx:912
+msgid "Redirect search requests to the homepage (otherwise returns 404)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:100
-msgid "Base URI"
+#: src/components/CoreSettings.jsx:92
+msgid "Conservative (prefetch only, no prerender)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:105
-msgid "Form submissions"
+#: src/components/CoreSettings.jsx:923
+msgid "Speculation Rules"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:297
-msgid "Content-Security-Policy"
+#: src/components/CoreSettings.jsx:927
+msgid "Control the WordPress Speculative Loading API (prefetch/prerender). Prerendering can waste bandwidth on high-traffic sites."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:301
-msgid "A Content-Security-Policy restricts where scripts, styles, images, and other resources may load from — the strongest defense against cross-site scripting (XSS). It is powerful but can break your front end if a resource is not allowed, so build it up in Report-Only mode and only enforce once the violations below are clear."
+#: src/components/CoreSettings.jsx:933
+msgid "Speculation Rules mode"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:307
-msgid "Send Content-Security-Policy header"
+#: src/components/CoreSettings.jsx:937
+msgid "WordPress 6.5+ injects a speculation-rules JSON script that prefetches and prerenders likely next pages. Conservative mode keeps prefetch but removes prerender. Disable removes the script entirely."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:311
-msgid "Emits the header on front-end responses (never in wp-admin). Test thoroughly before enforcing."
+#: src/components/CoreSettings.jsx:959
+msgid "Image Sizes"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:325
-msgid "Report-Only mode"
+#: src/components/CoreSettings.jsx:963
+msgid "Reduce disk usage and upload time by preventing generation of rarely-used intermediate image sizes."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:329
-msgid "Sends Content-Security-Policy-Report-Only, which logs violations without blocking anything so you can see exactly what the policy would break. Keep this on until the list below is clear, then turn it off to enforce. Violations are collected here in both modes — while enforcing, a warning below means something is actually being blocked."
+#: src/components/CoreSettings.jsx:970
+msgid "Disable scaled image generation"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:343
-msgid "Do not apply to logged-in users"
+#: src/components/CoreSettings.jsx:974
+msgid "Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:347
-msgid "Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Note: violations are therefore only reported by logged-out visitors."
+#: src/components/CoreSettings.jsx:981
+msgid "Disable intermediate sizes"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:361
-msgid "Advanced: edit raw policy"
+#: src/components/CoreSettings.jsx:985
+msgid "Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:365
-msgid "Turn off the builder and edit the full policy string by hand — use this to add directives or sources the builder does not cover."
+#: src/components/CoreSettings.jsx:99
+msgid "Disable entirely"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:380
-msgid "Policy builder"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:390
-msgid "Reset to recommended"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:448
-msgid "Additional hosts, space-separated (e.g. https://www.googletagmanager.com)"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:458
-msgid "Blocked by this directive:"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:490
-msgid "Allow"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:506
-msgid "Generated policy"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:513
-msgid "(empty — no directives set)"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:529
-msgid "Policy"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:544
-msgid "Load recommended policy"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:551
-msgid "The full policy directive string. Leave blank to use the recommended WordPress-friendly default shown as the placeholder."
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:572
-msgid "Violation reports"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:584
+#: src/components/CspPolicyCard.jsx:1000
 msgid "Refresh"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:597
+#: src/components/CspPolicyCard.jsx:101
+msgid "Base URI"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1013
 msgid "Clear log"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:608
+#: src/components/CspPolicyCard.jsx:1024
+msgid "Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. So collection runs in a time-boxed window: open one, browse the site (or let real traffic do it), then work through the list below. The window closes itself."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1034
+msgid "Collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1053
+msgid "Stop collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:106
+msgid "Form submissions"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1063
+msgid "Not collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1081
+msgid "for 1 hour"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1087
+msgid "for 24 hours"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1093
+msgid "for 3 days"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1110
+msgid "Start collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1123
+msgid "Sample"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1141
+#, php-format
+msgid "100% of page views"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1147
+#, php-format
+msgid "25% of page views"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1153
+#, php-format
+msgid "10% of page views"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1159
+#, php-format
+msgid "1% of page views"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1169
+msgid "On a busy site, lower the sample rate — a representative sample finds the same broken resources at a fraction of the requests. Remember to Save after changing it."
+msgstr ""
+
+#. translators: 1: number of distinct violations, 2: total reports recorded
+#: src/components/CspPolicyCard.jsx:1179
+#, php-format
+msgid "%1$d distinct violations, %2$d reports recorded."
+msgstr ""
+
+#. translators: %d: count of dropped reports
+#: src/components/CspPolicyCard.jsx:1198
+#, php-format
+msgid "%d reports were dropped by the rate limiter this session. Raise the rate limit below or clear the log to make room."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1211
+msgid "Report endpoint"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1216
+msgid "Reachable"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1221
+msgid "Failed — check CORS / CDN config"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1231
+msgid "Testing…"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1232
+msgid "Test endpoint"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1243
+msgid "No reports received yet"
+msgstr ""
+
+#. translators: %d: seconds since last report
+#: src/components/CspPolicyCard.jsx:1246
+#, php-format
+msgid "Last report: %ds ago"
+msgstr ""
+
+#. translators: %d: sampling percentage
+#: src/components/CspPolicyCard.jsx:1255
+#, php-format
+msgid "Sampling: %d%%"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1269
+msgid "Max new violations per minute"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1281
+msgid "5 / min"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1282
+msgid "10 / min"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1283
+msgid "20 / min"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1284
+msgid "30 / min"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1285
+msgid "60 / min"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1289
+msgid "Raise this on tracker-heavy sites if reports are being dropped. Save after changing."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1296
+msgid "CSP is enabled but no collection window is open. Start collecting violation reports above to populate this list."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1305
+msgid "Violation reports come from visitorsu2019 browsers and are not verified u2014 anyone can post to the report endpoint while a window is open. Only allow origins you recognise as part of your own site."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1317
+msgid "Allow all reported origins into the policy?"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1340
+msgid "Allow all reported origins"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1348
 msgid "Enforcing: each entry below is a resource currently being blocked on your live site."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:617
+#: src/components/CspPolicyCard.jsx:1357
 msgid "No violations collected yet. Browse your site as a logged-out visitor to generate reports, then Refresh."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:627
+#: src/components/CspPolicyCard.jsx:1368
+msgid "Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations u2014 they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1378
 msgid "Other violations (directives not in the builder):"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:41
-msgid "Never"
+#: src/components/CspPolicyCard.jsx:16
+msgid "Default (fallback)"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:45
-msgid "Google Fonts"
+#: src/components/CspPolicyCard.jsx:21
+msgid "Scripts"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:46
-msgid "Discover and self-host Google Fonts to remove third-party requests to Google."
+#. translators: 1: hours, 2: minutes
+#: src/components/CspPolicyCard.jsx:214
+#, php-format
+msgid "%1$dh %2$dm left"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:54
-msgid "Your localized fonts may render at the wrong weight."
+#. translators: %d: minutes
+#: src/components/CspPolicyCard.jsx:222
+#, php-format
+msgid "%dm left"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:60
-msgid "These fonts were localized by an older version of this plugin that could drop font weights (e.g. a font family would render bold everywhere, even where a lighter weight was specified). Click \"Scan fonts now\" below to regenerate them correctly."
+#: src/components/CspPolicyCard.jsx:34
+msgid "Styles"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:69
-msgid "Self-host Google Fonts"
+#: src/components/CspPolicyCard.jsx:46
+msgid "Images"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:73
-msgid "Serves discovered Google Fonts from your own site instead of fonts.googleapis.com/fonts.gstatic.com. Run a scan first — this has no effect until fonts have been discovered."
+#: src/components/CspPolicyCard.jsx:504
+msgid "Content-Security-Policy"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:85
-msgid "Font discovery"
+#: src/components/CspPolicyCard.jsx:508
+msgid "A Content-Security-Policy restricts where scripts, styles, images, and other resources may load from — the strongest defense against cross-site scripting (XSS). It is powerful but can break your front end if a resource is not allowed, so build it up in Report-Only mode and only enforce once the violations below are clear."
 msgstr ""
 
-#: src/components/FontsSettings.jsx:89
-msgid "Loads your homepage and detects the Google Fonts your theme and plugins actually enqueue, then downloads the .woff2 files locally. Fetches your homepage and Google’s stylesheets."
+#: src/components/CspPolicyCard.jsx:514
+msgid "Send Content-Security-Policy header"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:102
+#: src/components/CspPolicyCard.jsx:518
+msgid "Emits the header on front-end responses (never in wp-admin). Test thoroughly before enforcing."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:532
+msgid "Report-Only mode"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:536
+msgid "Sends Content-Security-Policy-Report-Only, which logs violations without blocking anything so you can see exactly what the policy would break. Keep this on until the list below is clear, then turn it off to enforce. Violations are collected here in both modes — while enforcing, a warning below means something is actually being blocked."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:550
+msgid "Do not apply to logged-in users"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:554
+msgid "Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Note: violations are therefore only reported by logged-out visitors."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:56
+msgid "Connections (XHR / fetch / WebSocket)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:568
+msgid "Advanced: edit raw policy"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:572
+msgid "Turn off the builder and edit the full policy string by hand — use this to add directives or sources the builder does not cover."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:584
+msgid "Tighten script-src (Advanced)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:588
+msgid "Replaces 'unsafe-inline' in script-src with sha256 hashes of your site's inline scripts, plus 'strict-dynamic'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean."
+msgstr ""
+
+#. translators: %d: number of hashes
+#: src/components/CspPolicyCard.jsx:611
+#, php-format
+msgid "%d script hashes collected"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:617
+msgid "No hashes collected yet"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:64
+msgid "Audio / video"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:655
+#: src/components/DatabaseSettings.jsx:162
+#: src/components/FontsSettings.jsx:115
+#: src/components/OptionCleanerSettings.jsx:186
+#: src/components/OptionCleanerSettings.jsx:329
+#: src/components/PhpWhitelistCard.jsx:338
 msgid "Scanning…"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:106
+#: src/components/CspPolicyCard.jsx:659
+msgid "Scan for inline scripts"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:667
+msgid "Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:674
+msgid "Warning: 'strict-dynamic' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:688
+msgid "Policy builder"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:69
+msgid "Workers (Web / Service / Shared Workers)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:697
+msgid "Add Google Maps, Analytics, Clarity & Facebook origins?"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:707
+#: src/components/CspPolicyCard.jsx:861
+#: src/components/CspPolicyCard.jsx:1324
+#: src/components/PhpWhitelistCard.jsx:208
+msgid "Confirm"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:723
+msgid "Pre-fill common third-party origins"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:734
+msgid "Reset to recommended"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:77
+msgid "Plugins (<object> / <embed>)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:793
+msgid "Additional hosts, space-separated (e.g. https://www.googletagmanager.com)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:803
+msgid "Blocked by this directive:"
+msgstr ""
+
+#. translators: %s: the CSP source token that will be added
+#: src/components/CspPolicyCard.jsx:839
+#, php-format
+msgid "Add %s?"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:85
+msgid "Frames (embedded content)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:891
+msgid "Allow"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:909
+msgid "Generated policy"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:916
+msgid "(empty — no directives set)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:924
+msgid "Actual emitted header (including report-uri)"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:93
+msgid "Who may embed this site"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:945
+msgid "Policy"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:960
+msgid "Load recommended policy"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:967
+msgid "The full policy directive string. Leave blank to use the recommended WordPress-friendly default shown as the placeholder."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:988
+msgid "Violation reports"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:107
+msgid "Database Cleanup"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:111
+msgid "Scan and clean post revisions, drafts, trashed content, spam, transients, and fragmented tables. Select the items you want to clean, then click Optimize."
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:144
+msgid "found"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:166
+msgid "Scan Database"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:181
+msgid "Optimizing…"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:185
+msgid "Optimize"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:193
+msgid "Select at least one target above."
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:209
+msgid "No items found to clean."
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:241
+msgid "Scheduled Cleanup"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:245
+msgid "Automatically run the enabled cleanup targets on a recurring schedule. Uses WP-Cron."
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:255
+msgid "Schedule"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:269
+msgid "Off"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:272
+msgid "Daily"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:278
+msgid "Weekly"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:284
+msgid "Monthly"
+msgstr ""
+
+#: src/components/DatabaseSettings.jsx:292
+msgid "All targets enabled above will be cleaned automatically on the selected schedule."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:102
+msgid "Loads your homepage and detects the Google Fonts your theme and plugins actually enqueue, then downloads the .woff2 files locally. Fetches your homepage and Google’s stylesheets."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:119
 msgid "Scan fonts now"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:113
+#: src/components/FontsSettings.jsx:126
 msgid "Last scan:"
 msgstr ""
 
 #. translators: 1: family count, 2: file count.
-#: src/components/FontsSettings.jsx:131
-#, js-format
+#: src/components/FontsSettings.jsx:144
+#, php-format
 msgid "%1$d families · %2$d files localized"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:148
+#: src/components/FontsSettings.jsx:161
 msgid "No Google Fonts detected yet."
 msgstr ""
 
-#: src/components/FontsSettings.jsx:160
+#: src/components/FontsSettings.jsx:173
 msgid "Manual font weights"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:166
+#: src/components/FontsSettings.jsx:179
 msgid "If a CDN or optimizer (e.g. QUIC.cloud) hides some weights from automatic discovery, declare them here. One family per line as “Family:weights”, e.g. “Roboto Condensed:400,700”. Append “i” for italics (400i). A bare family name defaults to 400. Declared weights are downloaded straight from Google on the next scan, regardless of what the front end exposes."
 msgstr ""
 
-#: src/components/FontsSettings.jsx:189
+#: src/components/FontsSettings.jsx:205
 msgid "Extra pages to scan"
 msgstr ""
 
-#: src/components/FontsSettings.jsx:195
+#: src/components/FontsSettings.jsx:211
 msgid "The scan already checks your homepage plus your most recent post and page. Add any other URLs whose fonts differ — a shop page, landing page, or custom template. One per line, as a path (/shop/) or full URL on this site."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:9
+#: src/components/FontsSettings.jsx:54
+msgid "Never"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:58
+msgid "Google Fonts"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:59
+msgid "Discover and self-host Google Fonts to remove third-party requests to Google."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:67
+msgid "Your localized fonts may render at the wrong weight."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:73
+msgid "These fonts were localized by an older version of this plugin that could drop font weights (e.g. a font family would render bold everywhere, even where a lighter weight was specified). Click \"Scan fonts now\" below to regenerate them correctly."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:82
+msgid "Self-host Google Fonts"
+msgstr ""
+
+#: src/components/FontsSettings.jsx:86
+msgid "Serves discovered Google Fonts from your own site instead of fonts.googleapis.com/fonts.gstatic.com. Run a scan first — this has no effect until fonts have been discovered."
+msgstr ""
+
+#: src/components/FontsSettings.jsx:98
+msgid "Font discovery"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:11
 msgid "Active"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:14
+#: src/components/HardeningSettings.jsx:117
+msgid "Permissions-Policy features"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:121
+msgid "Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Expand a row to allow specific origins instead of blocking entirely."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:154
+msgid "Block"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:16
 msgid "File missing"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:19
+#: src/components/HardeningSettings.jsx:171
+msgid "Hide allowlist"
+msgstr ""
+
+#. translators: %d: number of allowed origins
+#: src/components/HardeningSettings.jsx:175
+#, php-format
+msgid "Allowed: %d origin(s)"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:178
+msgid "Add allowlist"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:188
+msgid "This is a Permissions-Policy restriction, not a CSP error. Google Maps embeds request geolocation from the browser — blocking it stops the \"My Location\" button from working inside embedded maps."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:198
+msgid "Allow embedded maps"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:201
+msgid "Sets geolocation=('self' https://www.google.com) — allows the current page and Google Maps iframes to request the visitor's location."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:21
 msgid "File modified"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:54
-msgid "Restore"
+#: src/components/HardeningSettings.jsx:211
+msgid "Allowed origins (space-separated, or leave empty to block all):"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:76
+#: src/components/HardeningSettings.jsx:264
+msgid "Checking…"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:268
+msgid "Run check again"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:271
+msgid "Run upgrade check"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:277
 msgid "Directory Hardening"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:80
-msgid "Server-level restrictions that reduce each directory’s attack surface. On OpenLiteSpeed these .htaccess rules are honored only when \"Allow Override\" is enabled for the vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); when override is off they have no effect but cause no harm."
+#: src/components/HardeningSettings.jsx:281
+msgid "Server-level restrictions that reduce each directory’s attack surface. These rules govern HTTP requests only — they never block plugin or theme installs and updates, which happen entirely in PHP. On OpenLiteSpeed these .htaccess rules are honored only when \"Allow Override\" is enabled for the vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); when override is off they have no effect but cause no harm."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:86
+#: src/components/HardeningSettings.jsx:287
 msgid "Block direct PHP execution in wp-content/plugins"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:90
+#: src/components/HardeningSettings.jsx:291
 msgid "Drops an .htaccess file into the plugins directory that denies direct requests to .php files. A small number of legacy plugins serve front-facing PHP from /plugins/ — disable this if something breaks."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:109
+#: src/components/HardeningSettings.jsx:310
 msgid "Block direct PHP execution in uploads"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:113
+#: src/components/HardeningSettings.jsx:314
 msgid "Drops an .htaccess file into wp-content/uploads that denies direct requests to .php files. The uploads directory is the most common place a malicious script is planted through a vulnerable upload form; images and other media are unaffected."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:133
+#: src/components/HardeningSettings.jsx:333
+msgid "Upgrade compatibility"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:337
+msgid "Replays the file operations WordPress performs during a plugin install or update: creating, moving and listing scratch content in wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Run this when an update fails with \"Could not move the old version to the upgrade-temp-backup directory\" or \"Filesystem error: A directory could not be read\" — those come from the filesystem, not from the rules above, and this tells you which directory is at fault. All scratch content is removed again."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:354
+msgid "Check results"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:358
+msgid "Write, Move and Read must all pass for every directory. When one fails, compare its owner against the user PHP runs as — a mismatch is the usual cause."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:379
+msgid "The upgrader can read, write and move files in every directory it needs."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:383
+msgid "At least one directory the upgrader needs is not usable. Plugin uploads and updates will keep failing until this is corrected on the server."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:403
+msgid "Write"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:410
+msgid "Move"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:417
+msgid "Read"
+msgstr ""
+
+#. translators: %1$s: directory owner, %2$s: user PHP runs as
+#: src/components/HardeningSettings.jsx:434
+#, php-format
+msgid "Owner: %1$s · PHP runs as: %2$s"
+msgstr ""
+
+#. translators: %d: number of leftover items
+#: src/components/HardeningSettings.jsx:447
+#, php-format
+msgid "%d leftover item(s) from an interrupted update."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:468
+msgid "plugins → upgrade-temp-backup move (what an update actually does)"
+msgstr ""
+
+#. translators: %d: number of leftover items
+#: src/components/HardeningSettings.jsx:485
+#, php-format
+msgid "%d leftover item(s) are still sitting in the upgrader’s scratch directories. WordPress empties these when an update finishes, so anything left behind means a run was interrupted — and every later update then fails over the debris."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:499
+msgid "Clearing…"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:503
+msgid "Clear leftovers and re-check"
+msgstr ""
+
+#. translators: %1$s: date/time of the check, %2$s: WordPress filesystem method
+#: src/components/HardeningSettings.jsx:514
+#, php-format
+msgid "Checked %1$s · filesystem method: %2$s"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:541
+msgid "Root .htaccess Rules"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:545
+msgid "Server-level rules written to the site root .htaccess via WordPress markers (your permalink rules are preserved). On OpenLiteSpeed these require “Allow Override” enabled for the vhost. A safety check automatically removes the rules if they cause a 500 error."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:551
+msgid "Protect sensitive files"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:555
+msgid "Blocks direct access to readme.html, license.txt, wp-config-sample.php, debug.log, .env, *.sql, *.bak, and *.old files. These commonly leak version info, credentials, and database dumps."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:56
+msgid "Restore"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:571
+msgid "Status"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:575
+msgid "Integrity of the marker block in your root .htaccess."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:589
 msgid "Site Hardening"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:137
+#: src/components/HardeningSettings.jsx:593
 msgid "Application-level protections that apply regardless of the web server configuration."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:143
+#: src/components/HardeningSettings.jsx:599
 msgid "Disable the theme & plugin file editor"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:147
+#: src/components/HardeningSettings.jsx:603
 msgid "Removes the built-in code editor under Appearance and Plugins (sets DISALLOW_FILE_EDIT), so an attacker who gains admin access cannot edit PHP directly from the dashboard."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:161
+#: src/components/HardeningSettings.jsx:617
 msgid "Block author enumeration"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:165
+#: src/components/HardeningSettings.jsx:621
 msgid "Redirects ?author=N and /author/slug/ probes from logged-out visitors to the home page, preventing usernames from being harvested for brute-force attacks. Also removes the users sitemap (wp-sitemap-users-1.xml) to close the same leak via sitemaps. Complements disabling the REST users endpoint."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:177
+#: src/components/HardeningSettings.jsx:633
+msgid "Disable Application Passwords"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:637
+msgid "Removes the Application Passwords authentication method. These bypass two-factor authentication plugins. Warning: this will break any existing integration that authenticates with an application password. MainWP is unaffected — it uses its own signed channel."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:651
+msgid "Disable XML-RPC"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:655
+msgid "Disables the XML-RPC endpoint and pingback headers/methods."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:673
+msgid "Block xmlrpc.php at server level"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:677
+msgid "Returns 403 for xmlrpc.php before PHP boots, turning a full WordPress bootstrap into a static denial. Protects against brute-force and system.multicall floods. MainWP is unaffected — it uses its own signed HTTP channel, not XML-RPC."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:692
+msgid "Generic login error messages"
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:696
+msgid "Replaces login and password-reset error messages with a single generic string, so attackers cannot determine whether a username exists. Real users see a less specific message."
+msgstr ""
+
+#: src/components/HardeningSettings.jsx:710
 msgid "Send security headers"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:181
-msgid "Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, and a restrictive Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below."
+#: src/components/HardeningSettings.jsx:714
+msgid "Adds X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN, a Referrer-Policy, COOP, CORP, and a configurable Permissions-Policy to front-end responses. Conservative defaults with no side effects. Content-Security-Policy is configured separately below."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:203
+#: src/components/HardeningSettings.jsx:746
 msgid "HTTP Strict Transport Security"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:207
+#: src/components/HardeningSettings.jsx:750
 msgid "Tells browsers to only ever connect to your site over HTTPS for a set duration, protecting against protocol-downgrade attacks and cookie hijacking on insecure networks. Only sent when the request is actually HTTPS (including behind a reverse proxy). Once a browser has seen this header, it will refuse plain HTTP connections until max-age expires — make sure HTTPS works reliably before enabling."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:213
+#: src/components/HardeningSettings.jsx:756
 msgid "Send Strict-Transport-Security header"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:217
+#: src/components/HardeningSettings.jsx:760
 msgid "Only sent on HTTPS responses. Do not enable if your site is not fully served over HTTPS."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:231
+#: src/components/HardeningSettings.jsx:774
 msgid "Max age"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:235
+#: src/components/HardeningSettings.jsx:778
 msgid "How long browsers should remember to force HTTPS for this site."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:251
+#: src/components/HardeningSettings.jsx:794
 msgid "1 day"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:257
+#: src/components/HardeningSettings.jsx:800
 msgid "1 week"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:263
+#: src/components/HardeningSettings.jsx:806
 msgid "1 month"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:269
+#: src/components/HardeningSettings.jsx:812
 msgid "6 months"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:275
+#: src/components/HardeningSettings.jsx:818
 msgid "1 year (recommended)"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:281
+#: src/components/HardeningSettings.jsx:824
 msgid "2 years"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:290
+#: src/components/HardeningSettings.jsx:833
 msgid "Include subdomains"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:294
+#: src/components/HardeningSettings.jsx:837
 msgid "Applies the policy to every subdomain too. Only enable once you have confirmed every subdomain is served over HTTPS — otherwise those subdomains will become unreachable until max-age expires."
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:308
+#: src/components/HardeningSettings.jsx:851
 msgid "Preload"
 msgstr ""
 
-#: src/components/HardeningSettings.jsx:312
+#: src/components/HardeningSettings.jsx:855
 msgid "Opts into browser HSTS preload lists (requires includeSubDomains, max-age of at least 1 year, and submission to hstspreload.org). This is very difficult to reverse — only enable if you are certain every subdomain, now and in the future, will be HTTPS-only."
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:58
-msgid "Restrict or disable REST API routes to reduce your attack surface and prevent user enumeration."
+#: src/components/OptionCleanerSettings.jsx:169
+msgid "Orphaned Options"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:64
-msgid "Require authentication"
+#: src/components/OptionCleanerSettings.jsx:173
+msgid "Scan wp_options for leftover entries from uninstalled plugins. Review the results and delete what you no longer need."
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:68
-msgid "Blocks all REST API requests from logged-out visitors, except whitelisted routes below."
+#: src/components/OptionCleanerSettings.jsx:187
+msgid "Auto-Scan"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:81
-msgid "Disable namespaces"
+#: src/components/OptionCleanerSettings.jsx:196
+msgid "Manual prefix"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:87
-msgid "Unregisters matching routes entirely (404, not 403) for logged-out visitors, to prevent user enumeration and scanning. Logged-in users who can edit content are never restricted."
+#: src/components/OptionCleanerSettings.jsx:222
+msgid "Search"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:130
+#: src/components/OptionCleanerSettings.jsx:248
+#: src/components/OptionCleanerSettings.jsx:348
+msgid "Select all"
+msgstr ""
+
+#: src/components/OptionCleanerSettings.jsx:263
+msgid "Deleting…"
+msgstr ""
+
+#: src/components/OptionCleanerSettings.jsx:313
+msgid "Ghost Capabilities"
+msgstr ""
+
+#: src/components/OptionCleanerSettings.jsx:317
+msgid "Scan WordPress roles for orphaned capabilities left behind by uninstalled plugins. Review and strip them from every affected role."
+msgstr ""
+
+#: src/components/OptionCleanerSettings.jsx:330
+msgid "Scan Capabilities"
+msgstr ""
+
+#: src/components/OptionCleanerSettings.jsx:363
+msgid "Removing…"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:131
+msgid "PHP Execution Whitelist & File Monitor"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:135
+msgid "Allow specific PHP files to execute even when directory hardening is on, and monitor wp-content for unexpected file changes."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:141
+msgid "PHP execution whitelist"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:145
+msgid "WP-content-relative paths allowed to execute PHP when directory hardening is active. Use forward slashes (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Whitelisted files pass through the .htaccess deny rule via RewriteRule."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:169
+msgid "plugins/plugin-slug/file.php"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:181
+msgid "Add"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:187
+msgid "This path is already in the whitelist."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:198
+msgid "Add common plugin paths (ShortPixel, Imagify, EWWW, UpdraftPlus)?"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:232
+msgid "Pre-fill common plugin paths"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:243
+msgid "File integrity monitoring"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:247
+msgid "Periodically scans wp-content/plugins and wp-content/uploads for new, modified, or removed PHP files and sends an email alert when changes are detected."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:261
+msgid "Alert email address"
+msgstr ""
+
+#. translators: %s: the WordPress admin email fallback
+#: src/components/PhpWhitelistCard.jsx:267
+#, php-format
+msgid "Email address for file-change alerts. Leave empty to use the site admin email (%s)."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:282
+msgid "admin@example.com"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:292
+msgid "Scan status"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:296
+msgid "Last scan time and number of tracked files."
+msgstr ""
+
+#. translators: %s: human-readable date/time
+#: src/components/PhpWhitelistCard.jsx:306
+#, php-format
+msgid "Last scan: %s"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:314
+msgid "No scans yet."
+msgstr ""
+
+#. translators: %d: number of tracked files
+#: src/components/PhpWhitelistCard.jsx:323
+#, php-format
+msgid "Tracking %d file(s)."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:342
+msgid "Scan now"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:352
+#: src/components/PhpWhitelistCard.jsx:501
+msgid "Scan results"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:356
+msgid "Changes detected since the previous scan. Entries marked \"not on whitelist\" are not in the PHP execution whitelist above."
+msgstr ""
+
+#. translators: %1$d: new files, %2$d: modified files, %3$d: removed files
+#: src/components/PhpWhitelistCard.jsx:366
+#, php-format
+msgid "%1$d new, %2$d modified, %3$d removed file(s) since the last scan."
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:385
+msgid "Hide file list"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:389
+msgid "Show file list"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:400
+msgid "New files"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:423
+#: src/components/PhpWhitelistCard.jsx:461
+msgid "[not on whitelist]"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:438
+msgid "Modified files"
+msgstr ""
+
+#. translators: %s: the file path being removed
+#: src/components/PhpWhitelistCard.jsx:45
+#, php-format
+msgid "Remove %s"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:476
+msgid "Removed files"
+msgstr ""
+
+#: src/components/PhpWhitelistCard.jsx:508
+msgid "No changes detected since the last scan."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:135
 msgid "Advanced: one route prefix per line (e.g. wp/v2/users)"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:150
+#: src/components/RestApiSettings.jsx:155
 msgid "Whitelist routes"
 msgstr ""
 
-#: src/components/RestApiSettings.jsx:154
+#: src/components/RestApiSettings.jsx:159
 msgid "Route prefixes that always bypass both the auth gate and namespace disabling (e.g. Contact Form 7, WooCommerce). This plugin’s own settings API (spfw/v1) is always exempt automatically."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:63
+msgid "Restrict or disable REST API routes to reduce your attack surface and prevent user enumeration."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:69
+msgid "Require authentication"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:73
+msgid "Blocks all REST API requests from logged-out visitors, except whitelisted routes below."
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:86
+msgid "Disable namespaces"
+msgstr ""
+
+#: src/components/RestApiSettings.jsx:92
+msgid "Unregisters matching routes entirely (404, not 403) for logged-out visitors, to prevent user enumeration and scanning. Logged-in users who can edit content are never restricted."
 msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:21
@@ -922,282 +1989,4 @@ msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:97
 msgid "Removes the WooCommerce → Marketing menu and its admin feature."
-msgstr ""
-
-#: includes/modules/class-spfw-module-hardening.php
-msgid "Invalid username or password."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable block editor CSS"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Removes wp-block-library, global-styles, and classic-theme-styles from the frontend (~30–60 KB render-blocking CSS). For classic or page-builder themes. Global styles are site-wide and cannot be conditionally removed per-post."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Smart mode: skip removal on pages that use blocks"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Streamline dashboard"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets. Eliminates the blocking outbound HTTP request to wordpress.org on every dashboard load."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Disable Application Passwords"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Removes the Application Passwords authentication method. These bypass two-factor authentication plugins. Warning: this will break any existing integration that authenticates with an application password. MainWP is unaffected — it uses its own signed channel."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Generic login error messages"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Replaces login and password-reset error messages with a single generic string, so attackers cannot determine whether a username exists. Real users see a less specific message."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Cron & Search"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Control WP-Cron behavior and disable public site search."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable WP-Cron"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Stops WordPress from spawning virtual cron jobs on every page load. Use only if you have a real system cron (e.g. `wp cron event run --due-now` every minute) configured on the server."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Cron lock timeout"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Default (60 seconds)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "300 seconds (5 minutes)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable site search"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Blocks public ?s= search queries on the frontend. Useful for sites where search is not needed and the query is an abuse vector."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Redirect search requests to the homepage (otherwise returns 404)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Speculation Rules"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Control the WordPress Speculative Loading API (prefetch/prerender). Prerendering can waste bandwidth on high-traffic sites."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Speculation Rules mode"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "WordPress 6.5+ injects a speculation-rules JSON script that prefetches and prerenders likely next pages. Conservative mode keeps prefetch but removes prerender. Disable removes the script entirely."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Conservative (prefetch only, no prerender)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable entirely"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Image Sizes"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Reduce disk usage and upload time by preventing generation of rarely-used intermediate image sizes."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable scaled image generation"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Disable intermediate sizes"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted."
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "1536×1536 (scaled)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "2048×2048 (scaled)"
-msgstr ""
-
-#: src/components/CoreSettings.jsx
-msgid "medium_large (768px)"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Permissions-Policy features"
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Browser features to restrict via the Permissions-Policy header. Checked features are blocked (empty allowlist). Uncheck to allow a feature."
-msgstr ""
-
-#: src/components/HardeningSettings.jsx
-msgid "Block"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Apply preset…"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Export"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Import"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Settings exported."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Export failed."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Settings imported."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Import failed."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Invalid JSON file."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Preset applied."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Failed to apply preset."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Apply preset"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "This overwrites your current settings. Save first if you want to keep them."
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Apply"
-msgstr ""
-
-#: src/components/App.jsx
-msgid "Cancel"
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "Balanced"
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "Aggressive"
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "Locked Down"
-msgstr ""
-
-#: includes/class-spfw-settings.php
-msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
-msgstr ""
-
-#: includes/class-spfw-rest-settings.php
-msgid "Invalid import payload. Expected a JSON object with a \"settings\" key."
-msgstr ""
-
-#: includes/class-spfw-rest-settings.php
-msgid "Unknown preset name."
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Tighten script-src (Advanced)"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Replaces 'unsafe-inline' in script-src with sha256 hashes of your site's inline scripts, plus 'strict-dynamic'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean."
-msgstr ""
-
-#. translators: %d: number of hashes
-#: src/components/CspPolicyCard.jsx
-#, js-format
-msgid "%d script hashes collected"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "No hashes collected yet"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Scanning…"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Scan for inline scripts"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change."
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx
-msgid "Warning: 'strict-dynamic' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only."
 msgstr ""

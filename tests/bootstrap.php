@@ -41,6 +41,18 @@ function sanitize_text_field( $str ) {
 	return trim( strip_tags( (string) $str ) );
 }
 
+function sanitize_email( $email ) {
+	// Mirrors core: an address that is not valid sanitizes to an empty string.
+	$email = strtolower( trim( strip_tags( (string) $email ) ) );
+	return filter_var( $email, FILTER_VALIDATE_EMAIL ) ? $email : '';
+}
+
+function is_email( $email ) {
+	// Mirrors core: returns the address itself when valid, false otherwise.
+	$valid = filter_var( (string) $email, FILTER_VALIDATE_EMAIL );
+	return false === $valid ? false : $valid;
+}
+
 function absint( $n ) {
 	return abs( (int) $n );
 }
@@ -137,6 +149,44 @@ function wp_cache_delete( $key, $group = '' ) {
 	global $spfw_test_cache;
 	unset( $spfw_test_cache[ "$group:$key" ] );
 	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Minimal REST layer stubs. register_rest_route() records each registration
+// so the controller's routes and permission callbacks can be asserted without
+// standing up a REST server.
+// ---------------------------------------------------------------------------
+global $spfw_test_rest_routes, $spfw_test_capabilities;
+$spfw_test_rest_routes  = array();
+$spfw_test_capabilities = array( 'manage_options' => true );
+
+if ( ! class_exists( 'WP_REST_Server' ) ) {
+	class WP_REST_Server {
+		const READABLE   = 'GET';
+		const CREATABLE  = 'POST';
+		const EDITABLE   = 'POST, PUT, PATCH';
+		const DELETABLE  = 'DELETE';
+		const ALLMETHODS = 'GET, POST, PUT, PATCH, DELETE';
+	}
+}
+
+function register_rest_route( $namespace, $route, $args = array(), $override = false ) {
+	global $spfw_test_rest_routes;
+	$spfw_test_rest_routes[ $namespace . $route ] = $args;
+	return true;
+}
+
+function current_user_can( $capability ) {
+	global $spfw_test_capabilities;
+	return ! empty( $spfw_test_capabilities[ $capability ] );
+}
+
+function wp_doing_ajax() {
+	return defined( 'DOING_AJAX' ) && DOING_AJAX;
+}
+
+function wp_unslash( $value ) {
+	return is_string( $value ) ? stripslashes( $value ) : $value;
 }
 
 // ---------------------------------------------------------------------------

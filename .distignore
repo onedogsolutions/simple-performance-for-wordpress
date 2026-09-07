@@ -27,6 +27,7 @@ phpcs.xml.dist
 phpcs-compat.xml.dist
 phpunit.xml.dist
 tests
+tools
 
 package.json
 package-lock.json

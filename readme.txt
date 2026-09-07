@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.5.0
+Stable tag: 2.6.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.6.0 =
+* Added: Upgrade compatibility check on the Hardening tab. Replays the exact filesystem operations the WordPress upgrader performs — creating a scratch directory, moving it across parents into wp-content/upgrade-temp-backup, and listing the moved contents — against wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Reports a per-directory Write/Move/Read verdict alongside the directory owner and the PHP user, so a failed plugin install or update can be attributed to a real cause instead of to the directory-hardening rules. Exposed as POST /spfw/v1/settings/upgrade-check.
+* Added: "Clear leftovers and re-check" action (POST /spfw/v1/settings/upgrade-cleanup). Removes orphaned entries stranded in wp-content/upgrade and wp-content/upgrade-temp-backup by an interrupted update run, then re-probes so the repaired state is visible in one round trip. Refuses to run while a .maintenance file is present.
+* Changed: The root .htaccess self-check no longer fires during plugin, theme or core update and upload requests. It previously issued a 10-second blocking loopback request on admin_init, competing for the PHP execution budget with long bulk-update runs. The pending flag is preserved rather than consumed, so the check still runs on the next ordinary admin request and the lockout safety net is unchanged.
+* Changed: Directory Hardening copy now states that these rules govern HTTP requests only and never block plugin or theme installs and updates, which happen entirely in PHP.
 
 = 2.5.0 =
 * Changed: File integrity scan results are collapsed by default. The results panel now shows a change-count summary with a "Show file list" button to expand the full added/modified/removed list, since a first scan reports every tracked PHP file and the list could be very long. The list collapses again automatically when a new scan runs.

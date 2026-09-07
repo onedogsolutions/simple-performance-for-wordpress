@@ -60,6 +60,23 @@ function StatusBadge( { status, onRestore } ) {
 	);
 }
 
+// Small pass/fail chip for one capability in the upgrade-compatibility
+// report. Reuses the badge styling of StatusBadge so the two read alike.
+function CheckPill( { ok, label } ) {
+	return (
+		<span
+			className={ `inline-flex items-center gap-x-1 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
+				ok
+					? 'bg-green-50 text-green-700 ring-green-600/20'
+					: 'bg-red-50 text-red-700 ring-red-600/10'
+			}` }
+		>
+			<span aria-hidden="true">{ ok ? '✓' : '✗' }</span>
+			{ label }
+		</span>
+	);
+}
+
 // Per-feature row with optional allowlist editor and presets.
 // Displayed inside the Site Hardening card when security_headers is on.
 function PermissionsPolicyRow( { hardening, onChange } ) {
@@ -232,9 +249,27 @@ export default function HardeningSettings( {
 	fileScanResults,
 	onScanFiles,
 	isScanning,
+	upgradeCheck,
+	onUpgradeCheck,
+	onUpgradeCleanup,
+	isCheckingUpgrade,
+	isCleaningUpgrade,
 } ) {
 	const hardening = settings.hardening || {};
 	const adminEmail = settings.admin_email || '';
+
+	// Kept out of the JSX so the button label stays free of a nested ternary.
+	const upgradeCheckLabel = () => {
+		if ( isCheckingUpgrade ) {
+			return __( 'Checking…', 'simple-performance-for-wordpress' );
+		}
+
+		if ( upgradeCheck ) {
+			return __( 'Run check again', 'simple-performance-for-wordpress' );
+		}
+
+		return __( 'Run upgrade check', 'simple-performance-for-wordpress' );
+	};
 
 	return (
 		<div className="space-y-6">
@@ -244,7 +279,7 @@ export default function HardeningSettings( {
 					'simple-performance-for-wordpress'
 				) }
 				description={ __(
-					'Server-level restrictions that reduce each directory’s attack surface. On OpenLiteSpeed these .htaccess rules are honored only when "Allow Override" is enabled for the vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); when override is off they have no effect but cause no harm.',
+					'Server-level restrictions that reduce each directory’s attack surface. These rules govern HTTP requests only — they never block plugin or theme installs and updates, which happen entirely in PHP. On OpenLiteSpeed these .htaccess rules are honored only when "Allow Override" is enabled for the vhost (LiteSpeed WebAdmin → Rewrite → Auto Load from .htaccess); when override is off they have no effect but cause no harm.',
 					'simple-performance-for-wordpress'
 				) }
 			>
@@ -293,6 +328,204 @@ export default function HardeningSettings( {
 						/>
 					) }
 				</SettingsRow>
+
+				<SettingsRow
+					title={ __(
+						'Upgrade compatibility',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Replays the file operations WordPress performs during a plugin install or update: creating, moving and listing scratch content in wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Run this when an update fails with "Could not move the old version to the upgrade-temp-backup directory" or "Filesystem error: A directory could not be read" — those come from the filesystem, not from the rules above, and this tells you which directory is at fault. All scratch content is removed again.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<button
+						type="button"
+						onClick={ onUpgradeCheck }
+						disabled={ isCheckingUpgrade }
+						className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{ upgradeCheckLabel() }
+					</button>
+				</SettingsRow>
+
+				{ upgradeCheck && (
+					<SettingsRow
+						title={ __(
+							'Check results',
+							'simple-performance-for-wordpress'
+						) }
+						description={ __(
+							'Write, Move and Read must all pass for every directory. When one fails, compare its owner against the user PHP runs as — a mismatch is the usual cause.',
+							'simple-performance-for-wordpress'
+						) }
+					>
+						<div className="w-full space-y-3">
+							<div
+								className={ `rounded-md p-3 ring-1 ring-inset ${
+									upgradeCheck.pass
+										? 'bg-green-50 ring-green-600/20'
+										: 'bg-red-50 ring-red-600/10'
+								}` }
+							>
+								<p
+									className={ `text-sm font-medium ${
+										upgradeCheck.pass
+											? 'text-green-800'
+											: 'text-red-800'
+									}` }
+								>
+									{ upgradeCheck.pass
+										? __(
+												'The upgrader can read, write and move files in every directory it needs.',
+												'simple-performance-for-wordpress'
+										  )
+										: __(
+												'At least one directory the upgrader needs is not usable. Plugin uploads and updates will keep failing until this is corrected on the server.',
+												'simple-performance-for-wordpress'
+										  ) }
+								</p>
+							</div>
+
+							<ul className="space-y-2">
+								{ upgradeCheck.directories.map( ( dir ) => (
+									<li
+										key={ dir.key }
+										className="rounded-md p-2.5 ring-1 ring-inset ring-gray-200"
+									>
+										<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+											<code className="text-xs font-mono text-gray-800">
+												{ dir.label }
+											</code>
+											<div className="flex flex-wrap gap-1">
+												<CheckPill
+													ok={ dir.writable }
+													label={ __(
+														'Write',
+														'simple-performance-for-wordpress'
+													) }
+												/>
+												<CheckPill
+													ok={ dir.movable }
+													label={ __(
+														'Move',
+														'simple-performance-for-wordpress'
+													) }
+												/>
+												<CheckPill
+													ok={ dir.readable }
+													label={ __(
+														'Read',
+														'simple-performance-for-wordpress'
+													) }
+												/>
+											</div>
+										</div>
+
+										{ dir.error && (
+											<p className="mt-1.5 text-xs text-red-700">
+												{ dir.error }
+											</p>
+										) }
+
+										<p className="mt-1 text-xs text-gray-500">
+											{ sprintf(
+												/* translators: %1$s: directory owner, %2$s: user PHP runs as */
+												__(
+													'Owner: %1$s · PHP runs as: %2$s',
+													'simple-performance-for-wordpress'
+												),
+												dir.owner || '—',
+												dir.php_user || '—'
+											) }
+										</p>
+
+										{ dir.stale > 0 && (
+											<p className="mt-1 text-xs text-amber-700">
+												{ sprintf(
+													/* translators: %d: number of leftover items */
+													__(
+														'%d leftover item(s) from an interrupted update.',
+														'simple-performance-for-wordpress'
+													),
+													dir.stale
+												) }
+											</p>
+										) }
+									</li>
+								) ) }
+							</ul>
+
+							<div
+								className={ `rounded-md p-2.5 ring-1 ring-inset ${
+									upgradeCheck.upgrader_move.ok
+										? 'ring-gray-200'
+										: 'bg-red-50 ring-red-600/10'
+								}` }
+							>
+								<CheckPill
+									ok={ upgradeCheck.upgrader_move.ok }
+									label={ __(
+										'plugins → upgrade-temp-backup move (what an update actually does)',
+										'simple-performance-for-wordpress'
+									) }
+								/>
+								{ upgradeCheck.upgrader_move.error && (
+									<p className="mt-1.5 text-xs text-red-700">
+										{ upgradeCheck.upgrader_move.error }
+									</p>
+								) }
+							</div>
+
+							{ upgradeCheck.stale_total > 0 && (
+								<div className="rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">
+									<p className="text-sm text-amber-800">
+										{ sprintf(
+											/* translators: %d: number of leftover items */
+											__(
+												'%d leftover item(s) are still sitting in the upgrader’s scratch directories. WordPress empties these when an update finishes, so anything left behind means a run was interrupted — and every later update then fails over the debris.',
+												'simple-performance-for-wordpress'
+											),
+											upgradeCheck.stale_total
+										) }
+									</p>
+									<button
+										type="button"
+										onClick={ onUpgradeCleanup }
+										disabled={ isCleaningUpgrade }
+										className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+									>
+										{ isCleaningUpgrade
+											? __(
+													'Clearing…',
+													'simple-performance-for-wordpress'
+											  )
+											: __(
+													'Clear leftovers and re-check',
+													'simple-performance-for-wordpress'
+											  ) }
+									</button>
+								</div>
+							) }
+
+							<p className="text-xs text-gray-400">
+								{ sprintf(
+									/* translators: %1$s: date/time of the check, %2$s: WordPress filesystem method */
+									__(
+										'Checked %1$s · filesystem method: %2$s',
+										'simple-performance-for-wordpress'
+									),
+									upgradeCheck.checked > 0
+										? new Date(
+												upgradeCheck.checked * 1000
+										  ).toLocaleString()
+										: '—',
+									upgradeCheck.fs_method || '—'
+								) }
+							</p>
+						</div>
+					</SettingsRow>
+				) }
 			</SettingsCard>
 
 			<PhpWhitelistCard

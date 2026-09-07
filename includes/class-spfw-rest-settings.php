@@ -207,6 +207,32 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		// Upgrade compatibility probe: replays the filesystem operations the
+		// WordPress upgrader performs so plugin install/update failures can be
+		// attributed to a real cause instead of to the directory-hardening
+		// rules (which only ever govern HTTP requests).
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/upgrade-check',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'upgrade_check' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
+
+		// Remove the orphaned leftovers that probe reports, then re-probe so
+		// the admin sees the repaired state in one round trip.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/upgrade-cleanup',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'upgrade_cleanup' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+			)
+		);
 	}
 
 	/**
@@ -1332,6 +1358,48 @@ class SPFW_Rest_Settings {
 		$response           = $this->get_settings();
 		$data               = $response->get_data();
 		$data['scan_result'] = $changes;
+		$response->set_data( $data );
+
+		return $response;
+	}
+
+	/**
+	 * POST callback: run the upgrade-compatibility probe and return the
+	 * per-directory report alongside the refreshed settings.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function upgrade_check() {
+		$module = new SPFW_Module_Hardening();
+		$result = $module->run_upgrade_compat_check();
+
+		$response              = $this->get_settings();
+		$data                  = $response->get_data();
+		$data['upgrade_check'] = $result;
+		$response->set_data( $data );
+
+		return $response;
+	}
+
+	/**
+	 * POST callback: remove orphaned leftovers from the upgrader's scratch
+	 * directories, then re-run the probe so the repaired state is reported in
+	 * the same response.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function upgrade_cleanup() {
+		$module  = new SPFW_Module_Hardening();
+		$cleanup = $module->clear_upgrade_leftovers();
+
+		if ( is_wp_error( $cleanup ) ) {
+			return $cleanup;
+		}
+
+		$response               = $this->get_settings();
+		$data                   = $response->get_data();
+		$data['cleanup_result'] = $cleanup;
+		$data['upgrade_check']  = $module->run_upgrade_compat_check();
 		$response->set_data( $data );
 
 		return $response;

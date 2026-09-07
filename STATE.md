@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.5.0
-- **Last updated:** 2026-08-19
+- **Plugin version target:** 2.6.0
+- **Last updated:** 2026-09-07
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -73,7 +73,9 @@ the authoritative record.)
   file integrity monitor (whitelist-aware .htaccess RewriteRule payloads,
   sha256 snapshot scanner, twice-daily cron, email alerts, on-demand scan
   endpoint, CSP-style whitelist UI card, 2.4.0); ✅ Scan results list
-  collapsed by default behind a "Show file list" expand button (2.5.0)
+  collapsed by default behind a "Show file list" expand button (2.5.0); ✅
+  Upgrade-compatibility probe + leftover cleanup, and root `.htaccess`
+  self-check deferred off update/upload requests (2.6.0)
 
 ## Shared project facts (true for every step)
 
@@ -122,20 +124,36 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.5.0 (PHP execution whitelist + file integrity monitor, with collapsed
-scan-results list) is built and packaged for QA on a live WordPress
-install.** Remaining before release is
-manual testing on a WordPress + OpenLiteSpeed site — confirm: enabling a
-directory-hardening toggle with a whitelist entry emits the RewriteRule
-allow-then-deny `.htaccess` payload and the whitelisted file still executes
+**2.6.0 (upgrade-compatibility probe + leftover cleanup, root `.htaccess`
+self-check deferred off update requests) is built and packaged for QA on a live
+WordPress install.**
+
+The 2.6.0 work came out of a report that plugin uploads failed with
+"Could not move the old version to the upgrade-temp-backup directory" and
+"Filesystem error. A directory could not be read" while file-protection toggles
+were on. Live forensics established the `.htaccess` rules were **not** the
+cause — they govern HTTP requests only and cannot make `rename()` or
+`opendir()` fail. The actual cause was orphaned debris stranded in
+`wp-content/upgrade-temp-backup/plugins/` by an interrupted bulk-update run,
+with a blocking 10-second loopback self-check on `admin_init` competing for the
+PHP execution budget as a contributing factor. 2.6.0 ships the diagnostic and
+the remedy rather than a speculative change to the hardening payloads.
+
+Remaining before release is manual testing on a WordPress + OpenLiteSpeed site —
+confirm: "Run check" reports a pass on a healthy install with correct
+owner/PHP-user values; the check reproduces a real failure when a directory is
+made unwritable or unowned; stale leftovers are counted and surfaced without
+failing the check; "Clear leftovers and re-check" removes them and reports the
+repaired state, and refuses while `.maintenance` exists; a plugin install and a
+bulk update both succeed with every hardening toggle enabled; the root
+`.htaccess` self-check still runs (and still rolls back on a 500) on an ordinary
+admin request after an update request skipped it. Also still outstanding from
+2.5.0: enabling a directory-hardening toggle with a whitelist entry emits the
+RewriteRule allow-then-deny payload and the whitelisted file still executes
 while other PHP files are denied; empty whitelist reproduces the original
-blanket-deny payload exactly; adding/removing whitelist entries rewrites the
-`.htaccess` files; toggling the file monitor schedules/clears the
-twice-daily cron; "Scan now" reports added/modified/removed files correctly
-across consecutive scans; the alert email fires once per hour maximum and
-flags non-whitelisted entries; the "Locked Down" preset enables the
-monitor; the scan-results panel shows the count summary collapsed and
-expands/collapses the full file list on demand.
+blanket-deny payload exactly; toggling the file monitor schedules/clears the
+twice-daily cron; the alert email fires once per hour maximum and flags
+non-whitelisted entries; the "Locked Down" preset enables the monitor.
 
 ---
 
@@ -349,6 +367,57 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-07 (upgrade-compatibility probe, → 2.6.0): plugin installs/updates
+  were reported failing with "Could not move the old version to the
+  upgrade-temp-backup directory" (EventKoi) and "Filesystem error. A directory
+  could not be read" (Novamira) while file-protection toggles were on, and the
+  hardening `.htaccess` rules were blamed. **They were not the cause.** Both
+  messages come from pure PHP `WP_Filesystem` calls inside
+  `WP_Upgrader::move_to_temp_backup_dir()` and `WP_Upgrader::run()`;
+  `.htaccess` governs HTTP requests only and cannot make `rename()` or
+  `opendir()` fail. SPFW attaches no hooks to the upgrader.
+  Live forensics confirmed ownership/permissions healthy (PHP user owns and can
+  write every directory, `direct` filesystem method) and found the real cause:
+  **5 orphaned leftovers stranded in `wp-content/upgrade-temp-backup/plugins/`**
+  by an interrupted bulk-update run, which later runs then stumbled over.
+  A contributing factor was also found and fixed —
+  `maybe_run_root_self_check()` fired a 10-second blocking loopback
+  `wp_remote_get()` on `admin_init` during update requests, stealing execution
+  budget from already-long bulk-update runs.
+  **Decisions:** (1) ship a diagnostic that replays the upgrader's exact
+  operations rather than change the hardening payloads on a hunch;
+  (2) the self-check now *defers without consuming* its pending flag on
+  update/upload requests — deliberately **not** moved to cron, because a broken
+  root `.htaccess` would also break the `wp-cron.php` loopback and defeat the
+  500-error rollback safety net; (3) leftover debris is reported as
+  `stale_total` and deliberately excluded from the `pass` verdict, since a
+  directory can be fully writable and still hold orphans — conflating the two
+  would make the report unreadable; (4) `shape_upgrade_check_result()` is pure
+  (no filesystem, WordPress, or translation access) so the verdict logic is
+  unit-testable without an install; (5) added a cleanup endpoint beyond the
+  original plan scope, because forensics proved debris is the actual cause and
+  a diagnostic with no remedy would be incomplete.
+  **Verified:** 34 PHPUnit tests / 141 assertions pass (12 new);
+  `vendor/bin/phpcs` reports byte-identical findings to the HEAD baseline
+  (6 errors / 41 warnings) despite ~500 added PHP lines; `npm run lint:css`
+  clean; `npm run build` succeeds (webpack 5.108.4); zero `lint-js` errors on
+  the 354 added JSX lines (the repo's prettier baseline is separately red and
+  CI runs it `continue-on-error: true`).
+
+- 2026-09-07 (`.pot` regeneration without WP-CLI): `wp i18n make-pot` was
+  unavailable and `languages/simple-performance-for-wordpress.pot` was badly
+  stale — still generated at 2.0.0 (294 entries, `POT-Creation-Date:
+  2026-07-31`), missing every string added in 2.1.0–2.6.0. Added
+  `tools/make-pot.php`, a purpose-built extractor covering only the i18n
+  functions this plugin actually calls (`__`, `_e`, `_n`, `esc_html__`,
+  `esc_html_e` in PHP; `__` in JS). `tools/` is excluded via `.distignore`.
+  **Verified** rather than trusted: 497/500 emitted `#: file:line` references
+  resolve exactly onto their claimed string (the 3 exceptions are validator
+  escaping artifacts on `"NEW FILES:\n"`-style literals, output is correct);
+  only 4 prior msgids dropped, all confirmed as copy edited since 2.0.0 rather
+  than extraction misses; no code fragments captured. Result: 470 entries from
+  504 call sites.
 
 - 2026-08-19 (scan results collapsed by default, → 2.5.0): the scan-results
   panel in `PhpWhitelistCard.jsx` listed every changed file inline, which is
