@@ -319,7 +319,7 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					),
 					__(
-						'Stops loading the Dashicons stylesheet for logged-out visitors.',
+						'Stops loading the Dashicons stylesheet for logged-out visitors. A stylesheet that declares Dashicons as a dependency still gets it, so nothing else is dropped along with it.',
 						'simple-performance-for-wordpress'
 					)
 				) }

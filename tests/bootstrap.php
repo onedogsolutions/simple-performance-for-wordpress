@@ -111,9 +111,53 @@ function apply_filters( $tag, $value ) {
 
 function do_action() {}
 
-function add_action() {}
+// Hook registrations are recorded so a test can assert which callback a module
+// actually attached, not merely that the callback behaves when called by hand.
+global $spfw_test_hooks;
+$spfw_test_hooks = array();
+
+function add_action( $tag, $callback = null, $priority = 10, $accepted_args = 1 ) {
+	global $spfw_test_hooks;
+	$spfw_test_hooks[] = array(
+		'tag'      => $tag,
+		'callback' => $callback,
+		'priority' => $priority,
+	);
+}
 
 function add_filter() {}
+
+function remove_action() {}
+
+function remove_filter() {}
+
+function is_admin() {
+	return false;
+}
+
+// ---------------------------------------------------------------------------
+// Enqueue-registry stubs. These record calls rather than model WP_Dependencies:
+// what the tests need to pin is which removal API a module reaches for, since
+// deregistering a handle other assets depend on silently drops those assets.
+// ---------------------------------------------------------------------------
+global $spfw_test_style_calls, $spfw_test_logged_in;
+$spfw_test_style_calls = array();
+$spfw_test_logged_in   = false;
+
+function is_user_logged_in() {
+	global $spfw_test_logged_in;
+	return (bool) $spfw_test_logged_in;
+}
+
+function wp_dequeue_style( $handle ) {
+	global $spfw_test_style_calls;
+	$spfw_test_style_calls[] = array( 'dequeue', $handle );
+}
+
+function wp_deregister_style( $handle ) {
+	global $spfw_test_style_calls;
+	$spfw_test_style_calls[] = array( 'deregister', $handle );
+}
 
 // ---------------------------------------------------------------------------
 // In-memory transient + object cache (simulates the wp_options / object-cache
@@ -237,6 +281,7 @@ function WP_Filesystem() {
 require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 require_once SPFW_PATH . 'includes/interface-spfw-module.php';
+require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
 require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';

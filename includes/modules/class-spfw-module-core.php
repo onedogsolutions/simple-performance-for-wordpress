@@ -29,7 +29,7 @@ class SPFW_Module_Core implements SPFW_Module {
 		}
 
 		if ( ! empty( $c['disable_dashicons'] ) ) {
-			add_action( 'wp_enqueue_scripts', array( $this, 'maybe_deregister_dashicons' ), 100 );
+			add_action( 'wp_enqueue_scripts', array( $this, 'maybe_dequeue_dashicons' ), 100 );
 		}
 
 		if ( ! empty( $c['remove_rsd'] ) ) {
@@ -273,12 +273,45 @@ class SPFW_Module_Core implements SPFW_Module {
 	}
 
 	/**
-	 * Deregister the dashicons stylesheet for logged-out visitors.
+	 * Drop the dashicons stylesheet for logged-out visitors, who have no admin
+	 * bar to draw icons for.
+	 *
+	 * Dequeues rather than deregisters, and the distinction is the whole point.
+	 * `wp_deregister_style()` removes the handle from the registry, and
+	 * `WP_Dependencies::all_deps()` then skips every enqueued stylesheet that
+	 * lists `dashicons` among its dependencies — "item requires dependencies
+	 * that don't exist" — plus anything depending on those in turn. It does so
+	 * silently: no notice, no console error, the stylesheet simply never
+	 * reaches the page.
+	 *
+	 * Because the removal is gated on the visitor being logged out, that loss
+	 * lands on anonymous visitors only, which is the hardest version of the bug
+	 * to see — the page renders correctly for the logged-in admin inspecting it
+	 * and unstyled for every customer. On a WooCommerce product page it took
+	 * out whichever add-on or variation-swatch stylesheet declared the
+	 * dependency, leaving bare unstyled selects (including the `<select>` a
+	 * swatch UI is meant to replace) that the buyer could not complete, so no
+	 * order could be placed.
+	 *
+	 * Dequeuing takes the same saving without that failure mode: when nothing
+	 * needs the handle it is not printed, and when a queued stylesheet does
+	 * declare it as a dependency WordPress resolves and prints it — the correct
+	 * outcome, because that dependent needs it.
+	 */
+	public function maybe_dequeue_dashicons() {
+		if ( ! is_user_logged_in() ) {
+			wp_dequeue_style( 'dashicons' );
+		}
+	}
+
+	/**
+	 * Back-compat alias for the pre-2.12.2 method name, kept so a site that
+	 * unhooked this callback by name keeps working.
+	 *
+	 * @deprecated 2.12.2 Use maybe_dequeue_dashicons().
 	 */
 	public function maybe_deregister_dashicons() {
-		if ( ! is_user_logged_in() ) {
-			wp_deregister_style( 'dashicons' );
-		}
+		$this->maybe_dequeue_dashicons();
 	}
 
 	/**

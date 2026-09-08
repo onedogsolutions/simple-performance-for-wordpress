@@ -1,6 +1,6 @@
 {
   "name": "simple-performance-for-wordpress",
-  "version": "2.12.1",
+  "version": "2.12.2",
   "description": "Ultra-lightweight performance, REST API, and hardening toolkit for OpenLiteSpeed + LiteSpeed Cache.",
   "main": "build/index.js",
   "scripts": {
