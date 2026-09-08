@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
+import {
+	persistedFingerprint,
+	pendingEdits,
+	applyEdits,
+} from '../lib/settings-merge';
+
 import SettingsTabs from './SettingsTabs';
 import CoreSettings from './CoreSettings';
 import RestApiSettings from './RestApiSettings';
@@ -26,29 +32,6 @@ const BASE_TABS = [
 		label: __( 'Option Cleaner', 'simple-performance-for-wordpress' ),
 	},
 ];
-
-// Setting groups that are actually persisted. get_settings() also returns
-// computed, read-only fields (violation logs, scan results, probe state) that
-// change on their own schedule — comparing those would report the form as
-// permanently unsaved.
-const PERSISTED_GROUPS = [
-	'core',
-	'restapi',
-	'hardening',
-	'fonts',
-	'woocommerce',
-	'database',
-];
-
-const persistedFingerprint = ( state ) =>
-	JSON.stringify(
-		PERSISTED_GROUPS.reduce( ( acc, group ) => {
-			if ( state && state[ group ] ) {
-				acc[ group ] = state[ group ];
-			}
-			return acc;
-		}, {} )
-	);
 
 export default function App() {
 	const initialData = window.spfwAdminData || { settings: {} };
@@ -88,11 +71,28 @@ export default function App() {
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const fileInputRef = useRef( null );
 
-	// Any endpoint that returns the full settings payload has, by definition,
-	// just persisted it — so both copies advance together.
+	// Authoritative replace: the payload IS the new truth and there is nothing
+	// pending worth keeping — the initial load, an explicit Save, an import, or
+	// a preset the admin confirmed knowing it overwrites their settings.
 	const commitSettings = ( data ) => {
 		setSettings( data );
 		setSavedSettings( data );
+	};
+
+	// Side-effect endpoints (scans, probes, opening a collection window) also
+	// return the full settings payload, but the admin may have unsaved edits in
+	// the form when they press one of those buttons. Replacing state wholesale
+	// discarded them silently — you could toggle Report-Only, click "Start
+	// collecting", and lose the toggle with no indication it had happened. So
+	// the server's copy becomes the new saved baseline and the pending edits
+	// are layered back on top, leaving the form dirty and the edits intact.
+	const mergeServerSettings = ( data ) => {
+		const edits = pendingEdits( settings, savedSettings );
+
+		setSavedSettings( data );
+		setSettings(
+			Object.keys( edits ).length > 0 ? applyEdits( data, edits ) : data
+		);
 	};
 
 	const isDirty =
@@ -156,7 +156,7 @@ export default function App() {
 			data: { target },
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				showToast(
 					__(
 						'Hardening file restored.',
@@ -230,7 +230,7 @@ export default function App() {
 			data: { action, hours },
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				showToast(
 					'stop' === action
 						? __(
@@ -272,7 +272,7 @@ export default function App() {
 				} )
 			)
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				const found =
 					data.scan_result &&
 					Array.isArray( data.scan_result.families ) &&
@@ -306,7 +306,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				setFileScanResults( data.scan_result || null );
 				setIsScanning( false );
 
@@ -358,7 +358,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 
 				const check = data.upgrade_check || null;
 				setUpgradeCheck( check );
@@ -427,7 +427,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				setUpgradeCheck( data.upgrade_check || null );
 				setIsCleaningUpgrade( false );
 
@@ -472,7 +472,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				commitSettings( data );
+				mergeServerSettings( data );
 				setIsVerifyingHtaccess( false );
 
 				const honored = data.htaccess_honored || 'unknown';
