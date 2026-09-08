@@ -767,6 +767,9 @@ export default function App() {
 								enforcementTime={
 									settings.htaccess_enforcement_time
 								}
+								whitelistBlocked={
+									settings.htaccess_whitelist_blocked
+								}
 								onVerifyHtaccess={ handleVerifyHtaccess }
 								isVerifyingHtaccess={ isVerifyingHtaccess }
 							/>

@@ -282,6 +282,12 @@ class SPFW_Rest_Settings {
 		$settings['htaccess_honored']              = $enf['honored'];
 		$settings['htaccess_enforcement_time']     = isset( $enforcement['checked'] ) ? (int) $enforcement['checked'] : 0;
 		$settings['htaccess_enforcement_targets']  = is_array( $enforcement ) && isset( $enforcement['targets'] ) ? $enforcement['targets'] : array();
+		$settings['htaccess_whitelist_blocked']    = is_array( $enforcement ) && ! empty( $enforcement['whitelist_blocked'] );
+
+		// Known direct-access PHP files that are installed but not whitelisted,
+		// so the Hardening tab can warn before the admin discovers it as a 403
+		// in the browser console.
+		$settings['php_whitelist_suggestions'] = SPFW_Module_Hardening::whitelist_suggestions();
 
 		return new WP_REST_Response( $settings, 200 );
 	}

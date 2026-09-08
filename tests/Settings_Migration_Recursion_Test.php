@@ -141,4 +141,84 @@ class Settings_Migration_Recursion_Test extends TestCase {
 		$this->assertFalse( isset( $spfw_test_options['spfw_settings']['core']['disable_xmlrpc'] ) );
 		$this->assertTrue( $spfw_test_options['spfw_settings']['hardening']['disable_xmlrpc'] );
 	}
+
+	/**
+	 * Migration to 2.11.0: an install already using the policy builder has its
+	 * own stored csp_directives, which the widened DEFAULT_CSP cannot reach. If
+	 * the migration did not append `blob:` there, upgrading would leave that
+	 * site's LiteSpeed delayed scripts blocked with nothing in the UI to
+	 * explain why.
+	 */
+	public function test_pre_2110_stored_csp_directives_gain_blob_script_src() {
+		global $spfw_test_options;
+
+		$spfw_test_options['spfw_settings'] = array(
+			'version'   => '2.10.0',
+			'hardening' => array(
+				'csp_enabled'    => true,
+				'csp_directives' => array(
+					'script-src' => array( "'self'", "'unsafe-inline'", 'https:' ),
+				),
+			),
+		);
+
+		$result = SPFW_Settings::get();
+
+		$this->assertContains(
+			'blob:',
+			$result['hardening']['csp_directives']['script-src']
+		);
+
+		// The admin's own sources survive untouched.
+		$this->assertContains( "'self'", $result['hardening']['csp_directives']['script-src'] );
+		$this->assertContains( 'https:', $result['hardening']['csp_directives']['script-src'] );
+	}
+
+	/**
+	 * A script-src deliberately locked down to 'none' is a choice, not an
+	 * oversight: the migration leaves it alone rather than reopening it.
+	 */
+	public function test_migration_leaves_a_none_script_src_alone() {
+		global $spfw_test_options;
+
+		$spfw_test_options['spfw_settings'] = array(
+			'version'   => '2.10.0',
+			'hardening' => array(
+				'csp_enabled'    => true,
+				'csp_directives' => array(
+					'script-src' => array( "'none'" ),
+				),
+			),
+		);
+
+		$result = SPFW_Settings::get();
+
+		$this->assertSame(
+			array( "'none'" ),
+			$result['hardening']['csp_directives']['script-src']
+		);
+	}
+
+	/**
+	 * The migration is idempotent: an install already carrying blob: does not
+	 * accumulate a duplicate.
+	 */
+	public function test_migration_does_not_duplicate_an_existing_blob_source() {
+		global $spfw_test_options;
+
+		$spfw_test_options['spfw_settings'] = array(
+			'version'   => '2.10.0',
+			'hardening' => array(
+				'csp_enabled'    => true,
+				'csp_directives' => array(
+					'script-src' => array( "'self'", 'blob:' ),
+				),
+			),
+		);
+
+		$result = SPFW_Settings::get();
+		$script = $result['hardening']['csp_directives']['script-src'];
+
+		$this->assertSame( 1, count( array_keys( $script, 'blob:', true ) ) );
+	}
 }
