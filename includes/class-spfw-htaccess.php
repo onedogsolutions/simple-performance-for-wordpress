@@ -199,6 +199,63 @@ class SPFW_Htaccess {
 	}
 
 	/**
+	 * The whitelist the payload generator actually uses: the admin's own
+	 * php_whitelist, plus the PHP files that well-known plugins serve directly
+	 * over HTTP and that are genuinely installed on this site.
+	 *
+	 * The auto-added half exists to make the FIRST write correct. Without it
+	 * the sequence on a LiteSpeed site is: enable hardening, write, restart the
+	 * server, discover the front end is broken because guest.vary.php now 403s,
+	 * whitelist it, write again, restart again. On OpenLiteSpeed that is two
+	 * restarts with a broken site in between, because OLS parses .htaccess
+	 * rewrite rules once at startup and caches them — an edit is inert until
+	 * the next graceful restart. Emitting the allowance up front collapses that
+	 * to a single restart with no broken window.
+	 *
+	 * Gated on the file existing, so this is not a blanket hole: a site without
+	 * LiteSpeed gets no LiteSpeed allowance. Gated again on the
+	 * `auto_allow_known_php` toggle, so an admin who wants a total deny — for
+	 * instance one who does not use Guest Mode — can turn it off and get the
+	 * old behavior.
+	 *
+	 * @return string[] wp-content-relative paths.
+	 */
+	public static function effective_whitelist() {
+		$whitelist = SPFW_Settings::value( 'hardening', 'php_whitelist', array() );
+		$whitelist = is_array( $whitelist ) ? $whitelist : array();
+
+		if ( ! SPFW_Settings::value( 'hardening', 'auto_allow_known_php', true ) ) {
+			return $whitelist;
+		}
+
+		return array_values( array_unique( array_merge( $whitelist, self::auto_allowed_paths() ) ) );
+	}
+
+	/**
+	 * Known direct-access PHP files that are actually present on disk.
+	 *
+	 * Guarded with class_exists so the .htaccess subsystem stays usable if the
+	 * hardening module has not been loaded (uninstall, partial bootstraps).
+	 *
+	 * @return string[] wp-content-relative paths.
+	 */
+	public static function auto_allowed_paths() {
+		if ( ! class_exists( 'SPFW_Module_Hardening' ) ) {
+			return array();
+		}
+
+		$found = array();
+
+		foreach ( array_keys( SPFW_Module_Hardening::KNOWN_DIRECT_ACCESS_PHP ) as $path ) {
+			if ( file_exists( WP_CONTENT_DIR . '/' . $path ) ) {
+				$found[] = $path;
+			}
+		}
+
+		return $found;
+	}
+
+	/**
 	 * Build the deny-PHP payload for a specific target directory. This is the
 	 * preferred entry point when the target is known — it avoids the call-stack
 	 * inspection hack in current_dir_prefix() by accepting the target directly.
@@ -207,7 +264,7 @@ class SPFW_Htaccess {
 	 * @return string
 	 */
 	public static function payload_deny_php_for_target( $target ) {
-		$whitelist  = SPFW_Settings::value( 'hardening', 'php_whitelist', array() );
+		$whitelist  = self::effective_whitelist();
 		$dir_prefix = $target . '/';
 		$applicable = array();
 
@@ -477,6 +534,24 @@ class SPFW_Htaccess {
 	 * @return bool
 	 */
 	private static function write_own_file( $config, $payload ) {
+		// Skip a write that would not change a byte. On OpenLiteSpeed every
+		// touch of an .htaccess costs a graceful restart before the rules take
+		// effect again, so a needless rewrite is not free the way it is on
+		// Apache: it desynchronizes the running server from disk for no reason.
+		// Callers rewrite on any php_whitelist change, and that comparison is
+		// order-sensitive, so merely reordering the list used to land here.
+		// The stored hash is still refreshed, which also repairs an install
+		// whose content is correct but whose recorded hash drifted.
+		$payload_hash = sha1( $payload );
+
+		if ( file_exists( $config['path'] ) && sha1_file( $config['path'] ) === $payload_hash ) {
+			if ( SPFW_Settings::value( 'hardening', $config['hash'], '' ) !== $payload_hash ) {
+				SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => $payload_hash ) ) );
+			}
+
+			return true;
+		}
+
 		$fs = self::filesystem();
 
 		if ( ! $fs ) {
@@ -509,7 +584,21 @@ class SPFW_Htaccess {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 
-		$lines   = '' !== $payload ? explode( "\n", rtrim( $payload, "\n" ) ) : array();
+		$lines = '' !== $payload ? explode( "\n", rtrim( $payload, "\n" ) ) : array();
+
+		// Same OpenLiteSpeed reasoning as write_own_file(): do not rewrite a
+		// block that already matches, or the running server falls out of step
+		// with disk until the next graceful restart for no gain.
+		$current = self::extract_marker_block( $config['path'] );
+
+		if ( '' !== $current && rtrim( $payload, "\n" ) === $current ) {
+			if ( SPFW_Settings::value( 'hardening', $config['hash'], '' ) !== sha1( $current ) ) {
+				SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => sha1( $current ) ) ) );
+			}
+
+			return true;
+		}
+
 		$written = insert_with_markers( $config['path'], self::MARKER, $lines );
 
 		if ( $written ) {

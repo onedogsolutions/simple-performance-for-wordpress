@@ -353,6 +353,7 @@ export default function HardeningSettings( {
 	enforcementTargets,
 	enforcementTime,
 	whitelistBlocked,
+	changedSinceProbe,
 	onVerifyHtaccess,
 	isVerifyingHtaccess,
 } ) {
@@ -517,11 +518,28 @@ export default function HardeningSettings( {
 						) }
 					>
 						<div className="w-full space-y-3">
+							{ changedSinceProbe && (
+								<div className="rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">
+									<p className="text-sm font-medium text-amber-800">
+										{ __(
+											'The .htaccess files have changed since this was last verified, so the result below describes rules that are no longer on disk.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<p className="mt-1 text-xs text-amber-700">
+										{ __(
+											'On OpenLiteSpeed it also means the running server is still applying the previous rules: OLS reads .htaccess rewrite rules once and caches them until a graceful restart. Restart the server (WebAdmin → Graceful Restart, or sudo /usr/local/lsws/bin/lswsctrl restart), then verify again. Apache and LiteSpeed Enterprise re-read the file per request and need only the re-verify.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
+							) }
+
 							{ whitelistBlocked && (
 								<div className="rounded-md bg-red-50 p-3 ring-1 ring-inset ring-red-600/20">
 									<p className="text-sm font-medium text-red-800">
 										{ __(
-											'Hardening is blocking a file you whitelisted. The server is refusing a path listed below with a 403, so the plugin that owns it is broken on the front end. Update to the current plugin version (which re-grants whitelisted files at the authorization layer as well as the rewrite layer) and verify again; if it persists, the file is being blocked by something other than this plugin — another security plugin, a CDN rule, or ModSecurity.',
+											'Hardening is blocking a file you whitelisted. The server is refusing a path listed below with a 403, so the plugin that owns it is broken on the front end. On OpenLiteSpeed the usual cause is that the server is still serving cached rules — OLS reads .htaccess once and caches it — so try a graceful restart first (sudo /usr/local/lsws/bin/lswsctrl restart), then verify again. If it survives a restart, the file is being blocked by something other than this plugin: another security plugin, a CDN rule, or ModSecurity.',
 											'simple-performance-for-wordpress'
 										) }
 									</p>
@@ -592,6 +610,7 @@ export default function HardeningSettings( {
 				hardening={ hardening }
 				onChange={ onChange }
 				suggestions={ settings.php_whitelist_suggestions }
+				autoAllowed={ settings.php_auto_allowed }
 				fileScanResults={ fileScanResults }
 				onScanFiles={ onScanFiles }
 				isScanning={ isScanning }

@@ -770,6 +770,9 @@ export default function App() {
 								whitelistBlocked={
 									settings.htaccess_whitelist_blocked
 								}
+								changedSinceProbe={
+									settings.htaccess_changed_since_probe
+								}
 								onVerifyHtaccess={ handleVerifyHtaccess }
 								isVerifyingHtaccess={ isVerifyingHtaccess }
 							/>

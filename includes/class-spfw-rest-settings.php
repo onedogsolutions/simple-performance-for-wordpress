@@ -289,6 +289,15 @@ class SPFW_Rest_Settings {
 		// in the browser console.
 		$settings['php_whitelist_suggestions'] = SPFW_Module_Hardening::whitelist_suggestions();
 
+		// Known direct-access files the payload is allowing on its own, shown
+		// so auto-allow is visible policy rather than a hidden hole.
+		$settings['php_auto_allowed'] = SPFW_Htaccess::auto_allowed_paths();
+
+		// True when the .htaccess files changed after the cached verdict above
+		// was measured. On OpenLiteSpeed that also means the running server is
+		// still applying the previous rules until a graceful restart.
+		$settings['htaccess_changed_since_probe'] = SPFW_Module_Hardening::htaccess_changed_since_probe();
+
 		return new WP_REST_Response( $settings, 200 );
 	}
 

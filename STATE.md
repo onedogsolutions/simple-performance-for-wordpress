@@ -14,9 +14,9 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.11.0
+- **Plugin version target:** 2.12.0
 - **Last updated:** 2026-09-08
-- **Overall status:** ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Overall status:** ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -131,81 +131,53 @@ the authoritative record.)
 | 10 | Quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
 | 11 | Option Cleaner & Ghost Capability Cleaner | ✅ Done | (this commit) |
 | 12 | Database Cleanup & Optimization Module | ✅ Done | (this commit) |
-| 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | (this commit) |
+| 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | 7615267 |
+| 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.11.0 (LiteSpeed Cache compatibility) is implemented and the build is clean.**
+**2.12.0 (OpenLiteSpeed restart cost) is implemented and the build is clean.**
+2.11.0 is merged to `main` (PR #5, merge commit `1a60c6e`).
 
-Triggered by a field report from a live LiteSpeed site whose front end broke
-after the plugins/uploads hardening was enabled. Two independent plugin defects,
-both fixed here (full detail in Step 13):
+Step 14 answers the follow-up question from the field report: the 2.11.0 fix was
+correct but inert on the reporting server until OpenLiteSpeed was restarted,
+because OLS caches .htaccess rewrite rules from startup. That restart cannot be
+avoided and the plugin must not attempt it. What 2.12.0 changes is how *often*
+it is needed and whether the UI is honest while it is pending — see Step 14.
 
-1. The PHP whitelist only exempted a file at the rewrite layer. mod_rewrite runs
-   before authorization, so the `<FilesMatch>` deny still refused whitelisted
-   files on every server that honors it — the whitelist worked only on
-   OpenLiteSpeed, which ignores `<FilesMatch>`. Whitelisted basenames are now
-   re-granted with a `<Files>` section emitted after the deny block.
-2. `DEFAULT_CSP` omitted `blob:` from `script-src`, so LiteSpeed's "Load JS
-   Delayed" — which re-executes inline scripts through `URL.createObjectURL` —
-   had every delayed script refused, taking jQuery and `wp` with it.
+Gates: PHPUnit 99 tests / 218 assertions (11 new — auto-allow present/absent/
+disabled/de-duplicated, no-op vs. real writes, and five staleness cases),
+Jest 26/26, `npm run build` clean, `php -l` clean, PHPCS (88 errors / 161
+warnings) and `lint:js` (266 problems) both at their pre-existing baselines,
+`.pot` regenerated to 485 entries, version synchronized to 2.12.0.
 
-Also: the enforcement probe now probes whitelisted files in the *allow*
-direction (it previously only verified that denies deny, so a site 403-ing a
-whitelisted file reported as fully healthy); the Hardening tab warns when a
-known direct-access PHP file is installed but not whitelisted, with a one-click
-add; and whitelist paths are restricted to characters that cannot alter the
-generated .htaccess.
+**Still unverified on real hardware.** Everything about OLS behavior here comes
+from documentation and the field report, not from a live OLS box — there is none
+in the build environment. On the reporting site, after installing 2.12.0 and
+running one graceful restart, the checks are: `guest.vary.php` returns 200
+without anything having been whitelisted by hand; the Hardening tab lists it
+under "allowed automatically"; "Verify enforcement" shows the whitelist row
+Reachable while the deny canaries stay Enforced; and editing the whitelist then
+reloading the tab raises the "changed since last verified" banner.
 
-Gates after the change: `npm run build` clean (webpack 5.108.4), PHPUnit 88
-tests / 199 assertions pass (11 new — whitelist authz ordering, blanket-payload
-negative case, unsafe-character rejection, allow-canary shaping in three
-directions, two `blob:` policy assertions, and three covering the 2.11.0
-csp_directives migration end-to-end), Jest 26/26, `php -l` clean, and
-PHPCS (88 errors / 161 warnings) and `lint:js` (266 problems) both byte-identical
-to their pre-existing baselines. `.pot` regenerated to 480 entries. Version
-synchronized to 2.11.0 across the plugin header, `SPFW_VERSION`, `readme.txt`,
-`package.json`, and this file.
+**CI remains red on `main` for a pre-existing, unrelated reason** —
+`PHPUnit Tests (8.0)` fails inside `composer install` because `composer.lock`
+pins PHPUnit 10.5.64 whose `sebastian/*` deps require PHP >= 8.1, while the
+matrix runs 8.0 and the plugin header declares `Requires PHP: 8.0`. Diagnosis
+and two candidate fixes are on PR #5; neither is applied because both change CI
+or dependency policy. This is the one outstanding item that is nobody's
+follow-up yet.
 
-Remaining before release is live verification on the reporting site: after
-upgrading, confirm `guest.vary.php` returns 200 (the 2.11.0 migration reconciles
-the authored .htaccess automatically, so no manual Restore should be needed),
-that "Verify enforcement" shows the whitelist row as Reachable while the deny
-canaries stay Enforced, and that the delayed-JS console errors are gone once
-LiteSpeed's cache is purged. Note for later: `csp_tighten_script_src` is
-expected to be unusable alongside LiteSpeed's JS optimization, since collected
-sha256 hashes drift as LSCWP re-minifies inline scripts per cache entry — worth
-a UI warning if anyone tries to enable it.
-
-**Stale entries corrected.** The three items this section had been carrying as
-outstanding from earlier releases are all implemented — verified in code this
-session, not assumed:
-- Root self-check rollback on a 500: `maybe_run_root_self_check()` removes the
-  root block, disables both toggles and shows an admin notice on a `>= 500`
-  loopback, and defers without consuming the flag during update/upload requests.
-- File-integrity monitor cron + hourly-capped alert: `FILE_MONITOR_CRON` is
-  scheduled `twicedaily` when the toggle is on, cleared when it flips off
-  (`handle_settings_change`) and again on plugin deactivation
-  (`SPFW_Plugin::deactivate()`); `maybe_send_file_alert()` rate-limits to one
-  email per hour via the `FILE_MONITOR_COOLDOWN` transient.
-- "Locked Down" preset: already sets `file_monitor_enabled => true` alongside
-  `plugins_htaccess` and `uploads_htaccess`.
-
-What genuinely remains is manual verification on a live OpenLiteSpeed +
-LiteSpeed Cache install, which cannot be done from the build environment. A
-2.11.0 release ZIP has been packaged to make that possible (see the decisions
-log for how it is built and what it contains).
-
-**CI is red on `main`, and has been for at least six runs — not caused by this
-work.** `PHPUnit Tests (8.0)` fails in `composer install`, before any test runs:
-`composer.lock` pins PHPUnit 10.5.64, whose `sebastian/*` dependencies require
-PHP >= 8.1, so the 8.0 matrix leg cannot resolve and fail-fast cancels the 8.2
-and 8.3 legs. `composer.json` allows `^9.6 || ^10.5`, but `composer install`
-always installs the lock. Diagnosis and two candidate fixes are recorded on
-PR #5; neither is applied, because both change CI or dependency policy and that
-is the maintainer's call. Every other check passes on the 2.11.0 branch.
+Longer-term, worth considering: `KNOWN_DIRECT_ACCESS_PHP` currently holds a
+single entry. Other plugins with direct-access PHP endpoints (the ShortPixel /
+Imagify / EWWW / UpdraftPlus paths already in the UI pre-fill list) are
+candidates, but each needs verifying against the current vendor code before
+being auto-allowed rather than merely suggested. Also still open: packaging is
+a hand-run Python walk rather than a committed script, and
+`csp_tighten_script_src` is expected to be unusable alongside LiteSpeed's JS
+optimization (hash drift per cache entry) and has no UI warning saying so.
 
 ---
 
@@ -2048,6 +2020,71 @@ Deliverables:
 
 Acceptance: `npm run build` clean, PHPUnit green, `php -l` clean, `.pot`
 regenerated, version synchronized to 2.11.0.
+
+### Step 14 — OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes ✅
+Follow-up to Step 13, from the same site. The 2.11.0 fix was correct but did not
+help that server, because **OpenLiteSpeed parses .htaccess rewrite rules once —
+on first access to the directory after startup — and caches them until a
+graceful restart.** Verified against several independent sources; there is no
+`autoReload` setting, no mtime check, and no per-directory invalidation in
+1.8.x. A forum thread tagged "Implemented" exists but could not be read (the
+build environment's egress proxy blocks `forum.openlitespeed.org` and
+`docs.openlitespeed.org`), and every other source says 1.8.3/1.8.4 shipped
+without it — treat as unconfirmed.
+
+Two consequences that shape this step:
+- On OLS the `<Files>`/`<FilesMatch>`/`Require` half of the payload is ignored
+  outright, so Step 13's authz grant fixes Apache and LiteSpeed Enterprise and
+  does nothing there. On OLS only the RewriteCond/RewriteRule chain matters —
+  and that is precisely what is cached.
+- The restart itself cannot be avoided, and the plugin must never try: PHP runs
+  unprivileged, restarting mid-request kills the request, and a WordPress
+  plugin that can restart the web server is a liability. The reload-on-mtime
+  cron some admins run belongs in ops config, not here.
+
+So the goal is not to dodge the restart but to need it **once**, and to stop the
+UI reporting green while the server is out of step. The old sequence was: enable
+hardening → write → restart → front end breaks (guest.vary.php now 403s) →
+notice → whitelist → write → restart. Two restarts, broken site in between.
+
+Deliverables:
+- `includes/class-spfw-htaccess.php`: `effective_whitelist()` = the admin's
+  `php_whitelist` plus `auto_allowed_paths()` — the entries of
+  `KNOWN_DIRECT_ACCESS_PHP` that actually exist on disk. The first payload
+  written is therefore already correct on a LiteSpeed site: one restart, no
+  broken window. Gated on file existence (a site without LiteSpeed gets a
+  blanket deny) and on a new toggle.
+- `includes/class-spfw-settings.php`: `hardening.auto_allow_known_php`
+  (default true) so an admin who wants a total deny keeps that option; 2.12.0
+  reconcile migration so existing installs pick the allowance up.
+- `includes/class-spfw-htaccess.php`: `write_own_file()` and
+  `write_marker_block()` return early when the content already matches byte for
+  byte, refreshing only the stored hash. Every needless rewrite costs an OLS
+  restart, and the caller's whitelist-change check is order-sensitive, so
+  reordering the list used to trigger one.
+- `includes/modules/class-spfw-module-hardening.php`:
+  `current_htaccess_hashes()` fingerprints the files at probe time (stored as
+  `payload_hashes` on the enforcement result) and `htaccess_changed_since_probe()`
+  compares it to disk. Returns false when no probe has run or the stored result
+  predates the fingerprint — an unknown is not a warning.
+  `whitelist_suggestions()` now returns empty while auto-allow is on, since the
+  payload already permits those files and warning would send the admin to fix a
+  problem they do not have.
+- UI: an "Auto-allow known plugin endpoints" toggle that also lists the paths
+  being auto-allowed (visible policy, not a hidden hole); a "changed since last
+  verified" banner naming the OLS restart and its command; and the
+  whitelisted-but-blocked error now leads with the cached-rules explanation.
+- `tests/bootstrap.php`: a minimal `WP_Filesystem` stub. The write path was
+  previously untestable — `filesystem()` would try to require
+  `wp-admin/includes/file.php` and fatal — which is why every payload test pins
+  a high stored version to keep migrations from writing.
+
+Also fixed a latent order-dependency the new tests exposed: two subdirectory-
+install tests set `$spfw_test_home_url` and never restore it, so every test
+defined after them ran against a `/blog` install. Now reset in `setUp()`.
+
+Acceptance: PHPUnit 99/218, Jest 26/26, `npm run build` clean, `php -l` clean,
+PHPCS and `lint:js` at baseline, `.pot` regenerated, version 2.12.0.
 
 ## Open questions / blockers
 

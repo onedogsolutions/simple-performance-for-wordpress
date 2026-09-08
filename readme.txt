@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.11.0
+Stable tag: 2.12.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,13 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.12.0 =
+* Added: Auto-allow for known plugin endpoints. A PHP file that a well-known plugin serves directly over HTTP — currently LiteSpeed Cache's `guest.vary.php` — is now permitted by the very first .htaccess the plugin writes, when that file is actually installed. Previously you had to enable hardening, discover the resulting 403, and whitelist the file by hand. On OpenLiteSpeed that cost two server restarts with a broken front end in between, because OLS reads .htaccess rewrite rules once at startup and caches them until a graceful restart. A new "Auto-allow known plugin endpoints" toggle turns this off for a total deny, and the Hardening tab lists exactly which paths are being allowed automatically.
+* Added: The Hardening tab now reports when the .htaccess files have changed since enforcement was last verified, so a cached "Enforced" badge can no longer describe rules that are no longer on disk. On OpenLiteSpeed the same notice names the graceful restart the change is waiting on, with the command.
+* Changed: The "whitelisted but blocked" error now leads with the OpenLiteSpeed cached-rules explanation and the restart command, since that is the most common cause.
+* Fixed: Writing an .htaccess whose content is already byte-for-byte correct no longer rewrites the file. Any rewrite desynchronizes a running OpenLiteSpeed from disk until the next graceful restart, and the whitelist-change check that triggered it was order-sensitive, so merely reordering the list caused one.
+* Fixed: Two tests set a subdirectory-install home URL without restoring it, so every test defined after them silently ran against a /blog install.
 
 = 2.11.0 =
 * Fixed: LiteSpeed Cache Guest Mode returned 403 with directory hardening on. The PHP execution whitelist only exempted a file at the rewrite layer, and mod_rewrite runs before authorization — so on Apache and LiteSpeed Enterprise the `<FilesMatch>` deny still refused the file, and the whitelist worked only on OpenLiteSpeed, which ignores `<FilesMatch>`. Whitelisted files are now re-granted with a `<Files>` section emitted after the deny block, where it takes precedence. Existing installs are reconciled automatically on upgrade.

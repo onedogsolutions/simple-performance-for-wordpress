@@ -67,10 +67,17 @@ export default function PhpWhitelistCard( {
 	isScanning,
 	adminEmail,
 	suggestions,
+	autoAllowed,
 } ) {
 	const whitelist = hardening.php_whitelist || [];
 	const pending = ( suggestions || [] ).filter(
 		( s ) => ! whitelist.includes( s.path )
+	);
+	const autoAllowOn = false !== hardening.auto_allow_known_php;
+	// Only the auto-allowed paths the admin has not also added by hand, so the
+	// same path never appears twice with two different explanations.
+	const autoOnly = ( autoAllowed || [] ).filter(
+		( path ) => ! whitelist.includes( path )
 	);
 	const [ inputPath, setInputPath ] = useState( '' );
 	const [ showPrefillConfirm, setShowPrefillConfirm ] = useState( false );
@@ -148,6 +155,47 @@ export default function PhpWhitelistCard( {
 				'simple-performance-for-wordpress'
 			) }
 		>
+			<SettingsRow
+				title={ __(
+					'Auto-allow known plugin endpoints',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Some plugins serve PHP directly over HTTP from wp-content — LiteSpeed Cache fetches guest.vary.php on every guest page view. With this on, such a file is allowed automatically when it is actually installed, so enabling hardening never breaks those plugins. Turn it off for a total deny. On OpenLiteSpeed this matters twice over: rule changes only take effect after a graceful restart, so discovering the block later costs a second restart with a broken site in between.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<div className="w-full space-y-3">
+					<Toggle
+						checked={ autoAllowOn }
+						onChange={ ( v ) =>
+							onChange( 'auto_allow_known_php', v )
+						}
+					/>
+
+					{ autoAllowOn && autoOnly.length > 0 && (
+						<div className="rounded-md bg-gray-50 p-3 ring-1 ring-inset ring-gray-200">
+							<p className="text-xs text-gray-600">
+								{ __(
+									'Currently allowed automatically (detected on this site):',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+							<div className="mt-2 flex flex-wrap gap-2">
+								{ autoOnly.map( ( path ) => (
+									<span
+										key={ path }
+										className="rounded-md bg-gray-100 px-2 py-1 text-xs font-mono text-gray-700 ring-1 ring-inset ring-gray-300"
+									>
+										{ path }
+									</span>
+								) ) }
+							</div>
+						</div>
+					) }
+				</div>
+			</SettingsRow>
+
 			<SettingsRow
 				title={ __(
 					'PHP execution whitelist',
