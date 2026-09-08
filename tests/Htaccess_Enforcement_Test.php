@@ -1079,4 +1079,48 @@ class Htaccess_Enforcement_Test extends TestCase {
 
 		$this->assertTrue( SPFW_Module_Hardening::htaccess_changed_since_probe() );
 	}
+
+	// ---------------------------------------------------------------------
+	// Synthetic uploads canary (403 vs 404 needs no file on disk).
+	// ---------------------------------------------------------------------
+
+	/**
+	 * A 403 on a path that does not exist proves the deny rule ran: `[F]` fires
+	 * on the URL before any file-existence check.
+	 */
+	public function test_shape_marks_synthetic_403_as_enforced() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'uploads_synthetic', 403 ) ) )
+		);
+
+		$this->assertSame( 'enforced', $shaped['targets'][0]['state'] );
+		$this->assertSame( 'yes', $shaped['htaccess_honored'] );
+	}
+
+	/**
+	 * A 404 means the request reached the filesystem unimpeded, so the rule is
+	 * inert. Previously the uploads rule went unprobed entirely whenever
+	 * wp-content/uploads/index.php was absent — which WordPress does not
+	 * reliably create — and reported "unverified" forever on the directory
+	 * where a planted script is most likely to land.
+	 */
+	public function test_shape_marks_synthetic_404_as_not_enforced() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'uploads_synthetic', 404 ) ) )
+		);
+
+		$this->assertSame( 'not_enforced', $shaped['targets'][0]['state'] );
+		$this->assertSame( 'no', $shaped['htaccess_honored'] );
+	}
+
+	/**
+	 * The synthetic canary must name a file that cannot plausibly exist, since
+	 * the whole verdict rests on it being absent.
+	 */
+	public function test_synthetic_canary_is_a_php_path() {
+		$this->assertMatchesRegularExpression(
+			'/^[a-z0-9-]+\.php$/',
+			SPFW_Module_Hardening::SYNTHETIC_CANARY
+		);
+	}
 }

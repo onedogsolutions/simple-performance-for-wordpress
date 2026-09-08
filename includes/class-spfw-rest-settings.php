@@ -331,7 +331,7 @@ class SPFW_Rest_Settings {
 
 		return array(
 			'plugins' => isset( $states['plugins'] ) ? $states['plugins'] : 'unknown',
-			'uploads' => isset( $states['uploads'] ) ? $states['uploads'] : 'unknown',
+			'uploads' => self::combine_enforcement( $states, array( 'uploads', 'uploads_synthetic' ) ),
 			'root'    => self::combine_enforcement( $states, array( 'sensitive_files', 'xmlrpc' ) ),
 			'honored' => $honored,
 		);

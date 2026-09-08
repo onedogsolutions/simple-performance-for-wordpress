@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.12.0
+Stable tag: 2.12.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.12.1 =
+* Fixed: The uploads directory reported "Present (enforcement unverified)" on most sites. The check only ran when `wp-content/uploads/index.php` happened to exist, and WordPress does not reliably create it — so the one directory where a malicious script is most likely to land was never actually verified. The check now requests a path that should not exist: a deny rule fires on the URL before any file-existence check, so 403 proves the rule is working and 404 proves it is not, with nothing needed on disk.
 
 = 2.12.0 =
 * Added: Auto-allow for known plugin endpoints. A PHP file that a well-known plugin serves directly over HTTP — currently LiteSpeed Cache's `guest.vary.php` — is now permitted by the very first .htaccess the plugin writes, when that file is actually installed. Previously you had to enable hardening, discover the resulting 403, and whitelist the file by hand. On OpenLiteSpeed that cost two server restarts with a broken front end in between, because OLS reads .htaccess rewrite rules once at startup and caches them until a graceful restart. A new "Auto-allow known plugin endpoints" toggle turns this off for a total deny, and the Hardening tab lists exactly which paths are being allowed automatically.
