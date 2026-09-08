@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.7.0
+Stable tag: 2.8.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,15 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.8.0 =
+* Fixed: "Disable scripts & styles on non-store pages" broke Add to Cart on any page WooCommerce does not consider a store page. The toggle dequeued `wc-add-to-cart` along with its `jquery-blockui` and `js-cookie` dependencies, so a product grid rendered by a page builder, a `[products]` shortcode in a post, or a WooCommerce block on the front page lost its Add to Cart handler and the button silently did nothing. The Add to Cart handler chain is now never dequeued; the toggle still drops the WooCommerce stylesheets, `woocommerce.min.js` and the cart-fragments request, which is where its savings actually come from.
+* Fixed: The same toggle dequeued `wc-add-to-cart` while leaving `wc-add-to-cart-variation` enqueued, so variable products ran a script whose dependency and `wc_add_to_cart_params` data object had both been removed.
+* Added: Store-content detection. A page embedding a WooCommerce block or one of WooCommerce's shortcodes now counts as a store page, so it keeps the store stylesheets instead of rendering its products unstyled. A new `spfw_is_woo_page` filter covers page-builder layouts that render products through their own shortcodes.
+* Fixed: The Content-Security-Policy card's "Actual emitted header" panel showed a bare policy string with no header name, so there was no way to tell a report-only policy from an enforcing one. It now shows the real header name with a Report-only / Enforcing badge, notes when logged-in users are excluded from the header, and always renders.
+* Fixed: `frame-ancestors` is no longer sent in report-only policies. Browsers ignore it there and log a console error on every page load, which reads like a broken policy. It is restored automatically when the policy enforces; `X-Frame-Options: SAMEORIGIN` from the security-headers toggle covers clickjacking in the meantime.
+* Added: Unsaved-changes tracking on the settings screen. A banner marks unsaved edits and navigating away warns, so a toggled-but-unsaved switch can no longer disagree with what the site is actually sending.
+* Changed: The descriptions for "Disable scripts & styles on non-store pages" and "Disable cart fragments" now state their real trade-offs instead of recommending the first for page-builder sites.
 
 = 2.7.0 =
 * Added: Runtime .htaccess enforcement verification on the Directory Hardening tab. A loopback probe checks whether the server is actually applying the file-protection rules (plugins/index.php, readme.html/license.txt, xmlrpc.php, and uploads/index.php when present) and reports a per-target Enforced / Not enforced / Unverified verdict plus an overall "does this vhost honor .htaccess" headline. Exposed as POST /spfw/v1/settings/verify-htaccess, with a "Verify enforcement" button and results panel. Enforcement is cached, so it is read without probing on every page load; one automatic read rides the existing post-write root self-check.

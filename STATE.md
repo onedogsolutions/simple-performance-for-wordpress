@@ -14,8 +14,8 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.7.0
-- **Last updated:** 2026-09-07
+- **Plugin version target:** 2.8.0
+- **Last updated:** 2026-09-08
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -79,7 +79,13 @@ the authoritative record.)
   enforcement honesty — runtime verification of whether the vhost actually
   applies the file-protection rules, three-state integrity+enforcement badges,
   self-healing `reconcile()` of authored root-block drift, root Restore +
-  import mapping fixes, and always-on XML-RPC PHP fallback (2.7.0)
+  import mapping fixes, and always-on XML-RPC PHP fallback (2.7.0); ✅ WooCommerce
+  Add to Cart fix — the "non-store pages" toggle no longer dequeues the Add to
+  Cart handler chain, store content is detected in blocks/shortcodes, and a
+  `spfw_is_woo_page` filter covers page-builder layouts — plus CSP admin
+  honesty (emitted header labelled with its real name and an enforcing badge,
+  `frame-ancestors` stripped from report-only policies, unsaved-changes
+  tracking) (2.8.0)
 
 ## Shared project facts (true for every step)
 
@@ -392,6 +398,83 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-08 (WooCommerce Add to Cart breakage + CSP admin honesty, → 2.8.0,
+  branch `claude/csp-generator-enforced-policy-7mriy7`): reported as "Report-Only
+  is on but an enforced CSP is being emitted, and it is blocking Add to Cart".
+  **The CSP half of the report was a misdiagnosis, and the plugin caused the
+  misdiagnosis.** Live `curl -sI` on maddogproducts.com returned exactly one
+  header, `content-security-policy-report-only`, freshly generated (no
+  `x-litespeed-cache: hit`) — the emission logic was correct all along
+  (`add_csp_header()` is the only CSP emitter; `security_headers` never emits
+  one; nothing writes CSP into `.htaccess`). What made it look enforced:
+  (a) the "Actual emitted header" panel printed a bare policy string with **no
+  header name**, so report-only and enforcing are visually identical; (b) the
+  panel only rendered when the emitted string differed from the built one, so it
+  blinked in and out; (c) the settings screen is one form with a single Save and
+  **no dirty tracking**, so a toggled-but-unsaved Report-Only switch disagrees
+  with the server-derived panel directly beneath it; (d) `frame-ancestors 'self'`
+  was emitted in report-only, where browsers ignore it and log a console error
+  per page load — the error spam that anchored the whole diagnosis.
+  **The real cause of the Add to Cart failure** was
+  `SPFW_Module_WooCommerce::disable_scripts_styles()`: its dequeue list included
+  `wc-add-to-cart` plus `jquery-blockui` and `js-cookie`, dropped on every page
+  where `is_woocommerce() || is_cart() || is_checkout() || is_account_page()` is
+  false. That is false for page-builder landing pages (the site runs Avada/Fusion),
+  the front page, and posts using `[products]` — all of which render Add to Cart
+  buttons. Confirmed on a live non-store page with JS combining off:
+  `wc_add_to_cart_params` 0, `cart-fragments` 0, `blockUI` 0, `js.cookie` 0,
+  `woocommerce` 11. The list was also internally inconsistent — it dropped
+  `wc-add-to-cart` while leaving `wc-add-to-cart-variation` enqueued, so variable
+  products ran a script with its dependency and data object both removed.
+  **Decisions:** (1) The Add to Cart chain is now **never** dequeued by this
+  toggle (`KEEP_SCRIPTS`), rather than trying to detect Add to Cart markup
+  perfectly. No route conditional or content sniff can see a product grid a page
+  builder renders through its own shortcode, so any heuristic that decides to
+  drop the handler will eventually drop it on a page that needs it — and the
+  failure is silent, with no console error. The handler is a few KB; the
+  stylesheets and the cart-fragments request are where the savings are.
+  (2) Content sniffing (`content_has_woo_markup()`, a pure static so it is
+  unit-testable) and a `spfw_is_woo_page` filter were added anyway — they fix a
+  second, quieter bug where a page with `[products]` kept its markup but lost
+  WooCommerce's stylesheets and rendered unstyled.
+  (3) `frame-ancestors`/`sandbox` are stripped from report-only headers via
+  `REPORT_ONLY_IGNORED` + `remove_directives()`, and restored automatically when
+  the policy enforces; `X-Frame-Options: SAMEORIGIN` covers clickjacking in the
+  interim. Both `add_csp_header()` and `get_emitted_policy_preview()` apply the
+  strip so the preview matches the wire byte for byte.
+  (4) `csp_header_name()` is the single source for the header name, consumed by
+  the header itself and by `get_settings()` (new `csp_emitted_header` and
+  `csp_excludes_logged_in` fields) so the UI can never disagree with the wire.
+  (5) `App.jsx` gained `savedSettings` + `commitSettings()` (every full-payload
+  response advances both copies) and a `persistedFingerprint()` comparison over
+  the six persisted groups only — the computed read-only fields (violation logs,
+  scan results, probe state) change on their own schedule and would report the
+  form as permanently unsaved. Unsaved state drives a footer banner, a
+  `beforeunload` guard, and a line in the CSP panel.
+  **Deviations:** (i) The plan proposed dequeuing `wc-add-to-cart-variation`
+  alongside `wc-add-to-cart`; keeping the whole chain instead is strictly safer
+  and makes the two lists trivially disjoint (asserted in the tests).
+  (ii) The emitted-header panel was moved out of the builder-only branch to sit
+  above "Violation reports", so Advanced/custom-mode users see the enforcing
+  badge too — it was previously unreachable in custom mode.
+  (iii) `tools/make-pot.php` takes `<root> <outfile>` as arguments; running it
+  bare fatals. Noted here because the 2.7.0 entry does not say so.
+  **Deferred (not this release):** `csp_exclude_logged_in` is decided at page
+  generation and then cached with the response (`/shop/` returns
+  `x-litespeed-cache-control: public,max-age=604800`), so the wrong visitor
+  population can receive or miss the header; nothing purges when
+  `csp_collect_until` expires on its own; and `connect-src` is an explicit
+  allowlist missing `api.stripe.com`, `m.stripe.network` and `c.paypal.com`
+  while `frame-src` carries the payment origins — that gap will break checkout
+  on the day Report-Only is switched off, because the "Allow" flow only ever
+  adds an origin to the directive that reported it. Also observed while adding
+  dirty tracking (pre-existing, unchanged): any action that returns a full
+  settings payload — Start collecting, Scan fonts, Verify enforcement — replaces
+  the form state, so unsaved edits made beforehand are silently discarded. The
+  new banner now at least reports the result honestly, but the clobber itself
+  is untouched.
+  **Verified:** see the commit message for the test/lint/build results.
 
 - 2026-09-07 (`.htaccess` enforcement honesty + root-block drift, → 2.7.0):
   two reports on the ott-dev LiteSpeed vhost. (a) Directory Hardening showed a

@@ -31,7 +31,7 @@ export default function WooCommerceSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					),
 					__(
-						'Stops the AJAX cart-fragments request (?wc-ajax=get_refreshed_fragments) everywhere except the cart and checkout. The single biggest WooCommerce speed win, and it lets full-page caching work.',
+						'Stops the AJAX cart-fragments request (?wc-ajax=get_refreshed_fragments) everywhere except the cart and checkout. The single biggest WooCommerce speed win, and it lets full-page caching work. Trade-off: Add to Cart still works, but a cart counter in your header will not update until the next page load.',
 						'simple-performance-for-wordpress'
 					)
 				) }
@@ -42,7 +42,7 @@ export default function WooCommerceSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					),
 					__(
-						'Only loads WooCommerce CSS/JS on shop, product, cart, checkout, and account pages — great for sites using page builders elsewhere.',
+						'Drops WooCommerce CSS and woocommerce.min.js on pages with no store content — shop, product, cart, checkout and account pages are always left alone, as are pages embedding a WooCommerce block or shortcode. The Add to Cart handler is never removed. If a page builder renders products through its own shortcode and its styling looks wrong, return true from the spfw_is_woo_page filter for that page.',
 						'simple-performance-for-wordpress'
 					)
 				) }

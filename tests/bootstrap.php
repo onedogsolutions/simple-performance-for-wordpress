@@ -196,4 +196,5 @@ require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 require_once SPFW_PATH . 'includes/interface-spfw-module.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
+require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
 require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';

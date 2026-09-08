@@ -278,6 +278,13 @@ class SPFW_Rest_Settings {
 		// (including report-uri when collecting), so the admin can compare
 		// directly against DevTools without guessing.
 		$settings['csp_emitted_policy']       = SPFW_Module_Hardening::get_emitted_policy_preview();
+		// The header NAME that policy is sent under, and whether the visitor
+		// population it reaches excludes logged-in users. Without both, the
+		// admin cannot tell an enforcing policy from a report-only one, or
+		// tell why they see no header in their own browser.
+		$hardening_group                    = SPFW_Settings::group( 'hardening' );
+		$settings['csp_emitted_header']     = SPFW_Module_Hardening::csp_header_name( $hardening_group );
+		$settings['csp_excludes_logged_in'] = ! empty( $hardening_group['csp_exclude_logged_in'] );
 		// File monitor metadata for the Hardening tab UI.
 		$settings['file_monitor_last_scan']      = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
 		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );

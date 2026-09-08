@@ -27,6 +27,29 @@ const BASE_TABS = [
 	},
 ];
 
+// Setting groups that are actually persisted. get_settings() also returns
+// computed, read-only fields (violation logs, scan results, probe state) that
+// change on their own schedule — comparing those would report the form as
+// permanently unsaved.
+const PERSISTED_GROUPS = [
+	'core',
+	'restapi',
+	'hardening',
+	'fonts',
+	'woocommerce',
+	'database',
+];
+
+const persistedFingerprint = ( state ) =>
+	JSON.stringify(
+		PERSISTED_GROUPS.reduce( ( acc, group ) => {
+			if ( state && state[ group ] ) {
+				acc[ group ] = state[ group ];
+			}
+			return acc;
+		}, {} )
+	);
+
 export default function App() {
 	const initialData = window.spfwAdminData || { settings: {} };
 	const wooActive = !! initialData.woocommerceActive;
@@ -45,6 +68,13 @@ export default function App() {
 		: BASE_TABS;
 
 	const [ settings, setSettings ] = useState( initialData.settings );
+	// The last state the server confirmed. Every toggle edits `settings` only,
+	// so comparing the two tells us whether what the admin is looking at is
+	// what the site is actually running — the CSP card in particular reads as
+	// enforcing-vs-report-only, where guessing wrong is expensive.
+	const [ savedSettings, setSavedSettings ] = useState(
+		initialData.settings
+	);
 	const [ isSaving, setIsSaving ] = useState( false );
 	const [ toast, setToast ] = useState( { message: '', type: null } );
 	const [ activeTab, setActiveTab ] = useState( 'core' );
@@ -58,13 +88,24 @@ export default function App() {
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const fileInputRef = useRef( null );
 
+	// Any endpoint that returns the full settings payload has, by definition,
+	// just persisted it — so both copies advance together.
+	const commitSettings = ( data ) => {
+		setSettings( data );
+		setSavedSettings( data );
+	};
+
+	const isDirty =
+		persistedFingerprint( settings ) !==
+		persistedFingerprint( savedSettings );
+
 	useEffect( () => {
 		if ( initialData.nonce ) {
 			apiFetch.use( apiFetch.createNonceMiddleware( initialData.nonce ) );
 		}
 
 		apiFetch( { path: '/spfw/v1/settings' } )
-			.then( ( data ) => setSettings( data ) )
+			.then( ( data ) => commitSettings( data ) )
 			.catch( ( err ) => {
 				// eslint-disable-next-line no-console
 				console.error( 'Failed to load settings', err );
@@ -75,6 +116,23 @@ export default function App() {
 			.catch( () => {} );
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
+
+	// The settings page is one big form with a single Save; without this an
+	// admin can toggle Report-Only, navigate away, and never learn the site is
+	// still enforcing.
+	useEffect( () => {
+		if ( ! isDirty ) {
+			return undefined;
+		}
+
+		const warn = ( e ) => {
+			e.preventDefault();
+			e.returnValue = '';
+		};
+
+		window.addEventListener( 'beforeunload', warn );
+		return () => window.removeEventListener( 'beforeunload', warn );
+	}, [ isDirty ] );
 
 	const showToast = ( message, type ) => {
 		setToast( { message, type } );
@@ -98,7 +156,7 @@ export default function App() {
 			data: { target },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				showToast(
 					__(
 						'Hardening file restored.',
@@ -172,7 +230,7 @@ export default function App() {
 			data: { action, hours },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				showToast(
 					'stop' === action
 						? __(
@@ -214,7 +272,7 @@ export default function App() {
 				} )
 			)
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				const found =
 					data.scan_result &&
 					Array.isArray( data.scan_result.families ) &&
@@ -248,7 +306,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				setFileScanResults( data.scan_result || null );
 				setIsScanning( false );
 
@@ -300,7 +358,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 
 				const check = data.upgrade_check || null;
 				setUpgradeCheck( check );
@@ -369,7 +427,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				setUpgradeCheck( data.upgrade_check || null );
 				setIsCleaningUpgrade( false );
 
@@ -414,7 +472,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				setIsVerifyingHtaccess( false );
 
 				const honored = data.htaccess_honored || 'unknown';
@@ -468,7 +526,7 @@ export default function App() {
 			data: settings,
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				setIsSaving( false );
 				showToast(
 					__( 'Settings saved.', 'simple-performance-for-wordpress' ),
@@ -540,7 +598,7 @@ export default function App() {
 					data: payload,
 				} )
 					.then( ( data ) => {
-						setSettings( data );
+						commitSettings( data );
 						showToast(
 							__(
 								'Settings imported.',
@@ -583,7 +641,7 @@ export default function App() {
 			data: { preset: name },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				showToast(
 					__(
 						'Preset applied.',
@@ -867,7 +925,19 @@ export default function App() {
 					} }
 				</SettingsTabs>
 
-				<div className="flex justify-end gap-x-3 border-t border-gray-900/10 pt-6">
+				<div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-gray-900/10 pt-6">
+					{ isDirty && (
+						<p className="mr-auto flex items-center gap-x-2 text-sm font-medium text-amber-700">
+							<span
+								aria-hidden="true"
+								className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500"
+							/>
+							{ __(
+								'Unsaved changes — the site is still running your last saved settings.',
+								'simple-performance-for-wordpress'
+							) }
+						</p>
+					) }
 					<button
 						type="submit"
 						disabled={ isSaving }
