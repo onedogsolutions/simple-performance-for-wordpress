@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.8.0
+Stable tag: 2.8.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.8.1 =
+* Maintenance release. No functional changes from 2.8.0 — the version is bumped so installs carrying a pre-release 2.8.0 package are offered the final build, which includes the Hardening tab render fix.
 
 = 2.8.0 =
 * Fixed: "Disable scripts & styles on non-store pages" broke Add to Cart on any page WooCommerce does not consider a store page. The toggle dequeued `wc-add-to-cart` along with its `jquery-blockui` and `js-cookie` dependencies, so a product grid rendered by a page builder, a `[products]` shortcode in a post, or a WooCommerce block on the front page lost its Add to Cart handler and the button silently did nothing. The Add to Cart handler chain is now never dequeued; the toggle still drops the WooCommerce stylesheets, `woocommerce.min.js` and the cart-fragments request, which is where its savings actually come from.

@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.8.0
+- **Plugin version target:** 2.8.1
 - **Last updated:** 2026-09-08
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -398,6 +398,13 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-08 (2.8.1 version bump): released as 2.8.1 rather than re-cutting
+  2.8.0, because a 2.8.0 package had already been handed over during the
+  session — including one build carrying the Hardening-tab render crash. Same
+  version number would not have prompted an update on an install already
+  holding 2.8.0. **No code difference from the final 2.8.0 build**; the
+  changelog entry says so rather than inventing a delta.
 
 - 2026-09-08 (CSP cache coherence + a shipped render crash, → 2.8.0, same
   branch): the last two Part E items, plus a regression this session
