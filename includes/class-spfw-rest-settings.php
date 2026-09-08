@@ -616,13 +616,27 @@ class SPFW_Rest_Settings {
 		$hours = isset( $params['hours'] ) ? absint( $params['hours'] ) : 24;
 		$hours = min( 168, max( 1, $hours ) );
 
+		$deadline = $stop ? 0 : time() + ( $hours * HOUR_IN_SECONDS );
+
 		SPFW_Settings::update(
 			array(
 				'hardening' => array(
-					'csp_collect_until' => $stop ? 0 : time() + ( $hours * HOUR_IN_SECONDS ),
+					'csp_collect_until' => $deadline,
 				),
 			)
 		);
+
+		// Closing the window is an event, not just a timestamp going stale:
+		// pages cached while it was open carry report-uri in their stored
+		// headers and keep asking browsers to POST to an endpoint that has
+		// since closed. Schedule the close so it purges the cache at the
+		// deadline. The minute of slack keeps the event from firing on the
+		// exact second the window is still nominally open.
+		wp_clear_scheduled_hook( SPFW_Module_Hardening::CSP_EXPIRE_CRON );
+
+		if ( $deadline > 0 ) {
+			wp_schedule_single_event( $deadline + MINUTE_IN_SECONDS, SPFW_Module_Hardening::CSP_EXPIRE_CRON );
+		}
 
 		// The reporting directive lives in a response header, which full-page
 		// caches store alongside the body — without a purge, cached pages would

@@ -491,4 +491,81 @@ class Csp_Report_Collection_Test extends TestCase {
 
 		$this->assertSame( 'https://busy.example', $reports[0]['blocked_origin'] );
 	}
+
+	/**
+	 * A lapsed collection window is actually closed, not just stale.
+	 *
+	 * While the window was open every cached page was stored WITH `report-uri`
+	 * in its header. If the deadline merely passes, a full-page cache keeps
+	 * serving those copies and browsers keep POSTing to an endpoint that now
+	 * answers 403 — an uncacheable WordPress bootstrap per report, which is the
+	 * cost the time-boxed window exists to avoid.
+	 */
+	public function test_lapsed_collection_window_is_closed() {
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_enabled'       => true,
+					'csp_collect_until' => time() - 60,
+				),
+			)
+		);
+
+		( new SPFW_Module_Hardening() )->close_expired_collection();
+
+		$this->assertSame( 0, (int) SPFW_Settings::value( 'hardening', 'csp_collect_until' ) );
+	}
+
+	/**
+	 * An open window is left alone — this runs on every admin_init.
+	 */
+	public function test_open_collection_window_is_untouched() {
+		$deadline = time() + HOUR_IN_SECONDS;
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_enabled'       => true,
+					'csp_collect_until' => $deadline,
+				),
+			)
+		);
+
+		( new SPFW_Module_Hardening() )->close_expired_collection();
+
+		$this->assertSame(
+			$deadline,
+			(int) SPFW_Settings::value( 'hardening', 'csp_collect_until' )
+		);
+	}
+
+	/**
+	 * With no window ever opened there is nothing to close and nothing to
+	 * purge — the common case on every admin page load.
+	 */
+	public function test_closed_collection_window_is_a_no_op() {
+		SPFW_Settings::update(
+			array(
+				'hardening' => array( 'csp_collect_until' => 0 ),
+			)
+		);
+
+		( new SPFW_Module_Hardening() )->close_expired_collection();
+
+		$this->assertSame( 0, (int) SPFW_Settings::value( 'hardening', 'csp_collect_until' ) );
+	}
+
+	/**
+	 * The collection window and the report endpoint agree once the window has
+	 * lapsed: the endpoint closes on the same timestamp the header stops
+	 * advertising, so a report arriving from a stale cached page is refused.
+	 */
+	public function test_endpoint_is_closed_once_the_window_lapses() {
+		$h = array(
+			'csp_enabled'       => true,
+			'csp_collect_until' => time() - 1,
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::collection_open( $h ) );
+	}
 }
