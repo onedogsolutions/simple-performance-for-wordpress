@@ -735,8 +735,8 @@ class Htaccess_Enforcement_Test extends TestCase {
 	 * code, and the per-row label overrides the shared canary label.
 	 */
 	public function test_shape_marks_reachable_whitelist_file_as_allowed() {
-		$row            = $this->probe_row( 'whitelist', 200 );
-		$row['label']   = 'plugins/litespeed-cache/guest.vary.php';
+		$row          = $this->probe_row( 'whitelist', 200 );
+		$row['label'] = 'plugins/litespeed-cache/guest.vary.php';
 
 		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
 			array( 'targets' => array( $row ) )

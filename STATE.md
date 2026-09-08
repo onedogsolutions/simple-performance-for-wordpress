@@ -177,10 +177,35 @@ canaries stay Enforced, and that the delayed-JS console errors are gone once
 LiteSpeed's cache is purged. Note for later: `csp_tighten_script_src` is
 expected to be unusable alongside LiteSpeed's JS optimization, since collected
 sha256 hashes drift as LSCWP re-minifies inline scripts per cache entry — worth
-a UI warning if anyone tries to enable it. Also still outstanding from earlier
-releases: the root self-check still rolling back on a 500; the file-integrity
-monitor cron + hourly-capped alert; the "Locked Down" preset enabling the
-monitor; and the manual OpenLiteSpeed testing carried over from 2.10.0.
+a UI warning if anyone tries to enable it.
+
+**Stale entries corrected.** The three items this section had been carrying as
+outstanding from earlier releases are all implemented — verified in code this
+session, not assumed:
+- Root self-check rollback on a 500: `maybe_run_root_self_check()` removes the
+  root block, disables both toggles and shows an admin notice on a `>= 500`
+  loopback, and defers without consuming the flag during update/upload requests.
+- File-integrity monitor cron + hourly-capped alert: `FILE_MONITOR_CRON` is
+  scheduled `twicedaily` when the toggle is on, cleared when it flips off
+  (`handle_settings_change`) and again on plugin deactivation
+  (`SPFW_Plugin::deactivate()`); `maybe_send_file_alert()` rate-limits to one
+  email per hour via the `FILE_MONITOR_COOLDOWN` transient.
+- "Locked Down" preset: already sets `file_monitor_enabled => true` alongside
+  `plugins_htaccess` and `uploads_htaccess`.
+
+What genuinely remains is manual verification on a live OpenLiteSpeed +
+LiteSpeed Cache install, which cannot be done from the build environment. A
+2.11.0 release ZIP has been packaged to make that possible (see the decisions
+log for how it is built and what it contains).
+
+**CI is red on `main`, and has been for at least six runs — not caused by this
+work.** `PHPUnit Tests (8.0)` fails in `composer install`, before any test runs:
+`composer.lock` pins PHPUnit 10.5.64, whose `sebastian/*` dependencies require
+PHP >= 8.1, so the 8.0 matrix leg cannot resolve and fail-fast cancels the 8.2
+and 8.3 legs. `composer.json` allows `^9.6 || ^10.5`, but `composer install`
+always installs the lock. Diagnosis and two candidate fixes are recorded on
+PR #5; neither is applied, because both change CI or dependency policy and that
+is the maintainer's call. Every other check passes on the 2.11.0 branch.
 
 ---
 
@@ -394,6 +419,34 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-08 (CI red on `main`, pre-existing): `PHPUnit Tests (8.0)` has been
+  failing on every recent `main` run (`1a7fe32`, `fda55bb`, `3b70ace`,
+  `ab48a33`, `e7be924`, `eb22647` — six for six). It is not a test failure:
+  `composer install` aborts in resolution because `composer.lock` pins PHPUnit
+  10.5.64 whose `sebastian/*` deps require PHP >= 8.1, while the matrix runs
+  8.0 and the plugin header declares `Requires PHP: 8.0`. `composer.json`
+  permits `^9.6 || ^10.5`, but `install` always honors the lock, so the `^9.6`
+  alternative is never reached. Fail-fast then cancels the 8.2/8.3 legs, which
+  makes the run look worse than it is. Two candidate fixes are written up on
+  PR #5: `composer update` in the phpunit job (keeps 8.0 coverage, loses
+  lockfile fidelity in CI), or dropping 8.0 from the phpunit matrix only (keeps
+  the lock, narrows what `Requires PHP: 8.0` is actually verified against).
+  Deliberately NOT applied here — it is a CI/dependency policy change, outside
+  the 2.11.0 fix, and the maintainer's call. Note `phpcs` is
+  `continue-on-error: true`, so it can never redden the run.
+
+- 2026-09-08 (release packaging): there is no packaging script in the repo —
+  `.distignore` exists but nothing consumes it, and `rsync` is absent from the
+  build container, so the ZIP was assembled with a short Python walk that
+  applies `.distignore` (top-level path prefixes plus basename globs at any
+  depth) and writes every entry under a `simple-performance-for-wordpress/`
+  root wrapper, which is what makes WordPress treat an upload as an overwrite
+  of the existing plugin rather than a new one (the 1.11.1 fix). `npm run
+  build` must run first: `build/` is gitignored but ships in the release. The
+  2.11.0 archive is 25 files / 177 KB and correctly omits `src`, `tests`,
+  `tools`, `vendor`, `node_modules`, `STATE.md`, and the composer/npm/webpack
+  config files. Worth turning into a committed script if packaging recurs.
 
 - 2026-09-08 (LiteSpeed compatibility, → 2.11.0): the 2.10.0 whitelist was
   never correct on Apache or LiteSpeed Enterprise, only on OpenLiteSpeed. The
