@@ -33,6 +33,7 @@ package.json
 package-lock.json
 webpack.config.js
 postcss.config.js
+jest.config.js
 
 *.log
 .phpunit.result.cache
