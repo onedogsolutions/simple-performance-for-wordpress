@@ -237,6 +237,15 @@ export default function CspPolicyCard( {
 } ) {
 	const enabled = !! hardening.csp_enabled;
 	const reportOnly = !! hardening.csp_report_only;
+
+	// What the SERVER is currently sending, which is not the same thing as what
+	// the toggles above show: the toggles are live form state, the header below
+	// reflects the last save. Conflating the two is what makes an enforcing
+	// policy look like a report-only one.
+	const emittedHeaderName =
+		settings.csp_emitted_header || 'Content-Security-Policy';
+	const enforcingNow = ! /-Report-Only$/i.test( emittedHeaderName );
+	const savedReportOnly = ! enforcingNow;
 	const isCustom = 'custom' === hardening.csp_mode;
 	const directives = hardening.csp_directives || {};
 	const collecting = !! cspReportStats.collecting;
@@ -918,19 +927,6 @@ export default function CspPolicyCard( {
 											'simple-performance-for-wordpress'
 										) }
 								</pre>
-								{ settings.csp_emitted_policy && settings.csp_emitted_policy !== buildPolicyString( directives ) && (
-									<>
-										<p className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-											{ __(
-												'Actual emitted header (including report-uri)',
-												'simple-performance-for-wordpress'
-											) }
-										</p>
-										<pre className="whitespace-pre-wrap break-words rounded-md bg-indigo-50 p-3 text-xs font-mono text-indigo-900 ring-1 ring-inset ring-indigo-200">
-											{ settings.csp_emitted_policy }
-										</pre>
-									</>
-								) }
 							</div>
 						</div>
 					) }
@@ -979,6 +975,61 @@ export default function CspPolicyCard( {
 								}
 								className={ textareaClass }
 							/>
+						</div>
+					) }
+
+					{ settings.csp_emitted_policy && (
+						<div className="mt-4 border-t border-gray-100 pt-4">
+							<p className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+								{ __(
+									'Actual emitted header',
+									'simple-performance-for-wordpress'
+								) }
+								{ enforcingNow ? (
+									<span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700 ring-1 ring-inset ring-red-200">
+										{ __(
+											'Enforcing — blocking now',
+											'simple-performance-for-wordpress'
+										) }
+									</span>
+								) : (
+									<span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 ring-1 ring-inset ring-green-200">
+										{ __(
+											'Report-only — nothing blocked',
+											'simple-performance-for-wordpress'
+										) }
+									</span>
+								) }
+							</p>
+							<pre
+								className={ `whitespace-pre-wrap break-words rounded-md p-3 text-xs font-mono ring-1 ring-inset ${
+									enforcingNow
+										? 'bg-red-50 text-red-900 ring-red-200'
+										: 'bg-indigo-50 text-indigo-900 ring-indigo-200'
+								}` }
+							>
+								<span className="font-semibold">
+									{ emittedHeaderName }:
+								</span>{ ' ' }
+								{ settings.csp_emitted_policy }
+							</pre>
+							<p className="mt-1 text-xs text-gray-500">
+								{ savedReportOnly !== reportOnly
+									? __(
+											'This is what the site is sending right now, from the last saved settings — you have an unsaved change to Report-Only mode above. Save to apply it.',
+											'simple-performance-for-wordpress'
+									  )
+									: __(
+											'This is what the site is sending right now, taken from the saved settings.',
+											'simple-performance-for-wordpress'
+									  ) }
+								{ settings.csp_excludes_logged_in &&
+									' ' +
+										__(
+											'Not sent to you while logged in — "Do not apply to logged-in users" is on, so check it in a private window.',
+											'simple-performance-for-wordpress'
+										) }
+							</p>
 						</div>
 					) }
 

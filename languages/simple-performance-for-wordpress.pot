@@ -2,21 +2,21 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.7.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.8.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-07T20:00:31+00:00\n"
+"POT-Creation-Date: 2026-09-08T16:20:09+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
 
 #. Plugin Name of the plugin
 #: simple-performance-for-wordpress.php
-#: src/components/App.jsx:632
+#: src/components/App.jsx:690
 msgid "Simple Performance for WordPress"
 msgstr ""
 
@@ -60,19 +60,19 @@ msgid_plural "%d capabilities removed."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/class-spfw-rest-settings.php:1243
+#: includes/class-spfw-rest-settings.php:1250
 msgid "Invalid import payload. Expected a JSON object with a \"settings\" key."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:1321
+#: includes/class-spfw-rest-settings.php:1328
 msgid "Unknown preset name."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:1459
+#: includes/class-spfw-rest-settings.php:1466
 msgid "No valid cleanup targets selected."
 msgstr ""
 
-#: includes/class-spfw-rest-settings.php:435
+#: includes/class-spfw-rest-settings.php:442
 msgid "Could not write the hardening file. The web server may not have direct write access to this directory."
 msgstr ""
 
@@ -179,89 +179,89 @@ msgid "Localized %1$d font families (%2$d files)."
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1525
+#: includes/modules/class-spfw-module-hardening.php:1600
 #, php-format
 msgid "[%s] File integrity alert"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1531
+#: includes/modules/class-spfw-module-hardening.php:1606
 #, php-format
 msgid "File integrity scan detected changes on %s:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1536
+#: includes/modules/class-spfw-module-hardening.php:1611
 msgid "NEW FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1547
+#: includes/modules/class-spfw-module-hardening.php:1622
 msgid "MODIFIED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1558
+#: includes/modules/class-spfw-module-hardening.php:1633
 msgid "REMOVED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1567
+#: includes/modules/class-spfw-module-hardening.php:1642
 msgid "Review these files immediately if the changes were not expected.\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1670
+#: includes/modules/class-spfw-module-hardening.php:1745
 msgid "Directory does not exist and could not be created."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1683
-#: includes/modules/class-spfw-module-hardening.php:1749
+#: includes/modules/class-spfw-module-hardening.php:1758
+#: includes/modules/class-spfw-module-hardening.php:1824
 msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), which the upgrader requires."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1689
+#: includes/modules/class-spfw-module-hardening.php:1764
 msgid "Not writable by the PHP process."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1701
-#: includes/modules/class-spfw-module-hardening.php:1760
+#: includes/modules/class-spfw-module-hardening.php:1776
+#: includes/modules/class-spfw-module-hardening.php:1835
 msgid "Could not create the probe scratch directories."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1714
+#: includes/modules/class-spfw-module-hardening.php:1789
 msgid "A directory could not be moved out of this location."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1720
+#: includes/modules/class-spfw-module-hardening.php:1795
 msgid "The directory contents could not be listed."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1772
+#: includes/modules/class-spfw-module-hardening.php:1847
 msgid "A plugin directory could not be moved into wp-content/upgrade-temp-backup/. This is what produces \"Could not move the old version to the upgrade-temp-backup directory\"."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1942
+#: includes/modules/class-spfw-module-hardening.php:2017
 msgid "An update appears to be running right now, so the leftovers were not removed. Try again once it finishes."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1952
+#: includes/modules/class-spfw-module-hardening.php:2027
 msgid "WordPress could not initialize its filesystem abstraction (WP_Filesystem), so the leftovers could not be removed."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:240
+#: includes/modules/class-spfw-module-hardening.php:256
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:254
+#: includes/modules/class-spfw-module-hardening.php:270
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:417
+#: includes/modules/class-spfw-module-hardening.php:433
 msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:488
+#: includes/modules/class-spfw-module-hardening.php:504
 msgid "Simple Performance: re-synced your root .htaccess to match your current hardening toggles."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:749
-#: includes/modules/class-spfw-module-hardening.php:781
+#: includes/modules/class-spfw-module-hardening.php:765
+#: includes/modules/class-spfw-module-hardening.php:797
 msgid "Invalid username or password."
 msgstr ""
 
@@ -273,16 +273,12 @@ msgstr ""
 msgid "REST API restricted to authenticated users."
 msgstr ""
 
-#: src/components/App.jsx:103
-msgid "Hardening file restored."
-msgstr ""
-
-#: src/components/App.jsx:113
-msgid "Failed to restore the hardening file."
-msgstr ""
-
 #: src/components/App.jsx:14
 msgid "Core"
+msgstr ""
+
+#: src/components/App.jsx:161
+msgid "Hardening file restored."
 msgstr ""
 
 #: src/components/App.jsx:17
@@ -290,24 +286,12 @@ msgstr ""
 msgid "REST API"
 msgstr ""
 
-#: src/components/App.jsx:178
-msgid "Violation collection stopped."
-msgstr ""
-
-#: src/components/App.jsx:182
-msgid "Collecting violation reports."
-msgstr ""
-
-#: src/components/App.jsx:192
-msgid "Could not change violation collection."
+#: src/components/App.jsx:171
+msgid "Failed to restore the hardening file."
 msgstr ""
 
 #: src/components/App.jsx:21
 msgid "Hardening"
-msgstr ""
-
-#: src/components/App.jsx:224
-msgid "Font scan complete."
 msgstr ""
 
 #: src/components/App.jsx:23
@@ -315,157 +299,177 @@ msgstr ""
 msgid "Fonts"
 msgstr ""
 
-#: src/components/App.jsx:234
-msgid "Font scan failed."
+#: src/components/App.jsx:236
+msgid "Violation collection stopped."
+msgstr ""
+
+#: src/components/App.jsx:240
+msgid "Collecting violation reports."
+msgstr ""
+
+#: src/components/App.jsx:250
+msgid "Could not change violation collection."
 msgstr ""
 
 #: src/components/App.jsx:26
 msgid "Option Cleaner"
 msgstr ""
 
+#: src/components/App.jsx:282
+msgid "Font scan complete."
+msgstr ""
+
+#: src/components/App.jsx:292
+msgid "Font scan failed."
+msgstr ""
+
 #. translators: %d: number of changes detected
-#: src/components/App.jsx:266
+#: src/components/App.jsx:324
 #, php-format
 msgid "Scan complete. %d change(s) detected."
 msgstr ""
 
-#: src/components/App.jsx:272
+#: src/components/App.jsx:330
 msgid "Scan complete. No changes detected."
 msgstr ""
 
-#: src/components/App.jsx:283
+#: src/components/App.jsx:341
 msgid "File scan failed."
 msgstr ""
 
-#: src/components/App.jsx:313
+#: src/components/App.jsx:371
 msgid "Upgrade check returned no result."
 msgstr ""
 
 #. translators: %d: number of leftover items
-#: src/components/App.jsx:323
+#: src/components/App.jsx:381
 #, php-format
 msgid "Directories are healthy, but %d leftover item(s) remain from an interrupted update."
 msgstr ""
 
-#: src/components/App.jsx:333
+#: src/components/App.jsx:391
 msgid "Upgrade check passed. Every directory the upgrader needs is writable, movable and readable."
 msgstr ""
 
-#: src/components/App.jsx:341
+#: src/components/App.jsx:399
 msgid "Upgrade check found a problem. Plugin installs and updates will fail until it is fixed."
 msgstr ""
 
-#: src/components/App.jsx:353
+#: src/components/App.jsx:411
 msgid "Upgrade check failed."
 msgstr ""
 
 #. translators: %d: number of leftover items removed
-#: src/components/App.jsx:382
+#: src/components/App.jsx:440
 #, php-format
 msgid "Removed %d leftover item(s) and re-checked."
 msgstr ""
 
-#: src/components/App.jsx:39
-msgid "WooCommerce"
-msgstr ""
-
-#: src/components/App.jsx:395
+#: src/components/App.jsx:453
 msgid "Could not clear the leftovers."
 msgstr ""
 
-#: src/components/App.jsx:424
+#: src/components/App.jsx:482
 msgid "Enforcement verified: the web server is applying your .htaccess hardening rules."
 msgstr ""
 
-#: src/components/App.jsx:432
+#: src/components/App.jsx:490
 msgid "The .htaccess rules are present but the web server is not applying them. See the remediation hint on the Hardening tab."
 msgstr ""
 
-#: src/components/App.jsx:440
+#: src/components/App.jsx:498
 msgid "Enforcement could not be determined. The probe was inconclusive (a redirect, a missing canary file, or a proxy in front of the origin)."
 msgstr ""
 
-#: src/components/App.jsx:452
+#: src/components/App.jsx:510
 msgid "Enforcement verification failed."
 msgstr ""
 
-#: src/components/App.jsx:474
+#: src/components/App.jsx:532
 msgid "Settings saved."
 msgstr ""
 
-#: src/components/App.jsx:482
+#: src/components/App.jsx:540
 msgid "Failed to save settings. Please try again."
 msgstr ""
 
-#: src/components/App.jsx:505
+#: src/components/App.jsx:563
 msgid "Settings exported."
 msgstr ""
 
-#: src/components/App.jsx:515
+#: src/components/App.jsx:573
 msgid "Export failed."
 msgstr ""
 
-#: src/components/App.jsx:545
+#: src/components/App.jsx:603
 msgid "Settings imported."
 msgstr ""
 
-#: src/components/App.jsx:555
+#: src/components/App.jsx:613
 msgid "Import failed."
 msgstr ""
 
-#: src/components/App.jsx:564
+#: src/components/App.jsx:62
+msgid "WooCommerce"
+msgstr ""
+
+#: src/components/App.jsx:622
 msgid "Invalid JSON file."
 msgstr ""
 
-#: src/components/App.jsx:588
+#: src/components/App.jsx:646
 msgid "Preset applied."
 msgstr ""
 
-#: src/components/App.jsx:598
+#: src/components/App.jsx:656
 msgid "Failed to apply preset."
 msgstr ""
 
-#: src/components/App.jsx:638
+#: src/components/App.jsx:696
 msgid "Lightweight performance, REST API, and hardening controls for OpenLiteSpeed + LiteSpeed Cache."
 msgstr ""
 
-#: src/components/App.jsx:659
+#: src/components/App.jsx:717
 msgid "Apply preset…"
 msgstr ""
 
-#: src/components/App.jsx:682
+#: src/components/App.jsx:740
 msgid "Export"
 msgstr ""
 
-#: src/components/App.jsx:696
+#: src/components/App.jsx:754
 msgid "Import"
 msgstr ""
 
-#: src/components/App.jsx:716
+#: src/components/App.jsx:774
 msgid "Apply preset"
 msgstr ""
 
-#: src/components/App.jsx:726
+#: src/components/App.jsx:784
 msgid "This overwrites your current settings. Save first if you want to keep them."
 msgstr ""
 
-#: src/components/App.jsx:741
+#: src/components/App.jsx:799
 msgid "Apply"
 msgstr ""
 
-#: src/components/App.jsx:753
-#: src/components/CspPolicyCard.jsx:714
-#: src/components/CspPolicyCard.jsx:875
-#: src/components/CspPolicyCard.jsx:1331
+#: src/components/App.jsx:811
+#: src/components/CspPolicyCard.jsx:723
+#: src/components/CspPolicyCard.jsx:884
+#: src/components/CspPolicyCard.jsx:1382
 #: src/components/PhpWhitelistCard.jsx:220
 msgid "Cancel"
 msgstr ""
 
-#: src/components/App.jsx:877
+#: src/components/App.jsx:935
+msgid "Unsaved changes — the site is still running your last saved settings."
+msgstr ""
+
+#: src/components/App.jsx:947
 msgid "Saving…"
 msgstr ""
 
-#: src/components/App.jsx:881
+#: src/components/App.jsx:951
 msgid "Save Settings"
 msgstr ""
 
@@ -902,187 +906,203 @@ msgstr ""
 msgid "Disable entirely"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1000
-msgid "Refresh"
-msgstr ""
-
 #: src/components/CspPolicyCard.jsx:101
 msgid "Base URI"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1013
-msgid "Clear log"
+#: src/components/CspPolicyCard.jsx:1018
+msgid "This is what the site is sending right now, from the last saved settings — you have an unsaved change to Report-Only mode above. Save to apply it."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1024
-msgid "Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. So collection runs in a time-boxed window: open one, browse the site (or let real traffic do it), then work through the list below. The window closes itself."
+#: src/components/CspPolicyCard.jsx:1022
+msgid "This is what the site is sending right now, taken from the saved settings."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1034
-msgid "Collecting"
+#: src/components/CspPolicyCard.jsx:1028
+msgid "Not sent to you while logged in — \"Do not apply to logged-in users\" is on, so check it in a private window."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1053
-msgid "Stop collecting"
+#: src/components/CspPolicyCard.jsx:1039
+msgid "Violation reports"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1051
+msgid "Refresh"
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:106
 msgid "Form submissions"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1063
+#: src/components/CspPolicyCard.jsx:1064
+msgid "Clear log"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1075
+msgid "Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. So collection runs in a time-boxed window: open one, browse the site (or let real traffic do it), then work through the list below. The window closes itself."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1085
+msgid "Collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1104
+msgid "Stop collecting"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:1114
 msgid "Not collecting"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1081
+#: src/components/CspPolicyCard.jsx:1132
 msgid "for 1 hour"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1087
+#: src/components/CspPolicyCard.jsx:1138
 msgid "for 24 hours"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1093
+#: src/components/CspPolicyCard.jsx:1144
 msgid "for 3 days"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1110
+#: src/components/CspPolicyCard.jsx:1161
 msgid "Start collecting"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1123
+#: src/components/CspPolicyCard.jsx:1174
 msgid "Sample"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1141
+#: src/components/CspPolicyCard.jsx:1192
 #, php-format
 msgid "100% of page views"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1147
+#: src/components/CspPolicyCard.jsx:1198
 #, php-format
 msgid "25% of page views"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1153
+#: src/components/CspPolicyCard.jsx:1204
 #, php-format
 msgid "10% of page views"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1159
+#: src/components/CspPolicyCard.jsx:1210
 #, php-format
 msgid "1% of page views"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1169
+#: src/components/CspPolicyCard.jsx:1220
 msgid "On a busy site, lower the sample rate — a representative sample finds the same broken resources at a fraction of the requests. Remember to Save after changing it."
 msgstr ""
 
 #. translators: 1: number of distinct violations, 2: total reports recorded
-#: src/components/CspPolicyCard.jsx:1179
+#: src/components/CspPolicyCard.jsx:1230
 #, php-format
 msgid "%1$d distinct violations, %2$d reports recorded."
 msgstr ""
 
 #. translators: %d: count of dropped reports
-#: src/components/CspPolicyCard.jsx:1198
+#: src/components/CspPolicyCard.jsx:1249
 #, php-format
 msgid "%d reports were dropped by the rate limiter this session. Raise the rate limit below or clear the log to make room."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1211
+#: src/components/CspPolicyCard.jsx:1262
 msgid "Report endpoint"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1216
+#: src/components/CspPolicyCard.jsx:1267
 msgid "Reachable"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1221
+#: src/components/CspPolicyCard.jsx:1272
 msgid "Failed — check CORS / CDN config"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1231
+#: src/components/CspPolicyCard.jsx:1282
 msgid "Testing…"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1232
+#: src/components/CspPolicyCard.jsx:1283
 msgid "Test endpoint"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1243
+#: src/components/CspPolicyCard.jsx:1294
 msgid "No reports received yet"
 msgstr ""
 
 #. translators: %d: seconds since last report
-#: src/components/CspPolicyCard.jsx:1246
+#: src/components/CspPolicyCard.jsx:1297
 #, php-format
 msgid "Last report: %ds ago"
 msgstr ""
 
 #. translators: %d: sampling percentage
-#: src/components/CspPolicyCard.jsx:1255
+#: src/components/CspPolicyCard.jsx:1306
 #, php-format
 msgid "Sampling: %d%%"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1269
+#: src/components/CspPolicyCard.jsx:1320
 msgid "Max new violations per minute"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1281
+#: src/components/CspPolicyCard.jsx:1332
 msgid "5 / min"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1282
+#: src/components/CspPolicyCard.jsx:1333
 msgid "10 / min"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1283
+#: src/components/CspPolicyCard.jsx:1334
 msgid "20 / min"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1284
+#: src/components/CspPolicyCard.jsx:1335
 msgid "30 / min"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1285
+#: src/components/CspPolicyCard.jsx:1336
 msgid "60 / min"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1289
+#: src/components/CspPolicyCard.jsx:1340
 msgid "Raise this on tracker-heavy sites if reports are being dropped. Save after changing."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1296
+#: src/components/CspPolicyCard.jsx:1347
 msgid "CSP is enabled but no collection window is open. Start collecting violation reports above to populate this list."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1305
+#: src/components/CspPolicyCard.jsx:1356
 msgid "Violation reports come from visitorsu2019 browsers and are not verified u2014 anyone can post to the report endpoint while a window is open. Only allow origins you recognise as part of your own site."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1317
+#: src/components/CspPolicyCard.jsx:1368
 msgid "Allow all reported origins into the policy?"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1340
+#: src/components/CspPolicyCard.jsx:1391
 msgid "Allow all reported origins"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1348
+#: src/components/CspPolicyCard.jsx:1399
 msgid "Enforcing: each entry below is a resource currently being blocked on your live site."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1357
+#: src/components/CspPolicyCard.jsx:1408
 msgid "No violations collected yet. Browse your site as a logged-out visitor to generate reports, then Refresh."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1368
+#: src/components/CspPolicyCard.jsx:1419
 msgid "Behind a CDN (QUIC.cloud, Cloudflare)? Ensure it forwards X-Forwarded-Proto and X-Forwarded-Host headers to origin, and that the REST API path /wp-json/spfw/v1/csp-report is not cached or blocked at the edge. Note: ERR_BLOCKED_BY_ORB or ERR_BLOCKED_BY_RESPONSE errors in the browser console are not CSP violations u2014 they indicate a CDN serving cached assets with the wrong Content-Type, and will not appear in this log."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:1378
+#: src/components/CspPolicyCard.jsx:1429
 msgid "Other violations (directives not in the builder):"
 msgstr ""
 
@@ -1114,65 +1134,65 @@ msgstr ""
 msgid "Images"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:504
+#: src/components/CspPolicyCard.jsx:513
 msgid "Content-Security-Policy"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:508
+#: src/components/CspPolicyCard.jsx:517
 msgid "A Content-Security-Policy restricts where scripts, styles, images, and other resources may load from — the strongest defense against cross-site scripting (XSS). It is powerful but can break your front end if a resource is not allowed, so build it up in Report-Only mode and only enforce once the violations below are clear."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:514
+#: src/components/CspPolicyCard.jsx:523
 msgid "Send Content-Security-Policy header"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:518
+#: src/components/CspPolicyCard.jsx:527
 msgid "Emits the header on front-end responses (never in wp-admin). Test thoroughly before enforcing."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:532
+#: src/components/CspPolicyCard.jsx:541
 msgid "Report-Only mode"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:536
+#: src/components/CspPolicyCard.jsx:545
 msgid "Sends Content-Security-Policy-Report-Only, which logs violations without blocking anything so you can see exactly what the policy would break. Keep this on until the list below is clear, then turn it off to enforce. Violations are collected here in both modes — while enforcing, a warning below means something is actually being blocked."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:550
+#: src/components/CspPolicyCard.jsx:559
 msgid "Do not apply to logged-in users"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:554
-msgid "Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Note: violations are therefore only reported by logged-out visitors."
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:56
 msgid "Connections (XHR / fetch / WebSocket)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:568
+#: src/components/CspPolicyCard.jsx:563
+msgid "Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Note: violations are therefore only reported by logged-out visitors."
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:577
 msgid "Advanced: edit raw policy"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:572
+#: src/components/CspPolicyCard.jsx:581
 msgid "Turn off the builder and edit the full policy string by hand — use this to add directives or sources the builder does not cover."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:584
+#: src/components/CspPolicyCard.jsx:593
 msgid "Tighten script-src (Advanced)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:588
+#: src/components/CspPolicyCard.jsx:597
 msgid "Replaces 'unsafe-inline' in script-src with sha256 hashes of your site's inline scripts, plus 'strict-dynamic'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean."
 msgstr ""
 
 #. translators: %d: number of hashes
-#: src/components/CspPolicyCard.jsx:611
+#: src/components/CspPolicyCard.jsx:620
 #, php-format
 msgid "%d script hashes collected"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:617
+#: src/components/CspPolicyCard.jsx:626
 msgid "No hashes collected yet"
 msgstr ""
 
@@ -1180,7 +1200,7 @@ msgstr ""
 msgid "Audio / video"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:655
+#: src/components/CspPolicyCard.jsx:664
 #: src/components/DatabaseSettings.jsx:162
 #: src/components/FontsSettings.jsx:115
 #: src/components/OptionCleanerSettings.jsx:186
@@ -1189,20 +1209,16 @@ msgstr ""
 msgid "Scanning…"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:659
+#: src/components/CspPolicyCard.jsx:668
 msgid "Scan for inline scripts"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:667
+#: src/components/CspPolicyCard.jsx:676
 msgid "Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:674
+#: src/components/CspPolicyCard.jsx:683
 msgid "Warning: 'strict-dynamic' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only."
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:688
-msgid "Policy builder"
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:69
@@ -1210,21 +1226,25 @@ msgid "Workers (Web / Service / Shared Workers)"
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:697
+msgid "Policy builder"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:706
 msgid "Add Google Maps, Analytics, Clarity & Facebook origins?"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:707
-#: src/components/CspPolicyCard.jsx:861
-#: src/components/CspPolicyCard.jsx:1324
+#: src/components/CspPolicyCard.jsx:716
+#: src/components/CspPolicyCard.jsx:870
+#: src/components/CspPolicyCard.jsx:1375
 #: src/components/PhpWhitelistCard.jsx:208
 msgid "Confirm"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:723
+#: src/components/CspPolicyCard.jsx:732
 msgid "Pre-fill common third-party origins"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:734
+#: src/components/CspPolicyCard.jsx:743
 msgid "Reset to recommended"
 msgstr ""
 
@@ -1232,16 +1252,16 @@ msgstr ""
 msgid "Plugins (<object> / <embed>)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:793
+#: src/components/CspPolicyCard.jsx:802
 msgid "Additional hosts, space-separated (e.g. https://www.googletagmanager.com)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:803
+#: src/components/CspPolicyCard.jsx:812
 msgid "Blocked by this directive:"
 msgstr ""
 
 #. translators: %s: the CSP source token that will be added
-#: src/components/CspPolicyCard.jsx:839
+#: src/components/CspPolicyCard.jsx:848
 #, php-format
 msgid "Add %s?"
 msgstr ""
@@ -1250,40 +1270,44 @@ msgstr ""
 msgid "Frames (embedded content)"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:891
+#: src/components/CspPolicyCard.jsx:900
 msgid "Allow"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:909
+#: src/components/CspPolicyCard.jsx:918
 msgid "Generated policy"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:916
+#: src/components/CspPolicyCard.jsx:925
 msgid "(empty — no directives set)"
-msgstr ""
-
-#: src/components/CspPolicyCard.jsx:924
-msgid "Actual emitted header (including report-uri)"
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:93
 msgid "Who may embed this site"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:945
+#: src/components/CspPolicyCard.jsx:941
 msgid "Policy"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:960
+#: src/components/CspPolicyCard.jsx:956
 msgid "Load recommended policy"
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:967
+#: src/components/CspPolicyCard.jsx:963
 msgid "The full policy directive string. Leave blank to use the recommended WordPress-friendly default shown as the placeholder."
 msgstr ""
 
-#: src/components/CspPolicyCard.jsx:988
-msgid "Violation reports"
+#: src/components/CspPolicyCard.jsx:984
+msgid "Actual emitted header"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:990
+msgid "Enforcing — blocking now"
+msgstr ""
+
+#: src/components/CspPolicyCard.jsx:997
+msgid "Report-only — nothing blocked"
 msgstr ""
 
 #: src/components/DatabaseSettings.jsx:107
@@ -2055,7 +2079,7 @@ msgid "Disable cart fragments"
 msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:33
-msgid "Stops the AJAX cart-fragments request (?wc-ajax=get_refreshed_fragments) everywhere except the cart and checkout. The single biggest WooCommerce speed win, and it lets full-page caching work."
+msgid "Stops the AJAX cart-fragments request (?wc-ajax=get_refreshed_fragments) everywhere except the cart and checkout. The single biggest WooCommerce speed win, and it lets full-page caching work. Trade-off: Add to Cart still works, but a cart counter in your header will not update until the next page load."
 msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:40
@@ -2063,7 +2087,7 @@ msgid "Disable scripts & styles on non-store pages"
 msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:44
-msgid "Only loads WooCommerce CSS/JS on shop, product, cart, checkout, and account pages — great for sites using page builders elsewhere."
+msgid "Drops WooCommerce CSS and woocommerce.min.js on pages with no store content — shop, product, cart, checkout and account pages are always left alone, as are pages embedding a WooCommerce block or shortcode. The Add to Cart handler is never removed. If a page builder renders products through its own shortcode and its styling looks wrong, return true from the spfw_is_woo_page filter for that page."
 msgstr ""
 
 #: src/components/WooCommerceSettings.jsx:55

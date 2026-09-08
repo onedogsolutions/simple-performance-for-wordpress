@@ -49,6 +49,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
+	 * Directives a browser ignores when the policy arrives in the report-only
+	 * header, and logs a console error about on every page load.
+	 *
+	 * Per CSP Level 3, `frame-ancestors` and `sandbox` only take effect in an
+	 * enforcing policy. Emitting them while the admin is still testing produces
+	 * a steady stream of "directive ignored when delivered in a report-only
+	 * policy" errors that reads exactly like a broken policy — so they are
+	 * stripped from the report-only header and restored the moment it enforces.
+	 * Clickjacking stays covered in the meantime by `X-Frame-Options:
+	 * SAMEORIGIN` from the `security_headers` toggle.
+	 *
+	 * @var string[]
+	 */
+	const REPORT_ONLY_IGNORED = array( 'frame-ancestors', 'sandbox' );
+
+	/**
 	 * Cron hook name for the periodic file-integrity scan.
 	 *
 	 * @var string
@@ -905,6 +921,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// testing. report-uri is deprecated but universally honored and fires
 		// immediately per violation, which is exactly what this feedback loop
 		// needs.
+		$report_only = ! empty( $h['csp_report_only'] );
+
+		// Drop the directives a report-only policy ignores (see
+		// REPORT_ONLY_IGNORED) before anything is appended, so the header we
+		// send carries only directives the browser will actually act on.
+		if ( $report_only ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+		}
+
 		$report_url = self::collection_open( $h ) && self::collection_sampled( $h )
 			? self::csp_report_url()
 			: '';
@@ -921,11 +946,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy .= ' report-uri ' . $report_url . ';';
 		}
 
-		$header = ! empty( $h['csp_report_only'] )
-			? 'Content-Security-Policy-Report-Only'
-			: 'Content-Security-Policy';
-
-		header( $header . ': ' . $policy );
+		header( self::csp_header_name( $h ) . ': ' . $policy );
 	}
 
 	/**
@@ -956,6 +977,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
 		}
 
+		// Mirror add_csp_header()'s report-only strip, or the admin would be
+		// shown directives that are not in the header on the wire.
+		if ( ! empty( $h['csp_report_only'] ) ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+		}
+
 		// Append the report-uri if a collection window is open, mirroring
 		// add_csp_header() so the preview is accurate.
 		if ( self::collection_open( $h ) ) {
@@ -967,6 +994,54 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return $policy;
+	}
+
+	/**
+	 * Name of the CSP header the current settings emit.
+	 *
+	 * Exposed so the admin UI can label the emitted-policy preview with the
+	 * header it will actually be sent as. A policy string on its own gives the
+	 * admin no way to tell a report-only policy from an enforcing one, which is
+	 * the difference between "logging what would break" and "breaking it".
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return string
+	 */
+	public static function csp_header_name( array $h ) {
+		return ! empty( $h['csp_report_only'] )
+			? 'Content-Security-Policy-Report-Only'
+			: 'Content-Security-Policy';
+	}
+
+	/**
+	 * Remove named directives from a policy string.
+	 *
+	 * Splits on `;` and compares the first token of each directive, so a host
+	 * that happens to contain a directive name is never mistaken for one.
+	 *
+	 * @param string   $policy Policy string.
+	 * @param string[] $names  Lower-case directive names to drop.
+	 * @return string
+	 */
+	private static function remove_directives( $policy, array $names ) {
+		$kept = array();
+
+		foreach ( explode( ';', (string) $policy ) as $part ) {
+			$part = trim( $part );
+
+			if ( '' === $part ) {
+				continue;
+			}
+
+			$tokens = preg_split( '/\s+/', $part );
+			$name   = strtolower( isset( $tokens[0] ) ? $tokens[0] : '' );
+
+			if ( ! in_array( $name, $names, true ) ) {
+				$kept[] = $part;
+			}
+		}
+
+		return empty( $kept ) ? '' : implode( '; ', $kept ) . ';';
 	}
 
 	/**
