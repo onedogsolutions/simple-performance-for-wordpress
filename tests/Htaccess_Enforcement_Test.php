@@ -42,10 +42,16 @@ class Htaccess_Enforcement_Test extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		global $spfw_test_options, $spfw_test_rest_routes, $spfw_test_capabilities;
+		global $spfw_test_options, $spfw_test_rest_routes, $spfw_test_capabilities, $spfw_test_home_url;
 		$spfw_test_options      = array();
 		$spfw_test_rest_routes  = array();
 		$spfw_test_capabilities = array( 'manage_options' => true );
+
+		// The subdirectory-install tests set this and cannot restore it from
+		// inside the test body, so every test defined after them used to
+		// inherit a /blog install and its URI base. Reset to the bootstrap
+		// default here so payload assertions are order-independent.
+		$spfw_test_home_url = 'http://example.com';
 
 		$this->reset_settings_cache();
 
@@ -791,5 +797,286 @@ class Htaccess_Enforcement_Test extends TestCase {
 			)
 		);
 		$this->assertSame( 'yes', $mixed['htaccess_honored'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// Auto-allow for known direct-access plugin endpoints.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Create a known direct-access file on disk so the detector sees it.
+	 *
+	 * @return string Absolute path written.
+	 */
+	private function install_known_direct_access_file() {
+		$path = WP_CONTENT_DIR . '/plugins/litespeed-cache/guest.vary.php';
+		wp_mkdir_p( dirname( $path ) );
+		file_put_contents( $path, "<?php // stub\n" );
+
+		return $path;
+	}
+
+	/**
+	 * With auto-allow on (the default), an installed LiteSpeed Guest Mode file
+	 * is permitted by the very first payload, without the admin whitelisting
+	 * anything. This is what removes the two-restart broken window on
+	 * OpenLiteSpeed, where an .htaccess edit is inert until a graceful restart.
+	 */
+	public function test_known_direct_access_file_is_allowed_without_being_whitelisted() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening( array( 'plugins_htaccess' => true ) );
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			$this->assertStringContainsString( 'guest.vary.php', $payload );
+			$this->assertStringContainsString( '<Files "guest.vary.php">', $payload );
+			$this->assertStringContainsString(
+				'RewriteCond %{REQUEST_URI} ^/wp-content/plugins\\/litespeed\\-cache\\/guest\\.vary\\.php$',
+				$payload
+			);
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	/**
+	 * The allowance is gated on the file existing: a site without LiteSpeed
+	 * installed gets a blanket deny, not a standing hole for a path that is
+	 * not there.
+	 */
+	public function test_known_direct_access_file_absent_yields_blanket_deny() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'guest.vary.php', $payload );
+		$this->assertStringNotContainsString( 'Require all granted', $payload );
+	}
+
+	/**
+	 * Turning auto_allow_known_php off restores the total deny, so an admin who
+	 * does not use Guest Mode is not stuck with the allowance.
+	 */
+	public function test_auto_allow_can_be_turned_off() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening(
+				array(
+					'plugins_htaccess'     => true,
+					'auto_allow_known_php' => false,
+				)
+			);
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			$this->assertStringNotContainsString( 'guest.vary.php', $payload );
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	/**
+	 * An admin entry and the auto-added one never produce a duplicate rule.
+	 */
+	public function test_auto_allow_does_not_duplicate_an_explicit_whitelist_entry() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening(
+				array(
+					'plugins_htaccess' => true,
+					'php_whitelist'    => array( 'plugins/litespeed-cache/guest.vary.php' ),
+				)
+			);
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			// Emitted twice by design — once for mod_authz_core and once in
+			// the pre-2.4 <IfModule !mod_authz_core.c> fallback, which is
+			// indented. Count the un-indented one to prove the path was not
+			// added twice over (explicit entry plus auto-detected).
+			$this->assertSame(
+				1,
+				substr_count( $payload, "\n<Files \"guest.vary.php\">" ),
+				'the allowance must be emitted once, not once per source'
+			);
+			$this->assertSame(
+				1,
+				substr_count( $payload, 'RewriteCond' ),
+				'one RewriteCond, not one per source'
+			);
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// No-op writes (every needless rewrite costs an OpenLiteSpeed restart).
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Writing a payload that already matches the file byte for byte must not
+	 * touch it. On OpenLiteSpeed a rewrite desynchronizes the running server
+	 * from disk until the next graceful restart, so a no-op write is not free.
+	 * Callers rewrite on any php_whitelist change and that comparison is
+	 * order-sensitive, so a mere reorder used to land here.
+	 */
+	public function test_write_does_not_touch_a_file_that_already_matches() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+		$this->assertFileExists( $this->plugins_path );
+
+		// Backdate so any rewrite is detectable by mtime.
+		touch( $this->plugins_path, time() - 500 );
+		clearstatcache();
+		$before = filemtime( $this->plugins_path );
+
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		clearstatcache();
+		$this->assertSame(
+			$before,
+			filemtime( $this->plugins_path ),
+			'an identical payload must not rewrite the file'
+		);
+	}
+
+	/**
+	 * A genuinely different payload is still written.
+	 */
+	public function test_write_still_updates_a_file_whose_payload_changed() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$this->assertStringContainsString(
+			'<Files "allowed.php">',
+			file_get_contents( $this->plugins_path )
+		);
+	}
+
+	// ---------------------------------------------------------------------
+	// Staleness: has .htaccess changed since the verdict was measured?
+	// ---------------------------------------------------------------------
+
+	/**
+	 * With no probe ever run there is nothing to compare against, so this
+	 * reports false. An unknown is not a warning.
+	 */
+	public function test_changed_since_probe_is_false_without_a_stored_probe() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * A stored result predating the fingerprint (an upgrade) also reports
+	 * false rather than warning about a comparison it cannot make.
+	 */
+	public function test_changed_since_probe_is_false_for_a_pre_fingerprint_result() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+				),
+			)
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * When the files still match the fingerprint the verdict is current.
+	 */
+	public function test_changed_since_probe_is_false_when_files_match() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => SPFW_Module_Hardening::current_htaccess_hashes(),
+				),
+			)
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * Editing .htaccess after the probe makes the cached verdict describe rules
+	 * that are no longer on disk. On OpenLiteSpeed it also means the running
+	 * server is still applying the previous rules until a graceful restart,
+	 * which is the state this flag exists to surface instead of a stale green
+	 * badge.
+	 */
+	public function test_changed_since_probe_is_true_after_the_file_changes() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$stale = SPFW_Module_Hardening::current_htaccess_hashes();
+
+		// A later edit — here, the admin adding a whitelist entry.
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'php_whitelist'        => array( 'plugins/allowed.php' ),
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => $stale,
+				),
+			)
+		);
+
+		$this->assertTrue( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * A file disappearing counts as a change too, not just an edit.
+	 */
+	public function test_changed_since_probe_is_true_when_the_file_is_removed() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$hashes = SPFW_Module_Hardening::current_htaccess_hashes();
+		unlink( $this->plugins_path );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => $hashes,
+				),
+			)
+		);
+
+		$this->assertTrue( SPFW_Module_Hardening::htaccess_changed_since_probe() );
 	}
 }

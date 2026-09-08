@@ -141,6 +141,15 @@ class SPFW_Settings {
 				// (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Used by the
 				// .htaccess RewriteRule generator and the file monitor.
 				'php_whitelist'           => array(),
+				// Automatically allow the PHP files that well-known plugins
+				// serve directly over HTTP (see
+				// SPFW_Module_Hardening::KNOWN_DIRECT_ACCESS_PHP), when the
+				// file is actually installed. On by default: without it,
+				// enabling hardening on a LiteSpeed site breaks the front end
+				// until the admin notices the 403 and whitelists the file by
+				// hand — which on OpenLiteSpeed costs a second server restart.
+				// Set false for a total deny that ignores the known list.
+				'auto_allow_known_php'    => true,
 				// File integrity monitor: periodic scan of wp-content for new,
 				// modified, or removed PHP files. Sends a consolidated email
 				// alert when changes are detected outside the whitelist.
@@ -315,6 +324,17 @@ class SPFW_Settings {
 		// 403'd by the <FilesMatch> deny on every server that honors it.
 		// Reconcile so authored files pick up the fix without a manual Restore.
 		if ( version_compare( $stored_ver, '2.11.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.12.0: the deny-PHP payload now auto-allows the known
+		// direct-access plugin endpoints that are installed. Reconcile so a
+		// site already running hardening picks the allowance up instead of
+		// waiting for the next settings save. Writes nothing when the payload
+		// is unchanged (no LiteSpeed installed, or already whitelisted by
+		// hand), which matters on OpenLiteSpeed where any rewrite leaves the
+		// running server out of step with disk until a graceful restart.
+		if ( version_compare( $stored_ver, '2.12.0', '<' ) ) {
 			self::reconcile_htaccess_on_upgrade();
 		}
 
@@ -627,6 +647,8 @@ class SPFW_Settings {
 		$clean['hardening']['php_whitelist'] = self::sanitize_php_whitelist(
 			isset( $hardening['php_whitelist'] ) ? $hardening['php_whitelist'] : $defaults['hardening']['php_whitelist']
 		);
+
+		$clean['hardening']['auto_allow_known_php'] = self::to_bool( $hardening, 'auto_allow_known_php', $defaults['hardening']['auto_allow_known_php'] );
 
 		// File integrity monitor settings.
 		$clean['hardening']['file_monitor_enabled'] = self::to_bool( $hardening, 'file_monitor_enabled', $defaults['hardening']['file_monitor_enabled'] );

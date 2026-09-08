@@ -193,6 +193,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return array();
 		}
 
+		// With auto-allow on, the payload already permits every known file that
+		// is installed, so there is nothing to warn about — warning anyway
+		// would send the admin to fix a problem they do not have. The
+		// suggestion only earns its place when auto-allow has been turned off.
+		if ( ! empty( $h['auto_allow_known_php'] ) ) {
+			return array();
+		}
+
 		$whitelist   = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
 		$suggestions = array();
 
@@ -611,6 +619,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	public function run_htaccess_enforcement_check() {
 		$result = $this->probe_htaccess_enforcement();
 
+		// Fingerprint the .htaccess files this verdict was measured against.
+		// A later edit makes the verdict describe rules that are no longer on
+		// disk, and on OpenLiteSpeed it also means the running server is still
+		// serving the OLD rules: OLS parses .htaccess rewrite rules once, when
+		// the directory is first accessed after startup, and caches them until
+		// a graceful restart. Comparing this fingerprint to the current files
+		// is what lets the admin screen say "changed since last verified"
+		// instead of showing a stale green badge.
+		$result['payload_hashes'] = self::current_htaccess_hashes();
+
 		// The shaped result carries its own 'checked' timestamp, so no separate
 		// time key is stored; get_settings() reads the timestamp from there.
 		SPFW_Settings::update(
@@ -739,6 +757,52 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$row['code'] = (int) wp_remote_retrieve_response_code( $response );
 
 		return $row;
+	}
+
+	/**
+	 * Fingerprint of the .htaccess content this plugin currently has on disk,
+	 * keyed by target. Absent or unreadable targets map to an empty string, so
+	 * a file appearing or disappearing also registers as a change.
+	 *
+	 * Pure-ish: reads the filesystem, no network. Used to tell "this verdict
+	 * still describes the files on disk" from "the files changed after the
+	 * verdict was measured".
+	 *
+	 * @return array<string,string>
+	 */
+	public static function current_htaccess_hashes() {
+		$hashes = array();
+
+		foreach ( array( 'plugins', 'uploads', 'root' ) as $target ) {
+			$path = SPFW_Htaccess::path( $target );
+
+			$hashes[ $target ] = file_exists( $path ) ? (string) sha1_file( $path ) : '';
+		}
+
+		return $hashes;
+	}
+
+	/**
+	 * Whether the .htaccess files changed after the cached enforcement verdict
+	 * was measured, making that verdict describe rules that are no longer what
+	 * is on disk.
+	 *
+	 * On OpenLiteSpeed this is also the signal that the running server is out
+	 * of step with disk and needs a graceful restart. Returns false when no
+	 * probe has run yet, or when the stored result predates this fingerprint
+	 * (an upgrade) — an unknown is not a warning.
+	 *
+	 * @return bool
+	 */
+	public static function htaccess_changed_since_probe() {
+		$enforcement = SPFW_Settings::value( 'hardening', 'htaccess_enforcement', array() );
+
+		if ( ! is_array( $enforcement ) || empty( $enforcement['payload_hashes'] )
+			|| ! is_array( $enforcement['payload_hashes'] ) ) {
+			return false;
+		}
+
+		return self::current_htaccess_hashes() !== $enforcement['payload_hashes'];
 	}
 
 	/**

@@ -194,6 +194,44 @@ function wp_unslash( $value ) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal WP_Filesystem stub.
+//
+// SPFW_Htaccess::write() goes through WP_Filesystem, which previously could not
+// run here at all — filesystem() would try to require wp-admin/includes/file.php
+// and fatal. That left the whole write path untested, which is why the payload
+// tests all pin a high stored version to keep migrations from writing. Direct
+// filesystem calls are enough for what the write path actually does.
+// ---------------------------------------------------------------------------
+class SPFW_Test_Filesystem {
+
+	public function is_dir( $path ) {
+		return is_dir( $path );
+	}
+
+	public function put_contents( $path, $contents, $mode = false ) {
+		if ( ! is_dir( dirname( $path ) ) ) {
+			return false;
+		}
+
+		return false !== file_put_contents( $path, $contents );
+	}
+
+	public function delete( $path ) {
+		return file_exists( $path ) ? unlink( $path ) : true;
+	}
+}
+
+function WP_Filesystem() {
+	global $wp_filesystem;
+
+	if ( ! $wp_filesystem ) {
+		$wp_filesystem = new SPFW_Test_Filesystem();
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Load plugin classes under test.
 // ---------------------------------------------------------------------------
 require_once SPFW_PATH . 'includes/class-spfw-settings.php';
