@@ -133,7 +133,7 @@ the authoritative record.)
 | 12 | Database Cleanup & Optimization Module | ✅ Done | (this commit) |
 | 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | 7615267 |
 | 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
-| 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 5cabb31 |
+| 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
