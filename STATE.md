@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.9.0
+- **Plugin version target:** 2.10.0
 - **Last updated:** 2026-09-08
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -85,7 +85,9 @@ the authoritative record.)
   `spfw_is_woo_page` filter covers page-builder layouts — plus CSP admin
   honesty (emitted header labelled with its real name and an enforcing badge,
   `frame-ancestors` stripped from report-only policies, unsaved-changes
-  tracking) (2.8.0)
+  tracking) (2.8.0); ✅ OpenLiteSpeed-compatible mod_rewrite fallbacks added
+  to root and deny-PHP .htaccess payloads, whitelist allow-then-deny chain
+  fixed, and automatic reconciliation on upgrade (2.10.0)
 
 ## Shared project facts (true for every step)
 
@@ -134,34 +136,41 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.9.0 (removal of the upgrade-compatibility probe and leftover cleanup) is
-built and packaged (`simple-performance-for-wordpress-2.9.0.zip`) for QA on a
-live WordPress install.**
+**2.10.0 (OpenLiteSpeed-compatible hardening payloads) is implemented and the
+build is clean.**
 
-The 2.9.0 work removed a feature that was no longer needed: the upgrader
-filesystem probe, the "Clear leftovers and re-check" cleanup action, their two
-REST endpoints (`POST /spfw/v1/settings/upgrade-check` and
-`/settings/upgrade-cleanup`), the Hardening-tab UI (card, results panel,
-`CheckPill` chips), and `tests/Upgrade_Compat_Check_Test.php`. The `.pot`
-catalog was regenerated, the 2.6.0 changelog entries are annotated "(Removed in
-2.9.0.)", and the version was synchronized to 2.9.0 across the plugin header,
-`SPFW_VERSION`, `readme.txt`, `package.json`, and this file. Gates after the
-removal: `npm run build` clean, PHPUnit 71 tests / 155 assertions pass, PHPCS
-and `lint:js` unchanged from their pre-existing baselines, and a repo-wide grep
-confirms no runtime references to the removed symbols remain.
+The 2.10.0 work adds `RewriteEngine`/`RewriteRule`/`RewriteCond` fallbacks to
+the root sensitive-files/XML-RPC block and to the deny-PHP files
+(plugins/uploads), while keeping the existing Apache authz directives
+(`<FilesMatch>`, `<Files>`, `Require all denied`, `Order allow,deny`,
+`Deny from all`) as backward-compatible fallbacks. The whitelist-aware deny-PHP
+payload now uses a working allow-then-deny chain (`RewriteCond` whitelist →
+`RewriteRule … [L]` → `RewriteRule … [F,L]`) so non-whitelisted PHP files are
+refused on OpenLiteSpeed too. Subdirectory installs are handled by deriving the
+URI prefix from `home_url()`. A one-time 2.10.0 migration calls
+`SPFW_Htaccess::reconcile()` so authored files are rewritten automatically.
+The version was synchronized to 2.10.0 across the plugin header, `SPFW_VERSION`,
+`readme.txt`, `package.json`, and this file. The Hardening tab "not enforced"
+badge copy now mentions the RewriteRule fallbacks instead of implying a vhost
+config move is the only remedy.
+
+Gates after the change: `npm run build` clean, PHPUnit 77 tests / 172 assertions
+pass (6 new payload tests plus subdirectory-install coverage), PHPCS and
+`lint:js` unchanged from their pre-existing baselines, and `.pot` regenerated to
+475 entries.
 
 Remaining before release is manual testing on a WordPress + OpenLiteSpeed site —
-confirm: the Hardening tab renders without the Upgrade compatibility card and
-without JS console errors; no `upgrade-check` / `upgrade-cleanup` routes appear
-in the REST index (`/wp-json/spfw/v1`); and the settings screen still saves,
-scans, and verifies `.htaccess` enforcement as before. Also still outstanding
-from earlier releases: live ott-dev vhost remediation (approval-gated — enable
-LiteSpeed "Auto Load from .htaccess" or move the deny rules into the vhost
-config, then re-sync the root block and run "Verify enforcement"); a plugin
-install and bulk update both succeeding with every hardening toggle on; the
-root self-check still rolling back on a 500; the PHP-whitelist allow-then-deny
-payload; the file-integrity monitor cron + hourly-capped alert; and the "Locked
-Down" preset enabling the monitor.
+confirm: the Hardening tab renders without JS console errors; the settings
+screen still saves, scans, and verifies `.htaccess` enforcement as before; the
+new RewriteRule payloads return 403 for the plugins/index.php,
+readme.html/license.txt, and xmlrpc.php canaries; and a plugin install and bulk
+update both succeed with every hardening toggle on. The ott-dev vhost
+remediation is addressed in code by the new mod_rewrite fallbacks, but final
+live verification there remains approval-gated (the vhost must still load
+`.htaccess` for the rules to take effect). Also still outstanding from earlier
+releases: the root self-check still rolling back on a 500; the file-integrity
+monitor cron + hourly-capped alert; and the "Locked Down" preset enabling the
+monitor.
 
 ---
 
@@ -638,6 +647,35 @@ follow-ups deferred. Keep entries dated and terse.
   on the day Report-Only is switched off, because the "Allow" flow only ever
   adds an origin to the directive that reported it.
   **Verified:** see the commit message for the test/lint/build results.
+
+- 2026-09-08 (OpenLiteSpeed-compatible hardening payloads, → 2.10.0): the
+  `.htaccess` payloads written by `SPFW_Htaccess` used only Apache authz
+  directives (`<FilesMatch>`, `<Files>`, `Require all denied`,
+  `Order allow,deny`, `Deny from all`). On OpenLiteSpeed these directives are
+  ignored in `.htaccess` even when "Auto Load from .htaccess" is enabled; only
+  `RewriteEngine`/`RewriteRule`/`RewriteCond` are honored. The root block, the
+  blanket deny-PHP files, and the whitelist-aware deny-PHP files now emit
+  `RewriteRule` denials first and keep the existing authz blocks as Apache
+  fallbacks. The whitelist payload previously used a no-op `[L]` rule that
+  relied on `<FilesMatch>` to perform the actual denial; it now uses an
+  allow-then-deny chain (`RewriteCond` whitelist → `RewriteRule … [L]` →
+  `RewriteRule … [F,L]`) so non-whitelisted PHP files are refused on OLS too.
+  Subdirectory installs are handled by reusing `get_uri_base()` in the root
+  `RewriteRule` patterns.
+  **Decisions:** (1) Keep the authz directives; they remain effective on Apache
+  and are harmless on OLS, and removing them would change behavior for the
+  large Apache user base. (2) Add a one-time 2.10.0 reconciliation migration
+  that calls `SPFW_Htaccess::reconcile()` so authored files are rewritten to
+  the new payload automatically. (3) No new settings or toggles — this is a
+  backward-compatible hardening improvement, not a user-facing choice.
+  **Verified:** 77 PHPUnit tests / 172 assertions pass (6 new payload tests
+  plus subdirectory-install coverage); `vendor/bin/phpcs` reports only the
+  pre-existing baseline findings on the touched files (class-spfw-htaccess.php
+  4E/0W, tests/Htaccess_Enforcement_Test.php 3E/1W, class-spfw-settings.php
+  alignment warnings unchanged from HEAD); `npm run lint:js` reports the same
+  pre-existing prettier/JSX-a11y errors in `src/components/HardeningSettings.jsx`
+  with zero new errors on the changed string lines; `npm run build` succeeds;
+  `.pot` regenerated to 475 entries with the two updated UI strings.
 
 - 2026-09-07 (`.htaccess` enforcement honesty + root-block drift, → 2.7.0):
   two reports on the ott-dev LiteSpeed vhost. (a) Directory Hardening showed a

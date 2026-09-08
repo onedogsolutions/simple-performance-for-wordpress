@@ -132,6 +132,11 @@ class SPFW_Htaccess {
 	 * would additionally require `AllowOverride Options` and can 500 an
 	 * Apache vhost that lacks it.
 	 *
+	 * A mod_rewrite rule is emitted first so OpenLiteSpeed (which honors
+	 * RewriteRule in .htaccess but does not honor <FilesMatch>) still refuses
+	 * direct PHP requests. The FilesMatch block is kept for Apache and older
+	 * LiteSpeed installations.
+	 *
 	 * Note: payload() now routes plugins/uploads targets through
 	 * payload_deny_php_for_target() which is whitelist-aware. This method
 	 * is retained as the canonical blanket-deny payload for legacy callers
@@ -140,18 +145,24 @@ class SPFW_Htaccess {
 	 * @return string
 	 */
 	public static function payload_deny_php() {
-		return "# BEGIN Simple Performance for WordPress\n"
-			. "# Block direct PHP execution in this directory (Apache / OLS-with-override).\n"
-			. "<FilesMatch \"\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$\">\n"
+		$ext_pattern_filesmatch = '\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$';
+		$ext_pattern_rewrite    = '\\.(?i:php[0-9]*|phtml|phps|phar|inc)$';
+		$files_match            = "<FilesMatch \"$ext_pattern_filesmatch\">\n"
 			. "\tRequire all denied\n"
 			. "</FilesMatch>\n"
 			. "# Fallback for older Apache:\n"
 			. "<IfModule !mod_authz_core.c>\n"
-			. "\t<FilesMatch \"\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$\">\n"
+			. "\t<FilesMatch \"$ext_pattern_filesmatch\">\n"
 			. "\t\tOrder allow,deny\n"
 			. "\t\tDeny from all\n"
 			. "\t</FilesMatch>\n"
-			. "</IfModule>\n"
+			. "</IfModule>\n";
+
+		return "# BEGIN Simple Performance for WordPress\n"
+			. "# Block direct PHP execution in this directory (Apache / OLS-with-override).\n"
+			. "RewriteEngine On\n"
+			. "RewriteRule $ext_pattern_rewrite - [F,L]\n"
+			. $files_match
 			. "# END Simple Performance for WordPress\n";
 	}
 
@@ -166,10 +177,27 @@ class SPFW_Htaccess {
 	private static function get_uri_base() {
 		$path = wp_parse_url( home_url(), PHP_URL_PATH );
 		$path = is_string( $path ) ? trim( $path, '/' ) : '';
-	
+
 		return '/' . ( '' !== $path ? $path . '/' : '' );
 	}
-	
+
+	/**
+	 * Build a root-level RewriteRule pattern that respects subdirectory installs.
+	 *
+	 * The pattern matches the REQUEST_URI with an optional leading slash, then
+	 * the site path prefix, then the caller-supplied suffix. For a root install
+	 * the prefix is empty; for https://example.com/blog the prefix is 'blog/'.
+	 *
+	 * @param string $suffix Regex fragment to append after the URI base.
+	 * @return string Full pattern suitable for a RewriteRule first argument.
+	 */
+	private static function root_rewrite_pattern( $suffix ) {
+		$base   = ltrim( self::get_uri_base(), '/' );
+		$prefix = '' !== $base ? preg_quote( $base, '/' ) : '';
+
+		return '^/?' . $prefix . $suffix;
+	}
+
 	/**
 	 * Build the deny-PHP payload for a specific target directory. This is the
 	 * preferred entry point when the target is known — it avoids the call-stack
@@ -182,7 +210,7 @@ class SPFW_Htaccess {
 		$whitelist  = SPFW_Settings::value( 'hardening', 'php_whitelist', array() );
 		$dir_prefix = $target . '/';
 		$applicable = array();
-	
+
 		if ( is_array( $whitelist ) ) {
 			foreach ( $whitelist as $path ) {
 				$path = (string) $path;
@@ -191,55 +219,63 @@ class SPFW_Htaccess {
 				}
 			}
 		}
-	
+
 		$applicable = array_slice( $applicable, 0, 20 );
-	
+
+		$ext_pattern_filesmatch = '\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$';
+		$ext_pattern_rewrite    = '\\.(?i:php[0-9]*|phtml|phps|phar|inc)$';
+
 		// Build the blanket-deny FilesMatch block.
-		$deny_files = "<FilesMatch \"\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$\">\n"
+		$deny_files = "<FilesMatch \"$ext_pattern_filesmatch\">\n"
 			. "\tRequire all denied\n"
 			. "</FilesMatch>\n"
 			. "# Fallback for older Apache:\n"
 			. "<IfModule !mod_authz_core.c>\n"
-			. "\t<FilesMatch \"\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$\">\n"
+			. "\t<FilesMatch \"$ext_pattern_filesmatch\">\n"
 			. "\t\tOrder allow,deny\n"
 			. "\t\tDeny from all\n"
 			. "\t</FilesMatch>\n"
 			. "</IfModule>\n";
-	
+
 		if ( empty( $applicable ) ) {
 			return "# BEGIN Simple Performance for WordPress\n"
 				. "# Block direct PHP execution in this directory (Apache / OLS-with-override).\n"
+				. "RewriteEngine On\n"
+				. "RewriteRule $ext_pattern_rewrite - [F,L]\n"
 				. $deny_files
 				. "# END Simple Performance for WordPress\n";
 		}
-	
+
 		$uri_base = self::get_uri_base();
 		$lines    = array();
 		$lines[]  = '# BEGIN Simple Performance for WordPress';
 		$lines[]  = '# Block direct PHP execution in this directory (Apache / OLS-with-override).';
 		$lines[]  = '# Whitelisted PHP files are allowed through; everything else is denied.';
 		$lines[]  = 'RewriteEngine On';
-	
+
 		foreach ( $applicable as $i => $path ) {
 			$escaped     = preg_quote( $path, '/' );
 			$has_more    = ( $i < count( $applicable ) - 1 );
 			$flag_suffix = $has_more ? ' [OR]' : '';
 			$lines[]     = 'RewriteCond %{REQUEST_URI} ^' . $uri_base . 'wp-content/' . $escaped . '$' . $flag_suffix;
 		}
-	
-		$lines[] = 'RewriteRule \.php$ - [L]';
+
+		// Allow whitelisted files through, then deny every PHP-family extension.
+		// This ordering matters on OpenLiteSpeed, where <FilesMatch> is ignored.
+		$lines[] = 'RewriteRule ' . $ext_pattern_rewrite . ' - [L]';
 		$lines[] = '# Deny all other PHP execution';
-		$lines[] = '<FilesMatch "\\.(?i:php[0-9]*|phtml|phps|phar|inc)$">';
+		$lines[] = 'RewriteRule ' . $ext_pattern_rewrite . ' - [F,L]';
+		$lines[] = '<FilesMatch "' . $ext_pattern_filesmatch . '">';
 		$lines[] = "\tRequire all denied";
 		$lines[] = '</FilesMatch>';
 		$lines[] = '<IfModule !mod_authz_core.c>';
-		$lines[] = "\t" . '<FilesMatch "\\.(?i:php[0-9]*|phtml|phps|phar|inc)$">';
+		$lines[] = "\t" . '<FilesMatch "' . $ext_pattern_filesmatch . '">';
 		$lines[] = "\t\tOrder allow,deny";
 		$lines[] = "\t\tDeny from all";
 		$lines[] = "\t" . '</FilesMatch>';
 		$lines[] = '</IfModule>';
 		$lines[] = '# END Simple Performance for WordPress';
-	
+
 		return implode( "\n", $lines ) . "\n";
 	}
 
@@ -247,6 +283,10 @@ class SPFW_Htaccess {
 	 * The root .htaccess payload — composed from whichever rule-group toggles
 	 * are enabled. Written via insert_with_markers() so WordPress' rewrite
 	 * rules are preserved.
+	 *
+	 * Each group now includes a mod_rewrite fallback rule that OpenLiteSpeed
+	 * honors in .htaccess, layered in front of the Apache authz directives so
+	 * Apache installations continue to work unchanged.
 	 *
 	 * @return string
 	 */
@@ -256,6 +296,7 @@ class SPFW_Htaccess {
 
 		if ( ! empty( $h['protect_sensitive_files'] ) ) {
 			$lines[] = '# group: sensitive_files';
+			$lines[] = 'RewriteRule ' . self::root_rewrite_pattern( '(readme\.html|license\.txt|wp-config-sample\.php|.*\.(log|sql|bak|old|orig|env))$' ) . ' - [F,L]';
 			$lines[] = '<FilesMatch "^(readme\.html|license\.txt|wp-config-sample\.php|.*\.(log|sql|bak|old|orig|env))$">';
 			$lines[] = "\tRequire all denied";
 			$lines[] = '</FilesMatch>';
@@ -273,6 +314,7 @@ class SPFW_Htaccess {
 			}
 
 			$lines[] = '# group: block_xmlrpc';
+			$lines[] = 'RewriteRule ' . self::root_rewrite_pattern( 'xmlrpc\.php$' ) . ' - [F,L]';
 			$lines[] = '<Files "xmlrpc.php">';
 			$lines[] = "\tRequire all denied";
 			$lines[] = '</Files>';
@@ -282,6 +324,10 @@ class SPFW_Htaccess {
 			$lines[] = "\t\tDeny from all";
 			$lines[] = "\t" . '</Files>';
 			$lines[] = '</IfModule>';
+		}
+
+		if ( ! empty( $lines ) ) {
+			array_unshift( $lines, 'RewriteEngine On' );
 		}
 
 		return implode( "\n", $lines ) . ( ! empty( $lines ) ? "\n" : '' );

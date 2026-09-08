@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.9.0
+Stable tag: 2.10.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.10.0 =
+* Added: OpenLiteSpeed-compatible mod_rewrite fallbacks for directory hardening. The root .htaccess block now includes RewriteRule denials for sensitive files (readme.html, license.txt, debug.log, .env, *.sql, *.bak, etc.) and xmlrpc.php, and the plugins/uploads deny-PHP .htaccess files now block PHP-family extensions via RewriteRule. Existing Apache <FilesMatch>/<Files> directives are preserved so Apache and older LiteSpeed installations continue to work.
+* Fixed: The PHP execution whitelist now uses an allow-then-deny RewriteRule chain that actually denies non-whitelisted files on OpenLiteSpeed; the previous chain relied on <FilesMatch> to do the denial, which was inert on OpenLiteSpeed.
+* Added: Automatic one-time reconciliation on upgrade so existing installs receive the new .htaccess payloads without a manual Restore.
 
 = 2.9.0 =
 * Removed: Upgrade compatibility check and leftover cleanup. The probe and cleanup action have been removed from the Hardening tab, along with the `POST /spfw/v1/settings/upgrade-check` and `POST /spfw/v1/settings/upgrade-cleanup` endpoints.

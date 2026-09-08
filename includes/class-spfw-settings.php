@@ -277,6 +277,15 @@ class SPFW_Settings {
 			self::reconcile_htaccess_on_upgrade();
 		}
 
+		// Migration to 2.10.0: the hardening payloads gained OpenLiteSpeed-
+		// compatible mod_rewrite rules alongside the existing Apache authz
+		// directives. Reconcile authored files so existing installs receive the
+		// new rules without manual Restore. Runs after the cache is seeded for
+		// the same recursion-avoidance reason as the 2.7.0 migration.
+		if ( version_compare( $stored_ver, '2.10.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
 		return self::$cache;
 	}
 

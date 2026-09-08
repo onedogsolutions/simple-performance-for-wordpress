@@ -61,8 +61,12 @@ function wp_parse_url( $url, $component = -1 ) {
 	return parse_url( $url, $component );
 }
 
+global $spfw_test_home_url;
+$spfw_test_home_url = 'http://example.com';
+
 function home_url( $path = '' ) {
-	return 'http://example.com' . $path;
+	global $spfw_test_home_url;
+	return $spfw_test_home_url . $path;
 }
 
 function esc_url_raw( $url ) {

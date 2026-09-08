@@ -538,4 +538,122 @@ class Htaccess_Enforcement_Test extends TestCase {
 		$this->assertSame( array( $controller, 'verify_htaccess' ), $args['callback'] );
 		$this->assertSame( array( $controller, 'check_permissions' ), $args['permission_callback'] );
 	}
+
+	// ---------------------------------------------------------------------
+	// OpenLiteSpeed-compatible RewriteRule payloads.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * The root payload for sensitive_files includes a RewriteRule that
+	 * OpenLiteSpeed honors, in addition to the Apache FilesMatch block.
+	 */
+	public function test_root_payload_includes_rewrite_rule_for_sensitive_files() {
+		$this->set_hardening( array( 'protect_sensitive_files' => true ) );
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteRule ^/?(readme\\.html|license\\.txt|wp-config-sample\\.php|.*\\.(log|sql|bak|old|orig|env))$ - [F,L]',
+			$payload
+		);
+		$this->assertStringContainsString( '<FilesMatch', $payload );
+	}
+
+	/**
+	 * The root payload for block_xmlrpc includes a RewriteRule for xmlrpc.php.
+	 */
+	public function test_root_payload_includes_rewrite_rule_for_xmlrpc() {
+		$this->set_hardening( array( 'block_xmlrpc_file' => true ) );
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString( 'RewriteRule ^/?xmlrpc\\.php$ - [F,L]', $payload );
+		$this->assertStringContainsString( '<Files "xmlrpc.php">', $payload );
+	}
+
+	/**
+	 * The blanket deny-PHP payload includes a RewriteRule that refuses
+	 * PHP-family extensions before the FilesMatch block.
+	 */
+	public function test_deny_php_payload_includes_rewrite_rule() {
+		$payload = SPFW_Htaccess::payload_deny_php();
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [F,L]',
+			$payload
+		);
+		$this->assertStringContainsString( '<FilesMatch', $payload );
+	}
+
+	/**
+	 * The whitelist-aware deny-PHP payload allows whitelisted files through
+	 * with [L], then denies everything else with [F,L], so OpenLiteSpeed gets
+	 * real enforcement even though <FilesMatch> is inert there.
+	 */
+	public function test_whitelist_payload_allows_then_denies_with_rewrite_rules() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteCond %{REQUEST_URI} ^/wp-content/plugins\\/allowed\\.php$',
+			$payload
+		);
+
+		// The allow rule must appear before the deny rule.
+		$allow_pos = strpos( $payload, 'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [L]' );
+		$deny_pos  = strpos( $payload, 'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [F,L]' );
+
+		$this->assertNotFalse( $allow_pos, 'whitelist allow rule missing' );
+		$this->assertNotFalse( $deny_pos, 'whitelist deny rule missing' );
+		$this->assertLessThan( $deny_pos, $allow_pos, 'allow rule must precede deny rule' );
+	}
+
+	/**
+	 * Root RewriteRule patterns include the site path prefix for subdirectory
+	 * installs so /blog/readme.html is blocked on a /blog/ WordPress install.
+	 */
+	public function test_root_payload_rewrite_rules_respect_subdirectory_install() {
+		global $spfw_test_home_url;
+		$spfw_test_home_url = 'http://example.com/blog';
+
+		$this->set_hardening(
+			array(
+				'protect_sensitive_files' => true,
+				'block_xmlrpc_file'       => true,
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteRule ^/?blog\\/(readme\\.html|license\\.txt|wp-config-sample\\.php|.*\\.(log|sql|bak|old|orig|env))$ - [F,L]', $payload );
+		$this->assertStringContainsString( 'RewriteRule ^/?blog\\/xmlrpc\\.php$ - [F,L]', $payload );
+	}
+
+	/**
+	 * Whitelist RewriteCond patterns include the site path prefix for
+	 * subdirectory installs.
+	 */
+	public function test_whitelist_payload_rewrite_conditions_respect_subdirectory_install() {
+		global $spfw_test_home_url;
+		$spfw_test_home_url = 'http://example.com/blog';
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringContainsString(
+			'RewriteCond %{REQUEST_URI} ^/blog/wp-content/plugins\\/allowed\\.php$',
+			$payload
+		);
+	}
 }

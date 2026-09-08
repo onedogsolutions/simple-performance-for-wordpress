@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.9.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.10.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-08T17:52:54+00:00\n"
+"POT-Creation-Date: 2026-09-08T18:23:59+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -76,27 +76,27 @@ msgstr ""
 msgid "Could not write the hardening file. The web server may not have direct write access to this directory."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1146
+#: includes/class-spfw-settings.php:1155
 msgid "Balanced"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1147
+#: includes/class-spfw-settings.php:1156
 msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1167
+#: includes/class-spfw-settings.php:1176
 msgid "Aggressive"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1168
+#: includes/class-spfw-settings.php:1177
 msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1196
+#: includes/class-spfw-settings.php:1205
 msgid "Locked Down"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1197
+#: includes/class-spfw-settings.php:1206
 msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
 msgstr ""
 
@@ -1516,7 +1516,7 @@ msgid "This web server is not applying your .htaccess rules."
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:407
-msgid "The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. Fix it on the server: on LiteSpeed enable \"Auto Load from .htaccess\" (WebAdmin → Virtual Host → Rewrite), or move the deny rules into the vhost/context config, then reload the web server and run \"Verify enforcement\" again."
+msgid "The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. The plugin now uses OpenLiteSpeed-compatible RewriteRule directives; on LiteSpeed enable \"Auto Load from .htaccess\" (WebAdmin → Virtual Host → Rewrite), reload the web server, and run \"Verify enforcement\" again. Moving the rules into the vhost/context config is still an option if .htaccess loading must stay off."
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:41
@@ -1552,7 +1552,7 @@ msgid "A .htaccess file can be present and intact yet inert: on a vhost that doe
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:49
-msgid "The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, enable \"Auto Load from .htaccess\" (WebAdmin → Virtual Host → Rewrite), then reload the server."
+msgid "The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, ensure \"Auto Load from .htaccess\" is enabled (WebAdmin → Virtual Host → Rewrite), then reload the server. Without that, even the RewriteRule directives cannot take effect."
 msgstr ""
 
 #: src/components/HardeningSettings.jsx:490

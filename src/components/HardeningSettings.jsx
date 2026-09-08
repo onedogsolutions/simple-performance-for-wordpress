@@ -47,7 +47,7 @@ const ENFORCEMENT_STYLES = {
 		badge: 'bg-amber-50 text-amber-700 ring-amber-600/20',
 		dot: 'bg-amber-600',
 		hint: __(
-			'The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, enable "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite), then reload the server.',
+			'The .htaccess file is present and intact, but this web server is not applying its rules. On LiteSpeed, ensure "Auto Load from .htaccess" is enabled (WebAdmin → Virtual Host → Rewrite), then reload the server. Without that, even the RewriteRule directives cannot take effect.',
 			'simple-performance-for-wordpress'
 		),
 	},
@@ -405,7 +405,7 @@ export default function HardeningSettings( {
 							</p>
 							<p className="mt-1 text-xs text-amber-700">
 								{ __(
-									'The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. Fix it on the server: on LiteSpeed enable "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite), or move the deny rules into the vhost/context config, then reload the web server and run "Verify enforcement" again.',
+									'The hardening files are present and intact, but every deny rule below is inert, so direct requests to plugins/*.php, readme.html, license.txt and xmlrpc.php still get through. The plugin now uses OpenLiteSpeed-compatible RewriteRule directives; on LiteSpeed enable "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite), reload the web server, and run "Verify enforcement" again. Moving the rules into the vhost/context config is still an option if .htaccess loading must stay off.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
