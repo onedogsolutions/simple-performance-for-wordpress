@@ -285,6 +285,9 @@ class SPFW_Rest_Settings {
 		$hardening_group                    = SPFW_Settings::group( 'hardening' );
 		$settings['csp_emitted_header']     = SPFW_Module_Hardening::csp_header_name( $hardening_group );
 		$settings['csp_excludes_logged_in'] = ! empty( $hardening_group['csp_exclude_logged_in'] );
+		// Per-directive source-token cap, so the builder can warn as a directive
+		// approaches it instead of the sanitizer silently truncating on save.
+		$settings['csp_max_tokens'] = SPFW_Settings::CSP_MAX_TOKENS;
 		// File monitor metadata for the Hardening tab UI.
 		$settings['file_monitor_last_scan']      = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
 		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );

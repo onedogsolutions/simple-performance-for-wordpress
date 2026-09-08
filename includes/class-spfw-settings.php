@@ -667,6 +667,22 @@ class SPFW_Settings {
 	 *
 	 * @var string[]
 	 */
+	/**
+	 * Maximum source tokens stored per CSP directive.
+	 *
+	 * A cap is needed so an imported or hand-edited policy cannot grow without
+	 * bound, but 15 turned out to be below what a real commerce site needs: an
+	 * ordinary WooCommerce install running Analytics, Tag Manager, Clarity and
+	 * a payment provider reaches 15 `connect-src` origins on its own, at which
+	 * point every further origin was silently dropped on save — including the
+	 * payment origins whose absence breaks checkout. 30 leaves headroom for
+	 * that install, and the builder now warns as a directive approaches it
+	 * rather than truncating in silence.
+	 *
+	 * @var int
+	 */
+	const CSP_MAX_TOKENS = 30;
+
 	const CSP_DIRECTIVES = array(
 		'default-src',
 		'script-src',
@@ -736,7 +752,7 @@ class SPFW_Settings {
 			// cleared directive as [] is what lets the deletion stick instead of
 			// the default value resurrecting on the next merge. Emit-time
 			// serialization skips empty directives.
-			$clean[ $directive ] = array_slice( array_values( array_unique( $valid ) ), 0, 15 );
+			$clean[ $directive ] = array_slice( array_values( array_unique( $valid ) ), 0, self::CSP_MAX_TOKENS );
 		}
 
 		return $clean;
