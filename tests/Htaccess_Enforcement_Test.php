@@ -9,8 +9,7 @@
  * false-assurance bug this feature corrects, and a false "not enforced" would
  * send the admin chasing a healthy vhost. The probe itself is not tested here
  * because the HTTP layer (wp_remote_get) is deliberately not stubbed in the
- * lightweight bootstrap — the same reason shape_upgrade_check_result() is the
- * tested seam of the upgrade check.
+ * lightweight bootstrap.
  *
  * @package Simple_Performance_For_WordPress
  */

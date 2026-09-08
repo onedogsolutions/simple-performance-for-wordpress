@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.8.1
+Stable tag: 2.9.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -105,6 +105,9 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 
 == Changelog ==
 
+= 2.9.0 =
+* Removed: Upgrade compatibility check and leftover cleanup. The probe and cleanup action have been removed from the Hardening tab, along with the `POST /spfw/v1/settings/upgrade-check` and `POST /spfw/v1/settings/upgrade-cleanup` endpoints.
+
 = 2.8.1 =
 * Maintenance release. No functional changes from 2.8.0 — the version is bumped so installs carrying a pre-release 2.8.0 package are offered the final build, which includes the Hardening tab render fix.
 
@@ -121,7 +124,7 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 * Fixed: Source lists longer than 15 entries were silently truncated when saved. An ordinary WooCommerce install running Analytics, Tag Manager and Clarity reaches 15 connect-src origins on its own, at which point every further origin — including the payment origins whose absence breaks checkout — was dropped without warning. The cap is now 30, and the builder warns when a directive reaches it instead of truncating silently.
 * Added: connect-src gap check for payment providers. When a policy already allows Stripe or PayPal to load but is missing the connect-src origins their checkout scripts call, the CSP card says so before you enforce, with a one-click fix. Nothing reports that gap on its own until a customer reaches the payment step, so an empty violation list was not evidence that checkout would survive enforcing.
 * Added: "Pre-fill payment provider origins" button, covering Stripe and PayPal across script-src, frame-src, connect-src and img-src.
-* Fixed: Actions that run a scan or probe — Start collecting, Scan fonts, Scan files, Verify enforcement, the upgrade check and cleanup, and Restore hardening file — discarded any settings edits you had made but not yet saved, because each returns the full settings object and it was applied wholesale. Pending edits are now preserved across those actions.
+* Fixed: Actions that run a scan or probe — Start collecting, Scan fonts, Scan files, Verify enforcement, and Restore hardening file — discarded any settings edits you had made but not yet saved, because each returns the full settings object and it was applied wholesale. Pending edits are now preserved across those actions.
 
 = 2.7.0 =
 * Added: Runtime .htaccess enforcement verification on the Directory Hardening tab. A loopback probe checks whether the server is actually applying the file-protection rules (plugins/index.php, readme.html/license.txt, xmlrpc.php, and uploads/index.php when present) and reports a per-target Enforced / Not enforced / Unverified verdict plus an overall "does this vhost honor .htaccess" headline. Exposed as POST /spfw/v1/settings/verify-htaccess, with a "Verify enforcement" button and results panel. Enforcement is cached, so it is read without probing on every page load; one automatic read rides the existing post-write root self-check.
@@ -132,8 +135,8 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 * Changed: The PHP XML-RPC disable now always runs when "Disable XML-RPC" is on. The server-level xmlrpc.php block layers on top as a performance optimization (denying the request before WordPress boots) rather than replacing the PHP protection, so XML-RPC is never left unprotected when .htaccess is inert.
 
 = 2.6.0 =
-* Added: Upgrade compatibility check on the Hardening tab. Replays the exact filesystem operations the WordPress upgrader performs — creating a scratch directory, moving it across parents into wp-content/upgrade-temp-backup, and listing the moved contents — against wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Reports a per-directory Write/Move/Read verdict alongside the directory owner and the PHP user, so a failed plugin install or update can be attributed to a real cause instead of to the directory-hardening rules. Exposed as POST /spfw/v1/settings/upgrade-check.
-* Added: "Clear leftovers and re-check" action (POST /spfw/v1/settings/upgrade-cleanup). Removes orphaned entries stranded in wp-content/upgrade and wp-content/upgrade-temp-backup by an interrupted update run, then re-probes so the repaired state is visible in one round trip. Refuses to run while a .maintenance file is present.
+* Added: Upgrade compatibility check on the Hardening tab. Replays the exact filesystem operations the WordPress upgrader performs — creating a scratch directory, moving it across parents into wp-content/upgrade-temp-backup, and listing the moved contents — against wp-content/upgrade, wp-content/upgrade-temp-backup and wp-content/plugins. Reports a per-directory Write/Move/Read verdict alongside the directory owner and the PHP user, so a failed plugin install or update can be attributed to a real cause instead of to the directory-hardening rules. Exposed as POST /spfw/v1/settings/upgrade-check. (Removed in 2.9.0.)
+* Added: "Clear leftovers and re-check" action (POST /spfw/v1/settings/upgrade-cleanup). Removes orphaned entries stranded in wp-content/upgrade and wp-content/upgrade-temp-backup by an interrupted update run, then re-probes so the repaired state is visible in one round trip. Refuses to run while a .maintenance file is present. (Removed in 2.9.0.)
 * Changed: The root .htaccess self-check no longer fires during plugin, theme or core update and upload requests. It previously issued a 10-second blocking loopback request on admin_init, competing for the PHP execution budget with long bulk-update runs. The pending flag is preserved rather than consumed, so the check still runs on the next ordinary admin request and the lockout safety net is unchanged.
 * Changed: Directory Hardening copy now states that these rules govern HTTP requests only and never block plugin or theme installs and updates, which happen entirely in PHP.
 

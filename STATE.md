@@ -14,11 +14,12 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.8.1
+- **Plugin version target:** 2.9.0
 - **Last updated:** 2026-09-08
 - **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
+  Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
   Hardening-toggle write bug fixed + hardening options expanded (branch
   `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
   with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`);
@@ -74,8 +75,7 @@ the authoritative record.)
   sha256 snapshot scanner, twice-daily cron, email alerts, on-demand scan
   endpoint, CSP-style whitelist UI card, 2.4.0); ✅ Scan results list
   collapsed by default behind a "Show file list" expand button (2.5.0); ✅
-  Upgrade-compatibility probe + leftover cleanup, and root `.htaccess`
-  self-check deferred off update/upload requests (2.6.0); ✅ `.htaccess`
+  Root `.htaccess` self-check deferred off update/upload requests (2.6.0); ✅ `.htaccess`
   enforcement honesty — runtime verification of whether the vhost actually
   applies the file-protection rules, three-state integrity+enforcement badges,
   self-healing `reconcile()` of authored root-block drift, root Restore +
@@ -134,57 +134,34 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.7.0 (`.htaccess` enforcement honesty — runtime verification, three-state
-integrity+enforcement badges, self-healing `reconcile()` of authored drift, root
-Restore + import fixes, always-on XML-RPC PHP fallback) is built and packaged for
-QA on a live WordPress install.**
+**2.9.0 (removal of the upgrade-compatibility probe and leftover cleanup) is
+built and packaged (`simple-performance-for-wordpress-2.9.0.zip`) for QA on a
+live WordPress install.**
 
-The 2.7.0 work came out of two reports on the ott-dev LiteSpeed vhost. (a) The
-Directory Hardening card showed a green "Active" badge while `readme.html` and
-`license.txt` returned HTTP 200 and `wp-content/plugins/index.php` executed —
-the vhost has "Auto Load from .htaccess" effectively off, so the deny rules are
-inert, but `SPFW_Htaccess::status()` only checks *file present + sha1 == stored
-hash* and reported `ok`. (b) The root marker block had drifted (missing its
-`# group: block_xmlrpc` section) yet still read `ok`, because status compares
-disk to the *stored hash*, never to the payload the *current toggles* require;
-root was also excluded from `run_payload_migration()`, and the root card's
-Restore was mis-mapped to the plugins file. A latent gap was closed too: the PHP
-`xmlrpc_enabled` filter ran only when `disable_xmlrpc && ! block_xmlrpc_file`,
-so with the server block inert, enabling it left XML-RPC protected by neither
-layer. 2.7.0 verifies enforcement at runtime and reports it honestly, self-heals
-authored drift, fixes the mis-mapped actions, and keeps the PHP fallback on
-whenever `disable_xmlrpc` is set. Governing constraint: `readme.html`,
-`license.txt`, and `plugins/*.php` are served directly by the web server (no WP
-bootstrap), so **no PHP hook can intercept them** — the honest fix is detection
-+ guidance, not a PHP fallback for the file rules (only `xmlrpc.php` bootstraps
-WP and has a viable PHP path).
-
-**Part E (live ott-dev vhost remediation) is approval-gated and was NOT executed
-— this is a code-only change.** It needs explicit go-ahead + host access: enable
-LiteSpeed "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite) or move
-the deny rules into the vhost/context config, graceful-reload OpenLiteSpeed,
-then re-sync the root block in SPFW (Restore, or let `reconcile()` run) with
-`disable_xmlrpc` on, and run "Verify enforcement" to confirm `readme.html`,
-`license.txt`, `plugins/index.php`, and `xmlrpc.php` all return 403 (cross-check
-via Novamira MCP per prior practice).
+The 2.9.0 work removed a feature that was no longer needed: the upgrader
+filesystem probe, the "Clear leftovers and re-check" cleanup action, their two
+REST endpoints (`POST /spfw/v1/settings/upgrade-check` and
+`/settings/upgrade-cleanup`), the Hardening-tab UI (card, results panel,
+`CheckPill` chips), and `tests/Upgrade_Compat_Check_Test.php`. The `.pot`
+catalog was regenerated, the 2.6.0 changelog entries are annotated "(Removed in
+2.9.0.)", and the version was synchronized to 2.9.0 across the plugin header,
+`SPFW_VERSION`, `readme.txt`, `package.json`, and this file. Gates after the
+removal: `npm run build` clean, PHPUnit 71 tests / 155 assertions pass, PHPCS
+and `lint:js` unchanged from their pre-existing baselines, and a repo-wide grep
+confirms no runtime references to the removed symbols remain.
 
 Remaining before release is manual testing on a WordPress + OpenLiteSpeed site —
-confirm: "Verify enforcement" reports `not_enforced` (amber badge + card banner)
-on a vhost that ignores `.htaccess` and `enforced` (green) once the server
-applies the rules; the shaped result is cached and read without probing on load;
-the one automatic read rides the existing post-write root self-check (no new
-per-load loopback); a drifted root block (missing `block_xmlrpc`) is silently
-re-synced by `reconcile()` on the next non-update admin request and via the
-version-gated upgrade path; foreign edits are never clobbered (stay `altered` +
-Restore); the root card's Restore rewrites the root block (not plugins) and
-re-arms `spfw_root_htaccess_check`; settings import re-derives the root block
-when a root toggle is on; and with `disable_xmlrpc` on but the server block
-inert, XML-RPC is still denied by the PHP filter. Also still outstanding from
-2.5.0/2.6.0: the upgrade-compatibility "Run check" / "Clear leftovers" flows; a
-plugin install and bulk update both succeeding with every hardening toggle on;
-the root self-check still rolling back on a 500; the PHP-whitelist
-allow-then-deny payload; the file-integrity monitor cron + hourly-capped alert;
-and the "Locked Down" preset enabling the monitor.
+confirm: the Hardening tab renders without the Upgrade compatibility card and
+without JS console errors; no `upgrade-check` / `upgrade-cleanup` routes appear
+in the REST index (`/wp-json/spfw/v1`); and the settings screen still saves,
+scans, and verifies `.htaccess` enforcement as before. Also still outstanding
+from earlier releases: live ott-dev vhost remediation (approval-gated — enable
+LiteSpeed "Auto Load from .htaccess" or move the deny rules into the vhost
+config, then re-sync the root block and run "Verify enforcement"); a plugin
+install and bulk update both succeeding with every hardening toggle on; the
+root self-check still rolling back on a 500; the PHP-whitelist allow-then-deny
+payload; the file-integrity monitor cron + hourly-capped alert; and the "Locked
+Down" preset enabling the monitor.
 
 ---
 
@@ -406,6 +383,32 @@ follow-ups deferred. Keep entries dated and terse.
   holding 2.8.0. **No code difference from the final 2.8.0 build**; the
   changelog entry says so rather than inventing a delta.
 
+- 2026-09-08 (upgrade-compatibility removal, → 2.9.0): the probe + cleanup
+  feature shipped in 2.6.0 was removed wholesale at the user's direction — it
+  had done its job (the real cause was orphaned `upgrade-temp-backup` debris,
+  not SPFW) and was no longer needed. Removed: `UPGRADE_DIRS`, the eleven probe/
+  shape/cleanup methods in `SPFW_Module_Hardening`, the two REST routes and
+  handlers, the `upgradeCheck`/`isCheckingUpgrade`/`isCleaningUpgrade` state and
+  handlers in `App.jsx`, the card + results panel + `CheckPill` in
+  `HardeningSettings.jsx`, and `tests/Upgrade_Compat_Check_Test.php`.
+  **Decisions:** (1) historical changelog entries for 2.6.0 were kept and
+  annotated "(Removed in 2.9.0.)" rather than rewritten, and the 2.6.0 decision
+  log entry below was annotated likewise, so the record of *why* the probe
+  existed survives its removal; (2) the 2.8.0 changelog line listing
+  side-effect endpoints was edited to drop the two removed routes, since that
+  line describes current behavior; (3) stale cross-references in comments
+  (`mirrors run_upgrade_compat_check()` in the enforcement probe docblock, the
+  `shape_upgrade_check_result()` mention in `Htaccess_Enforcement_Test.php`) were
+  rewritten rather than left dangling; (4) `package.json` version was brought
+  into line at 2.9.0 — it had been pinned at `1.0.0` and never tracked the
+  plugin version, so this aligns it going forward; (5) `.pot` regenerated via
+  `tools/make-pot.php` (475 entries, down from 497) so the removed strings no
+  longer ship. **Verified:** `npm run build` clean; PHPUnit 71 tests / 155
+  assertions (was 82 tests before the 11 removed upgrade-check tests); PHPCS and
+  `lint:js` identical to their pre-existing baselines; repo-wide grep shows zero
+  runtime references to the removed symbols; ZIP packaged per `.distignore`
+  with the top-level `simple-performance-for-wordpress/` wrapper.
+
 - 2026-09-08 (CSP cache coherence + a shipped render crash, → 2.8.0, same
   branch): the last two Part E items, plus a regression this session
   introduced and shipped.
@@ -534,7 +537,7 @@ follow-ups deferred. Keep entries dated and terse.
   branch): follow-up to the dirty-tracking work above, fixing the pre-existing
   bug that work exposed. Seven endpoints persist something of their own and
   return the **full** settings payload — restore-htaccess, csp-report/collect,
-  scan-fonts, scan-files, upgrade-check, upgrade-cleanup, verify-htaccess — and
+  scan-fonts, scan-files, verify-htaccess — and
   `App.jsx` applied each one wholesale. Any edit the admin had made but not
   saved was discarded with no indication: toggle Report-Only, press "Start
   collecting", lose the toggle. Adding the dirty banner made this worse, not
@@ -697,12 +700,12 @@ follow-ups deferred. Keep entries dated and terse.
   executed** — this is a code-only change; it needs explicit go-ahead + host
   access (see Next action).
 
-- 2026-09-07 (upgrade-compatibility probe, → 2.6.0): plugin installs/updates
-  were reported failing with "Could not move the old version to the
-  upgrade-temp-backup directory" (EventKoi) and "Filesystem error. A directory
-  could not be read" (Novamira) while file-protection toggles were on, and the
-  hardening `.htaccess` rules were blamed. **They were not the cause.** Both
-  messages come from pure PHP `WP_Filesystem` calls inside
+- 2026-09-07 (upgrade-compatibility probe, → 2.6.0, removed in 2.9.0): plugin
+  installs/updates were reported failing with "Could not move the old version to
+  the upgrade-temp-backup directory" (EventKoi) and "Filesystem error. A
+  directory could not be read" (Novamira) while file-protection toggles were on,
+  and the hardening `.htaccess` rules were blamed. **They were not the cause.**
+  Both messages come from pure PHP `WP_Filesystem` calls inside
   `WP_Upgrader::move_to_temp_backup_dir()` and `WP_Upgrader::run()`;
   `.htaccess` governs HTTP requests only and cannot make `rename()` or
   `opendir()` fail. SPFW attaches no hooks to the upgrader.
@@ -727,6 +730,8 @@ follow-ups deferred. Keep entries dated and terse.
   unit-testable without an install; (5) added a cleanup endpoint beyond the
   original plan scope, because forensics proved debris is the actual cause and
   a diagnostic with no remedy would be incomplete.
+  **Removed in 2.9.0:** the probe, cleanup action, and their REST endpoints
+  were removed from the plugin after the feature became unnecessary.
   **Verified:** 34 PHPUnit tests / 141 assertions pass (12 new);
   `vendor/bin/phpcs` reports byte-identical findings to the HEAD baseline
   (6 errors / 41 warnings) despite ~500 added PHP lines; `npm run lint:css`

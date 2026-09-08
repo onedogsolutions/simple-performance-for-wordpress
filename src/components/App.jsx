@@ -65,9 +65,6 @@ export default function App() {
 	const [ showPresetConfirm, setShowPresetConfirm ] = useState( null );
 	const [ fileScanResults, setFileScanResults ] = useState( null );
 	const [ isScanning, setIsScanning ] = useState( false );
-	const [ upgradeCheck, setUpgradeCheck ] = useState( null );
-	const [ isCheckingUpgrade, setIsCheckingUpgrade ] = useState( false );
-	const [ isCleaningUpgrade, setIsCleaningUpgrade ] = useState( false );
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const fileInputRef = useRef( null );
 
@@ -340,118 +337,6 @@ export default function App() {
 					err.message ||
 						__(
 							'File scan failed.',
-							'simple-performance-for-wordpress'
-						),
-					'error'
-				);
-			} );
-	};
-
-	// Replays the filesystem operations the WordPress upgrader performs, so a
-	// failed plugin install/update can be attributed to its real cause instead
-	// of to the directory-hardening rules (which only govern HTTP requests).
-	const handleUpgradeCheck = () => {
-		setIsCheckingUpgrade( true );
-
-		apiFetch( {
-			path: '/spfw/v1/settings/upgrade-check',
-			method: 'POST',
-		} )
-			.then( ( data ) => {
-				mergeServerSettings( data );
-
-				const check = data.upgrade_check || null;
-				setUpgradeCheck( check );
-				setIsCheckingUpgrade( false );
-
-				const stale = ( check && check.stale_total ) || 0;
-
-				if ( ! check ) {
-					showToast(
-						__(
-							'Upgrade check returned no result.',
-							'simple-performance-for-wordpress'
-						),
-						'error'
-					);
-				} else if ( check.pass && stale > 0 ) {
-					showToast(
-						sprintf(
-							/* translators: %d: number of leftover items */
-							__(
-								'Directories are healthy, but %d leftover item(s) remain from an interrupted update.',
-								'simple-performance-for-wordpress'
-							),
-							stale
-						),
-						'info'
-					);
-				} else if ( check.pass ) {
-					showToast(
-						__(
-							'Upgrade check passed. Every directory the upgrader needs is writable, movable and readable.',
-							'simple-performance-for-wordpress'
-						),
-						'success'
-					);
-				} else {
-					showToast(
-						__(
-							'Upgrade check found a problem. Plugin installs and updates will fail until it is fixed.',
-							'simple-performance-for-wordpress'
-						),
-						'error'
-					);
-				}
-			} )
-			.catch( ( err ) => {
-				setIsCheckingUpgrade( false );
-				showToast(
-					err.message ||
-						__(
-							'Upgrade check failed.',
-							'simple-performance-for-wordpress'
-						),
-					'error'
-				);
-			} );
-	};
-
-	// Removes the orphaned debris the check reported, then re-runs the check so
-	// the repaired state is shown without a second click.
-	const handleUpgradeCleanup = () => {
-		setIsCleaningUpgrade( true );
-
-		apiFetch( {
-			path: '/spfw/v1/settings/upgrade-cleanup',
-			method: 'POST',
-		} )
-			.then( ( data ) => {
-				mergeServerSettings( data );
-				setUpgradeCheck( data.upgrade_check || null );
-				setIsCleaningUpgrade( false );
-
-				const removed =
-					( data.cleanup_result && data.cleanup_result.removed ) || 0;
-
-				showToast(
-					sprintf(
-						/* translators: %d: number of leftover items removed */
-						__(
-							'Removed %d leftover item(s) and re-checked.',
-							'simple-performance-for-wordpress'
-						),
-						removed
-					),
-					'success'
-				);
-			} )
-			.catch( ( err ) => {
-				setIsCleaningUpgrade( false );
-				showToast(
-					err.message ||
-						__(
-							'Could not clear the leftovers.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -866,11 +751,6 @@ export default function App() {
 								fileScanResults={ fileScanResults }
 								onScanFiles={ handleScanFiles }
 								isScanning={ isScanning }
-								upgradeCheck={ upgradeCheck }
-								onUpgradeCheck={ handleUpgradeCheck }
-								onUpgradeCleanup={ handleUpgradeCleanup }
-								isCheckingUpgrade={ isCheckingUpgrade }
-								isCleaningUpgrade={ isCleaningUpgrade }
 								hardeningEnforcement={
 									settings.hardening_enforcement
 								}
