@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-08T16:20:09+00:00\n"
+"POT-Creation-Date: 2026-09-08T16:48:28+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -273,30 +273,21 @@ msgstr ""
 msgid "REST API restricted to authenticated users."
 msgstr ""
 
-#: src/components/App.jsx:14
-msgid "Core"
-msgstr ""
-
 #: src/components/App.jsx:161
 msgid "Hardening file restored."
-msgstr ""
-
-#: src/components/App.jsx:17
-#: src/components/RestApiSettings.jsx:62
-msgid "REST API"
 msgstr ""
 
 #: src/components/App.jsx:171
 msgid "Failed to restore the hardening file."
 msgstr ""
 
-#: src/components/App.jsx:21
-msgid "Hardening"
+#: src/components/App.jsx:20
+msgid "Core"
 msgstr ""
 
 #: src/components/App.jsx:23
-#: src/components/CspPolicyCard.jsx:51
-msgid "Fonts"
+#: src/components/RestApiSettings.jsx:62
+msgid "REST API"
 msgstr ""
 
 #: src/components/App.jsx:236
@@ -311,16 +302,25 @@ msgstr ""
 msgid "Could not change violation collection."
 msgstr ""
 
-#: src/components/App.jsx:26
-msgid "Option Cleaner"
+#: src/components/App.jsx:27
+msgid "Hardening"
 msgstr ""
 
 #: src/components/App.jsx:282
 msgid "Font scan complete."
 msgstr ""
 
+#: src/components/App.jsx:29
+#: src/components/CspPolicyCard.jsx:51
+msgid "Fonts"
+msgstr ""
+
 #: src/components/App.jsx:292
 msgid "Font scan failed."
+msgstr ""
+
+#: src/components/App.jsx:32
+msgid "Option Cleaner"
 msgstr ""
 
 #. translators: %d: number of changes detected
@@ -365,6 +365,10 @@ msgstr ""
 msgid "Removed %d leftover item(s) and re-checked."
 msgstr ""
 
+#: src/components/App.jsx:45
+msgid "WooCommerce"
+msgstr ""
+
 #: src/components/App.jsx:453
 msgid "Could not clear the leftovers."
 msgstr ""
@@ -407,10 +411,6 @@ msgstr ""
 
 #: src/components/App.jsx:613
 msgid "Import failed."
-msgstr ""
-
-#: src/components/App.jsx:62
-msgid "WooCommerce"
 msgstr ""
 
 #: src/components/App.jsx:622

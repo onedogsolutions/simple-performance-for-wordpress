@@ -399,6 +399,40 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
+- 2026-09-08 (unsaved-edit clobber on side-effect endpoints, → 2.8.0, same
+  branch): follow-up to the dirty-tracking work above, fixing the pre-existing
+  bug that work exposed. Seven endpoints persist something of their own and
+  return the **full** settings payload — restore-htaccess, csp-report/collect,
+  scan-fonts, scan-files, upgrade-check, upgrade-cleanup, verify-htaccess — and
+  `App.jsx` applied each one wholesale. Any edit the admin had made but not
+  saved was discarded with no indication: toggle Report-Only, press "Start
+  collecting", lose the toggle. Adding the dirty banner made this worse, not
+  better — the banner would correctly go clean while the edit vanished.
+  **Decisions:** (1) Two paths, not one. `commitSettings()` stays an
+  authoritative replace for the four cases where the payload IS the new truth
+  (initial load, Save, import, preset — the last two are destructive by
+  intent and confirmed by the admin). The seven side-effect endpoints now go
+  through `mergeServerSettings()`, which makes the payload the new saved
+  baseline and layers pending edits back on top, leaving the form dirty.
+  (2) Edits are diffed **per key**, not per group, so a payload that writes one
+  key in `hardening` (a collection deadline) does not have to discard an
+  unsaved edit to a different key in the same group. Values compare by
+  `JSON.stringify` so `csp_directives` arrays/objects compare by value.
+  (3) The helpers moved to `src/lib/settings-merge.js`, free of any WordPress
+  or React import. That was forced rather than chosen: `@wordpress/element` is
+  a webpack external (`wp.element`) and is not an installed package, so jest
+  cannot resolve `App.jsx` and the helpers were untestable where they were.
+  They are pure functions with nothing React-specific about them anyway.
+  **Deviations:** the plan had no JS test layer; `@wordpress/scripts` already
+  ships jest, so `npm run test:js` was added to `package.json` and
+  `src/lib/test/settings-merge.test.js` covers the diff/merge behavior (8
+  tests). No new dependency, no jest config file. `src/` is in `.distignore`,
+  so none of it ships in the ZIP.
+  **Verified:** 8 JS tests pass; 75 PHPUnit tests / 237 assertions unchanged;
+  phpcs full-project total unchanged (97E/161W); the two new JS files lint
+  clean and App.jsx has zero lint errors on added lines; `npm run build`
+  succeeds.
+
 - 2026-09-08 (WooCommerce Add to Cart breakage + CSP admin honesty, → 2.8.0,
   branch `claude/csp-generator-enforced-policy-7mriy7`): reported as "Report-Only
   is on but an enforced CSP is being emitted, and it is blocking Add to Cart".
@@ -468,12 +502,7 @@ follow-ups deferred. Keep entries dated and terse.
   allowlist missing `api.stripe.com`, `m.stripe.network` and `c.paypal.com`
   while `frame-src` carries the payment origins — that gap will break checkout
   on the day Report-Only is switched off, because the "Allow" flow only ever
-  adds an origin to the directive that reported it. Also observed while adding
-  dirty tracking (pre-existing, unchanged): any action that returns a full
-  settings payload — Start collecting, Scan fonts, Verify enforcement — replaces
-  the form state, so unsaved edits made beforehand are silently discarded. The
-  new banner now at least reports the result honestly, but the clobber itself
-  is untouched.
+  adds an origin to the directive that reported it.
   **Verified:** see the commit message for the test/lint/build results.
 
 - 2026-09-07 (`.htaccess` enforcement honesty + root-block drift, → 2.7.0):
