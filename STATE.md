@@ -14,7 +14,7 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.12.0
+- **Plugin version target:** 2.12.1
 - **Last updated:** 2026-09-08
 - **Overall status:** ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
@@ -153,14 +153,35 @@ Jest 26/26, `npm run build` clean, `php -l` clean, PHPCS (88 errors / 161
 warnings) and `lint:js` (266 problems) both at their pre-existing baselines,
 `.pot` regenerated to 485 entries, version synchronized to 2.12.0.
 
-**Still unverified on real hardware.** Everything about OLS behavior here comes
-from documentation and the field report, not from a live OLS box — there is none
-in the build environment. On the reporting site, after installing 2.12.0 and
-running one graceful restart, the checks are: `guest.vary.php` returns 200
-without anything having been whitelisted by hand; the Hardening tab lists it
-under "allowed automatically"; "Verify enforcement" shows the whitelist row
-Reachable while the deny canaries stay Enforced; and editing the whitelist then
-reloading the tab raises the "changed since last verified" banner.
+**Validated on real hardware (2026-09-08, maddogproducts.com, OpenLiteSpeed
+1.9.1).** The earlier caveat is discharged:
+- `wp-content/plugins/index.php` → **403** (deny enforcing)
+- `wp-content/plugins/litespeed-cache/guest.vary.php` → **200** (allowance
+  working, nothing whitelisted by hand)
+- `readme.html` → **403** (root block enforcing)
+
+So the allow-then-deny RewriteCond/RewriteRule chain does work on OLS, and the
+auto-allow puts the LiteSpeed endpoint through without admin intervention.
+
+Two field observations worth keeping:
+- The plugins `.htaccess` sat on disk with valid deny rules while
+  `plugins/index.php` still returned 200; after toggling the blocks on and a
+  graceful restart, the rules bit. Consistent with the OLS rule-caching thesis,
+  though the toggle and the restart moved together so it is not a clean
+  attribution.
+- `autoLoadHtaccess 1` was set on the vhost the whole time. A site can have
+  correct config, a correct `.htaccess`, and still enforce nothing, purely
+  because the running server has not reloaded — which is exactly the gap the
+  2.12.0 staleness banner reports.
+
+**Uploads canary gap, found in the field and fixed in this step.** The Hardening
+tab showed plugins "Enforced" but uploads "Present (enforcement unverified)",
+because the uploads probe ran only when `wp-content/uploads/index.php` existed
+and WordPress does not reliably create it. The probe now falls back to
+requesting `SYNTHETIC_CANARY`, a path that should not exist: `[F]` fires on the
+URL before any file-existence check, so 403 proves the rule ran and 404 proves
+the request reached the filesystem — decisive, and needing nothing on disk. The
+uploads card reads either canary via `combine_enforcement()`.
 
 **CI remains red on `main` for a pre-existing, unrelated reason** —
 `PHPUnit Tests (8.0)` fails inside `composer install` because `composer.lock`

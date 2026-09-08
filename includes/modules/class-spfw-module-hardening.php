@@ -78,6 +78,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @var string
 	 */
+	/**
+	 * Filename requested when probing a directory that has no canary file on
+	 * disk. Must not exist: the verdict rests on 403 (rule ran) versus 404
+	 * (request reached the filesystem).
+	 */
+	const SYNTHETIC_CANARY = 'spfw-enforcement-probe.php';
+
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
 
 	/**
@@ -128,30 +135,42 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @var array<string,array{label:string,deny:int[],allow:int[]}>
 	 */
 	const ENFORCEMENT_CANARIES = array(
-		'plugins'         => array(
+		'plugins'           => array(
 			'label' => 'wp-content/plugins/index.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'uploads'         => array(
+		'uploads'           => array(
 			'label' => 'wp-content/uploads/index.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'sensitive_files' => array(
+		'sensitive_files'   => array(
 			'label' => 'readme.html / license.txt',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'xmlrpc'          => array(
+		'xmlrpc'            => array(
 			'label' => 'xmlrpc.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200, 405 ),
 		),
+		// Probed only when wp-content/uploads/index.php is absent, which is
+		// common — WordPress does not reliably create it. Requests a path that
+		// should not exist, because a deny rule fires on the URL before any
+		// file-existence check: 403 proves the rule ran, 404 proves the request
+		// reached the filesystem unimpeded. Without this the uploads rule was
+		// simply never probed and reported "unverified" forever, on the one
+		// directory where a planted script is most likely to land.
+		'uploads_synthetic' => array(
+			'label' => 'wp-content/uploads/ (synthetic .php path)',
+			'deny'  => array( 403 ),
+			'allow' => array( 404, 200 ),
+		),
 		// Inverted: this canary is a file the admin explicitly whitelisted, so
 		// an allow code is the pass and a deny code is the failure. Its label
 		// is supplied per row (one row per whitelisted path).
-		'whitelist'       => array(
+		'whitelist'         => array(
 			'label' => 'whitelisted PHP file',
 			'mode'  => 'allow',
 			'deny'  => array( 403 ),
@@ -667,13 +686,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$targets[] = $this->probe_canary( 'plugins', plugins_url( 'index.php' ) );
 		}
 
-		// uploads deny-PHP: only meaningful when the canary file exists.
+		// uploads deny-PHP: prefer the real index.php canary, where a 200
+		// proves the request was served. When it is absent — which is common,
+		// since WordPress does not reliably create it — fall back to a path
+		// that should not exist, where 403 vs 404 is just as decisive and
+		// needs nothing on disk.
 		if ( ! empty( $h['uploads_htaccess'] ) ) {
 			$uploads = wp_upload_dir();
 			$disk    = trailingslashit( $uploads['basedir'] ) . 'index.php';
 
 			if ( file_exists( $disk ) ) {
 				$targets[] = $this->probe_canary( 'uploads', trailingslashit( $uploads['baseurl'] ) . 'index.php' );
+			} else {
+				$targets[] = $this->probe_canary(
+					'uploads_synthetic',
+					trailingslashit( $uploads['baseurl'] ) . self::SYNTHETIC_CANARY
+				);
 			}
 		}
 

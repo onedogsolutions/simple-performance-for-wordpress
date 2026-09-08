@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.12.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.12.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-08T21:46:35+00:00\n"
+"POT-Creation-Date: 2026-09-08T22:39:16+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -178,52 +178,52 @@ msgstr ""
 msgid "Localized %1$d font families (%2$d files)."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1002
-#: includes/modules/class-spfw-module-hardening.php:1034
+#: includes/modules/class-spfw-module-hardening.php:1030
+#: includes/modules/class-spfw-module-hardening.php:1062
 msgid "Invalid username or password."
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1903
+#: includes/modules/class-spfw-module-hardening.php:1931
 #, php-format
 msgid "[%s] File integrity alert"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:1909
+#: includes/modules/class-spfw-module-hardening.php:1937
 #, php-format
 msgid "File integrity scan detected changes on %s:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1914
+#: includes/modules/class-spfw-module-hardening.php:1942
 msgid "NEW FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1925
+#: includes/modules/class-spfw-module-hardening.php:1953
 msgid "MODIFIED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1936
+#: includes/modules/class-spfw-module-hardening.php:1964
 msgid "REMOVED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1945
+#: includes/modules/class-spfw-module-hardening.php:1973
 msgid "Review these files immediately if the changes were not expected.\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:354
+#: includes/modules/class-spfw-module-hardening.php:373
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:368
+#: includes/modules/class-spfw-module-hardening.php:387
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:531
+#: includes/modules/class-spfw-module-hardening.php:550
 msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:602
+#: includes/modules/class-spfw-module-hardening.php:621
 msgid "Simple Performance: re-synced your root .htaccess to match your current hardening toggles."
 msgstr ""
 
