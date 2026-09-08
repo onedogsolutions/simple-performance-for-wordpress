@@ -51,6 +51,25 @@ const ENFORCEMENT_STYLES = {
 			'simple-performance-for-wordpress'
 		),
 	},
+	// Allow-mode canaries (whitelisted files) invert the verdict: reaching the
+	// file is the pass. They never appear as a card badge, only as a row pill.
+	allowed: {
+		label: __( 'Reachable', 'simple-performance-for-wordpress' ),
+		short: __( 'Reachable', 'simple-performance-for-wordpress' ),
+		glyph: '✓',
+		badge: 'bg-green-50 text-green-700 ring-green-600/20',
+		dot: 'bg-green-600',
+	},
+	whitelist_blocked: {
+		label: __(
+			'Whitelisted but blocked',
+			'simple-performance-for-wordpress'
+		),
+		short: __( 'Blocked', 'simple-performance-for-wordpress' ),
+		glyph: '✗',
+		badge: 'bg-red-50 text-red-700 ring-red-600/10',
+		dot: 'bg-red-600',
+	},
 	unknown: {
 		label: __(
 			'Present (enforcement unverified)',
@@ -333,6 +352,7 @@ export default function HardeningSettings( {
 	htaccessHonored,
 	enforcementTargets,
 	enforcementTime,
+	whitelistBlocked,
 	onVerifyHtaccess,
 	isVerifyingHtaccess,
 } ) {
@@ -492,11 +512,22 @@ export default function HardeningSettings( {
 							'simple-performance-for-wordpress'
 						) }
 						description={ __(
-							'Each canary should return its expected code. A 403 means the rule is enforced; a 200 (or 405 for xmlrpc.php) means the request got through and the rule is inert.',
+							'Each canary should return its expected code. For a deny rule, a 403 means the rule is enforced and a 200 (or 405 for xmlrpc.php) means the request got through and the rule is inert. Whitelisted files are probed in the opposite direction: they must return 200, and a 403 means hardening is blocking a file you allowed.',
 							'simple-performance-for-wordpress'
 						) }
 					>
 						<div className="w-full space-y-3">
+							{ whitelistBlocked && (
+								<div className="rounded-md bg-red-50 p-3 ring-1 ring-inset ring-red-600/20">
+									<p className="text-sm font-medium text-red-800">
+										{ __(
+											'Hardening is blocking a file you whitelisted. The server is refusing a path listed below with a 403, so the plugin that owns it is broken on the front end. Update to the current plugin version (which re-grants whitelisted files at the authorization layer as well as the rewrite layer) and verify again; if it persists, the file is being blocked by something other than this plugin — another security plugin, a CDN rule, or ModSecurity.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
+							) }
+
 							<div
 								className={ `rounded-md p-3 ring-1 ring-inset ${ honoredTone.box }` }
 							>
@@ -510,7 +541,7 @@ export default function HardeningSettings( {
 							<ul className="space-y-2">
 								{ enforcementTargets.map( ( row ) => (
 									<li
-										key={ row.target }
+										key={ `${ row.target }:${ row.label }` }
 										className="rounded-md p-2.5 ring-1 ring-inset ring-gray-200"
 									>
 										<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -560,6 +591,7 @@ export default function HardeningSettings( {
 			<PhpWhitelistCard
 				hardening={ hardening }
 				onChange={ onChange }
+				suggestions={ settings.php_whitelist_suggestions }
 				fileScanResults={ fileScanResults }
 				onScanFiles={ onScanFiles }
 				isScanning={ isScanning }

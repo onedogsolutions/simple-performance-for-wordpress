@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.10.0
+Stable tag: 2.11.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,13 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.11.0 =
+* Fixed: LiteSpeed Cache Guest Mode returned 403 with directory hardening on. The PHP execution whitelist only exempted a file at the rewrite layer, and mod_rewrite runs before authorization — so on Apache and LiteSpeed Enterprise the `<FilesMatch>` deny still refused the file, and the whitelist worked only on OpenLiteSpeed, which ignores `<FilesMatch>`. Whitelisted files are now re-granted with a `<Files>` section emitted after the deny block, where it takes precedence. Existing installs are reconciled automatically on upgrade.
+* Added: `plugins/litespeed-cache/guest.vary.php` to the whitelist pre-fill list, plus a warning on the Hardening tab when a plugin that serves PHP directly from wp-content is installed but not whitelisted, with a one-click add.
+* Fixed: The default Content-Security-Policy blocked LiteSpeed Cache's "Load JS Delayed". That feature re-executes inline scripts through blob URLs, and `blob:` is a scheme `https:` does not cover, so every delayed script was refused — taking jQuery with it and breaking the front end. `script-src` now allows `blob:`, and installs already using the policy builder have it added on upgrade.
+* Added: The .htaccess enforcement check now probes whitelisted files in the opposite direction and reports a distinct error when hardening is blocking a file you allowed. It previously only verified that deny rules deny, so a site 403-ing a whitelisted file reported as fully healthy.
+* Changed: Whitelist paths are restricted to characters that cannot alter the generated .htaccess directives.
 
 = 2.10.0 =
 * Added: OpenLiteSpeed-compatible mod_rewrite fallbacks for directory hardening. The root .htaccess block now includes RewriteRule denials for sensitive files (readme.html, license.txt, debug.log, .env, *.sql, *.bak, etc.) and xmlrpc.php, and the plugins/uploads deny-PHP .htaccess files now block PHP-family extensions via RewriteRule. Existing Apache <FilesMatch>/<Files> directives are preserved so Apache and older LiteSpeed installations continue to work.

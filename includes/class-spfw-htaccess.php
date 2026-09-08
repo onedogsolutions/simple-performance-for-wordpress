@@ -214,9 +214,21 @@ class SPFW_Htaccess {
 		if ( is_array( $whitelist ) ) {
 			foreach ( $whitelist as $path ) {
 				$path = (string) $path;
-				if ( 0 === strpos( $path, $dir_prefix ) ) {
-					$applicable[] = $path;
+
+				if ( 0 !== strpos( $path, $dir_prefix ) ) {
+					continue;
 				}
+
+				// The path is interpolated into .htaccess directives, so a
+				// quote or backslash in it would produce a syntactically
+				// invalid file and 500 the directory. The sanitizer rejects
+				// these on save; this guard also covers values stored before
+				// it did.
+				if ( ! preg_match( '#^[A-Za-z0-9._/-]+$#', $path ) ) {
+					continue;
+				}
+
+				$applicable[] = $path;
 			}
 		}
 
@@ -273,6 +285,42 @@ class SPFW_Htaccess {
 		$lines[] = "\t\tOrder allow,deny";
 		$lines[] = "\t\tDeny from all";
 		$lines[] = "\t" . '</FilesMatch>';
+		$lines[] = '</IfModule>';
+
+		// Re-grant the whitelisted files at the authz layer. The RewriteRule
+		// allow above is not enough on its own: mod_rewrite runs at URL-fixup
+		// time and `[L]` only ends the rewrite pass, so a file it let through
+		// is still refused by the <FilesMatch> deny when authorization runs.
+		// That is why the whitelist appeared to work only on OpenLiteSpeed,
+		// which ignores <FilesMatch> entirely.
+		//
+		// These sections MUST follow the deny block: Apache merges <Files> and
+		// <FilesMatch> in the order they appear, so the last matching section
+		// wins. <Files> matches a basename rather than a path, but the
+		// RewriteCond chain above still answers the same basename at any other
+		// path with [F,L], so the pair stays path-precise wherever mod_rewrite
+		// is active. <If> would express the path directly but requires
+		// `AllowOverride All` and 500s a vhost without it — the same reason
+		// this payload omits `Options -Indexes`.
+		$basenames = array_values( array_unique( array_map( 'basename', $applicable ) ) );
+
+		$lines[] = '# Allow the whitelisted files (must follow the deny block to override it).';
+
+		foreach ( $basenames as $basename ) {
+			$lines[] = '<Files "' . $basename . '">';
+			$lines[] = "\tRequire all granted";
+			$lines[] = '</Files>';
+		}
+
+		$lines[] = '<IfModule !mod_authz_core.c>';
+
+		foreach ( $basenames as $basename ) {
+			$lines[] = "\t" . '<Files "' . $basename . '">';
+			$lines[] = "\t\tOrder allow,deny";
+			$lines[] = "\t\tAllow from all";
+			$lines[] = "\t" . '</Files>';
+		}
+
 		$lines[] = '</IfModule>';
 		$lines[] = '# END Simple Performance for WordPress';
 

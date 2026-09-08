@@ -214,4 +214,39 @@ class Csp_Header_Emission_Test extends TestCase {
 			SPFW_Module_Hardening::get_emitted_policy_preview()
 		);
 	}
+
+	/**
+	 * script-src must allow blob:. LiteSpeed Cache's "Load JS Delayed"
+	 * re-executes inline scripts through URL.createObjectURL(new Blob(...)),
+	 * and blob: is a scheme of its own that the https: source does not cover —
+	 * without it every delayed script is refused and the page loses jQuery.
+	 */
+	public function test_default_policy_allows_blob_scripts() {
+		$directives = SPFW_Module_Hardening::default_csp_directives();
+
+		$this->assertContains( 'blob:', $directives['script-src'] );
+
+		// worker-src already carried blob: and must keep it.
+		$this->assertContains( 'blob:', $directives['worker-src'] );
+	}
+
+	/**
+	 * The builder is seeded from DEFAULT_CSP, so the two can never disagree
+	 * about blob: — a regression in either direction fails here.
+	 */
+	public function test_default_policy_string_and_directive_map_agree_on_blob() {
+		$this->assertStringContainsString(
+			'blob:',
+			SPFW_Module_Hardening::DEFAULT_CSP
+		);
+
+		$parsed = SPFW_Module_Hardening::parse_policy_to_directives(
+			SPFW_Module_Hardening::DEFAULT_CSP
+		);
+
+		$this->assertSame(
+			$parsed['script-src'],
+			SPFW_Module_Hardening::default_csp_directives()['script-src']
+		);
+	}
 }

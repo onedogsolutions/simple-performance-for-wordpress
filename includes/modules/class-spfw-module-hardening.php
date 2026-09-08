@@ -44,9 +44,18 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * base-uri 'self' (blocks <base> hijacking), frame-ancestors 'self'
 	 * (clickjacking). Used whenever the admin has not supplied a custom policy.
 	 *
+	 * `script-src` carries `blob:` because LiteSpeed Cache's "Load JS Delayed"
+	 * re-executes inline scripts through URL.createObjectURL(new Blob(...)).
+	 * `blob:` is its own scheme — the `https:` source does not cover it — so
+	 * without it every delayed script is refused and the page loses jQuery.
+	 * It costs little here: this policy already allows 'unsafe-inline' and
+	 * https:, so an attacker who could mint a blob URL already has script
+	 * execution. It matters only under csp_tighten_script_src, where
+	 * inject_script_hashes() drops bare schemes anyway.
+	 *
 	 * @var string
 	 */
-	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
+	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data: blob:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
 	 * Directives a browser ignores when the policy arrives in the report-only
@@ -139,7 +148,77 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			'deny'  => array( 403 ),
 			'allow' => array( 200, 405 ),
 		),
+		// Inverted: this canary is a file the admin explicitly whitelisted, so
+		// an allow code is the pass and a deny code is the failure. Its label
+		// is supplied per row (one row per whitelisted path).
+		'whitelist'       => array(
+			'label' => 'whitelisted PHP file',
+			'mode'  => 'allow',
+			'deny'  => array( 403 ),
+			'allow' => array( 200 ),
+		),
 	);
+
+	/**
+	 * PHP files that well-known plugins serve over HTTP from inside
+	 * wp-content, and that the deny-PHP hardening therefore breaks unless
+	 * they are whitelisted. Paths are relative to WP_CONTENT_DIR, matching
+	 * the php_whitelist format.
+	 *
+	 * Used to surface a warning when such a file is installed but not
+	 * whitelisted. Detection is by file existence rather than by an active-
+	 * plugin or option check, so it keeps working across the vendors' own
+	 * refactors and does not depend on their internal option names.
+	 *
+	 * @var array<string,string> Path => human label.
+	 */
+	const KNOWN_DIRECT_ACCESS_PHP = array(
+		'plugins/litespeed-cache/guest.vary.php' => 'LiteSpeed Cache — Guest Mode vary cookie',
+	);
+
+	/**
+	 * Known direct-access PHP files that are installed on this site but absent
+	 * from the whitelist, while the .htaccess that would block them is on.
+	 *
+	 * Reported, never auto-applied: a hardening whitelist that grows without
+	 * the admin seeing it is the wrong default, and the admin may legitimately
+	 * prefer to turn the feature off in the other plugin instead.
+	 *
+	 * @return array<int,array{path:string,label:string}>
+	 */
+	public static function whitelist_suggestions() {
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( empty( $h['plugins_htaccess'] ) && empty( $h['uploads_htaccess'] ) ) {
+			return array();
+		}
+
+		$whitelist   = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
+		$suggestions = array();
+
+		foreach ( self::KNOWN_DIRECT_ACCESS_PHP as $path => $label ) {
+			$toggle = 0 === strpos( $path, 'uploads/' ) ? 'uploads_htaccess' : 'plugins_htaccess';
+
+			if ( empty( $h[ $toggle ] ) ) {
+				continue;
+			}
+
+			if ( in_array( $path, $whitelist, true ) ) {
+				continue;
+			}
+
+			if ( ! file_exists( WP_CONTENT_DIR . '/' . $path ) ) {
+				continue;
+			}
+
+			$suggestions[] = array(
+				'path'  => $path,
+				'label' => $label,
+			);
+		}
+
+		return $suggestions;
+	}
 
 	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
@@ -595,6 +674,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$targets[] = $this->probe_canary( 'xmlrpc', home_url( '/xmlrpc.php' ) );
 		}
 
+		// Whitelisted files, probed in the opposite direction: these must be
+		// reachable. Without this the probe reports a fully healthy site while
+		// hardening 403s a file the admin explicitly allowed — the exact state
+		// a LiteSpeed Guest Mode install lands in. Capped because each probe is
+		// a loopback request with an 8s timeout.
+		foreach ( $this->whitelist_probe_targets( $h ) as $probe ) {
+			$targets[] = $this->probe_canary( 'whitelist', $probe['url'], $probe['path'] );
+		}
+
 		return self::shape_enforcement_result(
 			array(
 				'targets' => $targets,
@@ -614,14 +702,20 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @param string $target Canary key (an ENFORCEMENT_CANARIES key).
 	 * @param string $url    Absolute canary URL.
+	 * @param string $label  Optional per-row label, overriding the canary's.
+	 *                       Used by the whitelist rows, which share one key.
 	 * @return array{target:string,url:string,code:int} Raw row; code 0 on error.
 	 */
-	private function probe_canary( $target, $url ) {
+	private function probe_canary( $target, $url, $label = '' ) {
 		$row = array(
 			'target' => $target,
 			'url'    => $url,
 			'code'   => 0,
 		);
+
+		if ( '' !== $label ) {
+			$row['label'] = $label;
+		}
 
 		$probe_url = add_query_arg( 'spfw_nocache', (string) time(), $url );
 
@@ -648,6 +742,46 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * Whitelisted paths worth probing: those under a directory whose deny-PHP
+	 * rule is actually on, and whose file exists on disk (an absent file would
+	 * 404 and prove nothing). Capped at five to bound the probe's wall time.
+	 *
+	 * URLs are built with content_url() and disk paths with WP_CONTENT_DIR,
+	 * matching how SPFW_Htaccess builds the RewriteCond for the same entry.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return array<int,array{path:string,url:string}>
+	 */
+	private function whitelist_probe_targets( array $h ) {
+		$whitelist = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
+		$targets   = array();
+
+		foreach ( $whitelist as $path ) {
+			$path   = (string) $path;
+			$toggle = 0 === strpos( $path, 'uploads/' ) ? 'uploads_htaccess' : 'plugins_htaccess';
+
+			if ( empty( $h[ $toggle ] ) ) {
+				continue;
+			}
+
+			if ( ! file_exists( WP_CONTENT_DIR . '/' . $path ) ) {
+				continue;
+			}
+
+			$targets[] = array(
+				'path' => $path,
+				'url'  => content_url( '/' . $path ),
+			);
+
+			if ( count( $targets ) >= 5 ) {
+				break;
+			}
+		}
+
+		return $targets;
+	}
+
+	/**
 	 * Classify raw canary response codes into an honest enforcement verdict.
 	 *
 	 * Pure: no filesystem, WordPress, network, or translation access, so the
@@ -666,15 +800,18 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @param array $raw Raw probe output: 'targets' (rows of {target,url,code})
 	 *                   and 'checked'.
-	 * @return array Report: 'htaccess_honored' (yes|no|unknown), 'targets' (rows
-	 *               of {target,label,url,observed_code,expected,state}), and
+	 * @return array Report: 'htaccess_honored' (yes|no|unknown),
+	 *               'whitelist_blocked' (bool — a file the admin whitelisted is
+	 *               being refused), 'targets' (rows of
+	 *               {target,label,url,observed_code,expected,state}), and
 	 *               'checked'.
 	 */
 	public static function shape_enforcement_result( array $raw ) {
-		$raw_targets  = isset( $raw['targets'] ) && is_array( $raw['targets'] ) ? $raw['targets'] : array();
-		$targets      = array();
-		$any_enforced = false;
-		$any_bypassed = false;
+		$raw_targets   = isset( $raw['targets'] ) && is_array( $raw['targets'] ) ? $raw['targets'] : array();
+		$targets       = array();
+		$any_enforced  = false;
+		$any_bypassed  = false;
+		$any_wl_broken = false;
 
 		foreach ( $raw_targets as $row ) {
 			if ( ! is_array( $row ) || ! isset( $row['target'] ) ) {
@@ -693,23 +830,47 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$code  = isset( $row['code'] ) ? (int) $row['code'] : 0;
 			$deny  = isset( $canary['deny'] ) ? (array) $canary['deny'] : array( 403 );
 			$allow = isset( $canary['allow'] ) ? (array) $canary['allow'] : array( 200 );
+			$mode  = isset( $canary['mode'] ) ? (string) $canary['mode'] : 'deny';
 
-			if ( in_array( $code, $deny, true ) ) {
+			if ( 'allow' === $mode ) {
+				// An allow-mode canary is a file that must stay reachable, so
+				// the verdict inverts. It deliberately moves neither
+				// $any_enforced nor $any_bypassed: reaching a whitelisted file
+				// says nothing about whether the server honors .htaccess at
+				// all, since an inert one would serve it too.
+				if ( in_array( $code, $allow, true ) ) {
+					$state = 'allowed';
+				} elseif ( in_array( $code, $deny, true ) ) {
+					$state         = 'whitelist_blocked';
+					$any_wl_broken = true;
+				} else {
+					$state = 'unknown';
+				}
+
+				$expected = $allow;
+			} elseif ( in_array( $code, $deny, true ) ) {
 				$state        = 'enforced';
 				$any_enforced = true;
+				$expected     = $deny;
 			} elseif ( in_array( $code, $allow, true ) ) {
 				$state        = 'not_enforced';
 				$any_bypassed = true;
+				$expected     = $deny;
 			} else {
-				$state = 'unknown';
+				$state    = 'unknown';
+				$expected = $deny;
 			}
+
+			$label = isset( $row['label'] ) && '' !== $row['label']
+				? (string) $row['label']
+				: ( isset( $canary['label'] ) ? (string) $canary['label'] : $key );
 
 			$targets[] = array(
 				'target'        => $key,
-				'label'         => isset( $canary['label'] ) ? (string) $canary['label'] : $key,
+				'label'         => $label,
 				'url'           => isset( $row['url'] ) ? (string) $row['url'] : '',
 				'observed_code' => $code,
-				'expected'      => implode( '/', array_map( 'strval', $deny ) ),
+				'expected'      => implode( '/', array_map( 'strval', $expected ) ),
 				'state'         => $state,
 			);
 		}
@@ -723,9 +884,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return array(
-			'htaccess_honored' => $honored,
-			'targets'          => $targets,
-			'checked'          => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
+			'htaccess_honored'  => $honored,
+			'whitelist_blocked' => $any_wl_broken,
+			'targets'           => $targets,
+			'checked'           => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
 		);
 	}
 

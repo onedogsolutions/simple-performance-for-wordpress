@@ -656,4 +656,140 @@ class Htaccess_Enforcement_Test extends TestCase {
 			$payload
 		);
 	}
+
+	/**
+	 * The whitelist allow chain is not enough on its own: mod_rewrite runs
+	 * before authorization, so a file the RewriteRule let through is still
+	 * refused by the <FilesMatch> deny on every server that honors it. The
+	 * payload must therefore re-grant each whitelisted basename with a <Files>
+	 * section placed AFTER the deny block, since Apache merges <Files> and
+	 * <FilesMatch> in source order and the last matching section wins.
+	 *
+	 * This is the assertion whose absence let the LiteSpeed Guest Mode 403 ship
+	 * in 2.10.0 — the payload looked correct on OpenLiteSpeed only because OLS
+	 * ignores <FilesMatch> entirely.
+	 */
+	public function test_whitelist_payload_grants_authz_after_the_deny_block() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/litespeed-cache/guest.vary.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$deny_pos  = strpos( $payload, '<FilesMatch "\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$">' );
+		$grant_pos = strpos( $payload, '<Files "guest.vary.php">' );
+
+		$this->assertNotFalse( $deny_pos, 'FilesMatch deny block missing' );
+		$this->assertNotFalse( $grant_pos, 'whitelist <Files> grant missing' );
+		$this->assertLessThan(
+			$grant_pos,
+			$deny_pos,
+			'the <Files> grant must follow the <FilesMatch> deny or Apache keeps denying'
+		);
+		$this->assertStringContainsString( 'Require all granted', $payload );
+
+		// Pre-2.4 servers get the same exemption in the authz fallback block.
+		$this->assertStringContainsString( 'Allow from all', $payload );
+	}
+
+	/**
+	 * The blanket payload (no whitelist) grants nothing — the authz exemption
+	 * exists only to serve whitelist entries.
+	 */
+	public function test_blanket_payload_grants_no_authz_exemption() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'Require all granted', $payload );
+		$this->assertStringNotContainsString( 'Allow from all', $payload );
+	}
+
+	/**
+	 * A stored path carrying a character that could terminate a quoted
+	 * .htaccess argument is dropped rather than interpolated, so a value that
+	 * predates the sanitizer's charset check cannot produce a file that 500s
+	 * the directory.
+	 */
+	public function test_whitelist_payload_drops_paths_with_unsafe_characters() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/evil".php', 'plugins/good.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'evil', $payload );
+		$this->assertStringContainsString( '<Files "good.php">', $payload );
+	}
+
+	// ---------------------------------------------------------------------
+	// shape_enforcement_result(): allow-mode (whitelist) canaries.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * A whitelisted file that answers 200 is reachable — the pass condition for
+	 * an allow-mode canary. Its expected code is the allow code, not the deny
+	 * code, and the per-row label overrides the shared canary label.
+	 */
+	public function test_shape_marks_reachable_whitelist_file_as_allowed() {
+		$row          = $this->probe_row( 'whitelist', 200 );
+		$row['label'] = 'plugins/litespeed-cache/guest.vary.php';
+
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $row ) )
+		);
+
+		$this->assertSame( 'allowed', $shaped['targets'][0]['state'] );
+		$this->assertSame( '200', $shaped['targets'][0]['expected'] );
+		$this->assertSame(
+			'plugins/litespeed-cache/guest.vary.php',
+			$shaped['targets'][0]['label']
+		);
+		$this->assertFalse( $shaped['whitelist_blocked'] );
+	}
+
+	/**
+	 * A whitelisted file answering 403 is the failure this probe exists to
+	 * catch, and it raises the report-level whitelist_blocked flag.
+	 */
+	public function test_shape_marks_blocked_whitelist_file() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 403 ) ) )
+		);
+
+		$this->assertSame( 'whitelist_blocked', $shaped['targets'][0]['state'] );
+		$this->assertTrue( $shaped['whitelist_blocked'] );
+	}
+
+	/**
+	 * An allow-mode canary must not move the vhost-level htaccess_honored
+	 * verdict in either direction: a whitelisted file is reachable both when
+	 * the rules work as intended and when the server ignores .htaccess
+	 * entirely, so it proves nothing about enforcement.
+	 */
+	public function test_shape_whitelist_canary_does_not_move_the_headline() {
+		$reachable = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 200 ) ) )
+		);
+		$this->assertSame( 'unknown', $reachable['htaccess_honored'] );
+
+		$blocked = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 403 ) ) )
+		);
+		$this->assertSame( 'unknown', $blocked['htaccess_honored'] );
+
+		// A real deny canary alongside it still decides the headline.
+		$mixed = SPFW_Module_Hardening::shape_enforcement_result(
+			array(
+				'targets' => array(
+					$this->probe_row( 'whitelist', 200 ),
+					$this->probe_row( 'plugins', 403 ),
+				),
+			)
+		);
+		$this->assertSame( 'yes', $mixed['htaccess_honored'] );
+	}
 }

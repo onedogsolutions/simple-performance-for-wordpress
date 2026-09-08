@@ -9,6 +9,13 @@ import Toggle from './Toggle';
 // "Pre-fill common third-party origins" pattern.
 const COMMON_PLUGINS = [
 	{
+		// Guest Mode fetches this on every guest page view to set the vary
+		// cookie. Blocked, LiteSpeed serves the guest-optimized cache copy to
+		// everyone and the fetch retries on each page load.
+		label: 'LiteSpeed Cache (Guest Mode)',
+		path: 'plugins/litespeed-cache/guest.vary.php',
+	},
+	{
 		label: 'ShortPixel Image Optimizer',
 		path: 'plugins/shortpixel-ai/shortpixel-ai.php',
 	},
@@ -59,8 +66,12 @@ export default function PhpWhitelistCard( {
 	onScanFiles,
 	isScanning,
 	adminEmail,
+	suggestions,
 } ) {
 	const whitelist = hardening.php_whitelist || [];
+	const pending = ( suggestions || [] ).filter(
+		( s ) => ! whitelist.includes( s.path )
+	);
 	const [ inputPath, setInputPath ] = useState( '' );
 	const [ showPrefillConfirm, setShowPrefillConfirm ] = useState( false );
 	// The results list can be very long (a first scan reports every tracked
@@ -148,6 +159,48 @@ export default function PhpWhitelistCard( {
 				) }
 			>
 				<div className="w-full space-y-3">
+					{ pending.length > 0 && (
+						<div className="rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">
+							<p className="text-sm font-medium text-amber-800">
+								{ __(
+									'A plugin on this site serves PHP directly from wp-content, and hardening is blocking it.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+							<ul className="mt-2 space-y-2">
+								{ pending.map( ( s ) => (
+									<li
+										key={ s.path }
+										className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+									>
+										<span className="text-xs text-amber-800">
+											<code className="font-mono">
+												{ s.path }
+											</code>
+											{ ' — ' }
+											{ s.label }
+										</span>
+										<button
+											type="button"
+											onClick={ () =>
+												onChange( 'php_whitelist', [
+													...whitelist,
+													s.path,
+												] )
+											}
+											className="rounded-md bg-amber-600 px-2 py-1 text-xs font-semibold text-white shadow-sm hover:bg-amber-500"
+										>
+											{ __(
+												'Add to whitelist',
+												'simple-performance-for-wordpress'
+											) }
+										</button>
+									</li>
+								) ) }
+							</ul>
+						</div>
+					) }
+
 					{ whitelist.length > 0 && (
 						<div className="flex flex-wrap gap-2">
 							{ whitelist.map( ( path ) => (
@@ -196,7 +249,7 @@ export default function PhpWhitelistCard( {
 							<span className="flex items-center gap-x-2 text-sm">
 								<span className="text-gray-700">
 									{ __(
-										'Add common plugin paths (ShortPixel, Imagify, EWWW, UpdraftPlus)?',
+										'Add common plugin paths (LiteSpeed Cache, ShortPixel, Imagify, EWWW, UpdraftPlus)?',
 										'simple-performance-for-wordpress'
 									) }
 								</span>

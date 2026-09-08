@@ -251,6 +251,30 @@ class SPFW_Settings {
 			$stored = is_array( $stored ) ? $stored : array();
 		}
 
+		// Migration to 2.11.0: DEFAULT_CSP gained `blob:` in script-src for
+		// LiteSpeed's delayed-JS blob URLs. An install already in Builder mode
+		// has its own stored csp_directives, which the new default cannot reach
+		// — so append the source there too, or upgrading would leave the site's
+		// delayed scripts blocked with no indication why. Only touches a
+		// script-src that exists and is not 'none' (a deliberate lockdown).
+		if ( version_compare( $stored_ver, '2.11.0', '<' )
+			&& isset( $stored['hardening']['csp_directives']['script-src'] )
+			&& is_array( $stored['hardening']['csp_directives']['script-src'] ) ) {
+			$script_src = $stored['hardening']['csp_directives']['script-src'];
+
+			if ( ! in_array( 'blob:', $script_src, true )
+				&& ! in_array( "'none'", $script_src, true ) ) {
+				$updated = $stored;
+				$updated['hardening']['csp_directives']['script-src'][] = 'blob:';
+
+				$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+				update_option( self::OPTION_KEY, $clean );
+
+				$stored = get_option( self::OPTION_KEY, array() );
+				$stored = is_array( $stored ) ? $stored : array();
+			}
+		}
+
 		// Populate the static cache BEFORE the 1.14.0 migration fires.
 		// run_payload_migration() calls SPFW_Settings::group('hardening'),
 		// which re-enters get(). If the cache is still null at that point,
@@ -283,6 +307,14 @@ class SPFW_Settings {
 		// new rules without manual Restore. Runs after the cache is seeded for
 		// the same recursion-avoidance reason as the 2.7.0 migration.
 		if ( version_compare( $stored_ver, '2.10.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.11.0: the whitelist-aware deny-PHP payload gained
+		// <Files> authz exemptions, without which a whitelisted file was still
+		// 403'd by the <FilesMatch> deny on every server that honors it.
+		// Reconcile so authored files pick up the fix without a manual Restore.
+		if ( version_compare( $stored_ver, '2.11.0', '<' ) ) {
 			self::reconcile_htaccess_on_upgrade();
 		}
 
@@ -813,6 +845,14 @@ class SPFW_Settings {
 
 			// Must end with a PHP-executable extension that the .htaccess blocks.
 			if ( ! preg_match( '/\.(php[0-9]*|phtml|phps|phar|inc)$/i', $item ) ) {
+				continue;
+			}
+
+			// The path is interpolated into .htaccess directives (a RewriteCond
+			// pattern and a <Files "..."> section), so restrict it to characters
+			// that cannot terminate a quoted argument or otherwise change the
+			// meaning of the generated file.
+			if ( ! preg_match( '#^[A-Za-z0-9._/-]+$#', $item ) ) {
 				continue;
 			}
 
