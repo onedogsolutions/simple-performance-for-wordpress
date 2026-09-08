@@ -138,5 +138,10 @@ class SPFW_Plugin {
 
 		// Clear the scheduled database optimization cron event.
 		wp_clear_scheduled_hook( 'spfw_database_optimization' );
+
+		// Clear the file-monitor scan and the one-off CSP collection-window
+		// close, so neither fires against a deactivated plugin.
+		wp_clear_scheduled_hook( 'spfw_file_monitor_scan' );
+		wp_clear_scheduled_hook( 'spfw_csp_collection_expired' );
 	}
 }

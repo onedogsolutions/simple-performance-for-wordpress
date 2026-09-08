@@ -72,6 +72,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
 
 	/**
+	 * One-off cron hook that closes a lapsed violation-collection window.
+	 *
+	 * The window closing is not just a stored timestamp going stale: while it
+	 * was open, every cached page was stored WITH `report-uri` in its header,
+	 * and a full-page cache will keep serving those copies for the rest of its
+	 * TTL. Visitors' browsers then keep POSTing reports to an endpoint that has
+	 * closed and answers 403 — an uncacheable full WordPress bootstrap per
+	 * report, which is exactly the cost the time-boxed window exists to avoid.
+	 * So the deadline schedules a real event that zeroes the setting and purges
+	 * the cache, rather than the window merely expiring on paper.
+	 *
+	 * @var string
+	 */
+	const CSP_EXPIRE_CRON = 'spfw_csp_collection_expired';
+
+	/**
 	 * Transient key for the file-monitor rate-limit cooldown (one alert
 	 * email per hour maximum).
 	 *
@@ -220,6 +236,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
 			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
 		}
+
+		// Collection-window expiry. Registered unconditionally, not behind
+		// csp_enabled: a window can outlive the toggle that opened it (disable
+		// CSP mid-window and the deadline is still stored), and the cached
+		// pages advertising report-uri outlive both.
+		add_action( self::CSP_EXPIRE_CRON, array( $this, 'close_expired_collection' ) );
+		add_action( 'admin_init', array( $this, 'close_expired_collection' ) );
 
 		// File integrity monitor: schedule the twice-daily scan when enabled.
 		// The cron callback scans wp-content for PHP file changes and sends
@@ -879,6 +902,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$h = SPFW_Settings::group( 'hardening' );
 
 		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() ) {
+			// This response deliberately carries no CSP. Left cacheable, that
+			// headerless copy is stored by the page cache and then served to
+			// logged-out visitors for the rest of its TTL — so the policy
+			// silently stops applying to exactly the people it protects, and
+			// no violation is ever reported because no header was sent. Mark
+			// the response uncacheable so the omission cannot outlive this
+			// request.
+			self::prevent_page_caching( 'CSP header omitted for a logged-in user' );
+
 			return;
 		}
 
@@ -994,6 +1026,63 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return $policy;
+	}
+
+	/**
+	 * Ask every full-page cache we know of not to store this response.
+	 *
+	 * `DONOTCACHEPAGE` is the de-facto constant honored by LiteSpeed Cache,
+	 * W3 Total Cache, WP Rocket and WP Super Cache; LiteSpeed also has its own
+	 * action, which is the one that works when the constant is checked too
+	 * late. Both are cheap and neither errors when the cache is absent.
+	 *
+	 * Note what this does NOT fix: a cache entry generated for a logged-out
+	 * visitor (and so carrying the header) being served to a logged-in user by
+	 * a CDN that does not vary on the login cookie. Nothing in PHP can prevent
+	 * that, because PHP never runs for a cache hit. The exclusion is therefore
+	 * best-effort in that direction and exact in this one — which is the
+	 * direction that matters, since it is the one where a visitor loses the
+	 * policy rather than merely receiving it unexpectedly.
+	 *
+	 * @param string $reason Human-readable reason, surfaced in LiteSpeed's log.
+	 */
+	private static function prevent_page_caching( $reason ) {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Third-party de-facto constant; the name is the contract other cache plugins read.
+			define( 'DONOTCACHEPAGE', true );
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- LiteSpeed Cache's own hook; a prefixed name would not reach it.
+		do_action( 'litespeed_control_set_nocache', 'SPFW: ' . $reason );
+	}
+
+	/**
+	 * Close a violation-collection window whose deadline has passed, and purge
+	 * the page cache so no stored copy keeps advertising `report-uri`.
+	 *
+	 * Runs from its own one-off cron event and, as a catch-up for installs
+	 * where WP-Cron is unreliable, on `admin_init`. Both paths are a single
+	 * read of the already-cached settings array when there is nothing to do.
+	 */
+	public function close_expired_collection() {
+		$h     = SPFW_Settings::group( 'hardening' );
+		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+
+		// Nothing scheduled, or the window is genuinely still open.
+		if ( $until <= 0 || $until > time() ) {
+			return;
+		}
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_collect_until' => 0,
+				),
+			)
+		);
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- LiteSpeed Cache's own hook; a prefixed name would not reach it.
+		do_action( 'litespeed_purge_all' );
 	}
 
 	/**

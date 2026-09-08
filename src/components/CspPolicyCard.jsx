@@ -253,6 +253,10 @@ export default function CspPolicyCard( {
 	const enforcingNow = ! /-Report-Only$/i.test( emittedHeaderName );
 	const savedReportOnly = ! enforcingNow;
 
+	const isCustom = 'custom' === hardening.csp_mode;
+	const directives = hardening.csp_directives || {};
+	const collecting = !! cspReportStats.collecting;
+
 	// Providers whose frames or scripts are already allowed but whose
 	// connect-src origins are not. Nothing will report these until a customer
 	// reaches the payment step, so enforcing on a clean violation log is not
@@ -262,9 +266,6 @@ export default function CspPolicyCard( {
 	// Mirrors SPFW_Settings::CSP_MAX_TOKENS, read from the server so the two
 	// cannot drift. Exceeding it used to truncate silently on save.
 	const maxTokens = settings.csp_max_tokens || 30;
-	const isCustom = 'custom' === hardening.csp_mode;
-	const directives = hardening.csp_directives || {};
-	const collecting = !! cspReportStats.collecting;
 
 	// Raw text of each "additional hosts" field, kept locally so a trailing
 	// space (needed to type the next host) is not stripped on every keystroke
@@ -711,7 +712,7 @@ export default function CspPolicyCard( {
 							'simple-performance-for-wordpress'
 						) }
 						description={ __(
-							'Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Note: violations are therefore only reported by logged-out visitors.',
+							'Skips the header for logged-in users. Recommended: the block editor, customizer, and admin bar rely on inline scripts a strict policy would block. Violations are therefore only reported by logged-out visitors. Front-end pages viewed while logged in are also marked uncacheable while this is on, so a copy without the header can never be cached and then served to logged-out visitors.',
 							'simple-performance-for-wordpress'
 						) }
 					>

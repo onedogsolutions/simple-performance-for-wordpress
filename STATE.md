@@ -399,6 +399,68 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
+- 2026-09-08 (CSP cache coherence + a shipped render crash, → 2.8.0, same
+  branch): the last two Part E items, plus a regression this session
+  introduced and shipped.
+  **The regression, first, because it matters most:** the connect-src commit
+  placed `const gaps = connectSrcGaps( directives )` ABOVE `const directives =
+  hardening.csp_directives || {}` in `CspPolicyCard.jsx`. Webpack compiles a
+  temporal-dead-zone reference without complaint; it throws only at render, so
+  `npm run build` succeeding proved nothing. The Hardening tab raised
+  `ReferenceError: Cannot access 'directives' before initialization` and did
+  not render. That went out in a ZIP and was merged to `main`. Fixed by
+  reordering, and — since a green build is evidently not evidence the admin
+  screen loads — `src/components/test/renders.test.js` now mounts each
+  component. Verified the test actually catches it by running the suite against
+  the shipped file: all five CspPolicyCard cases fail with that exact error and
+  pass on the fix. **Lesson for future sessions: a webpack build is a syntax
+  check, not a smoke test. Run `npm run test:js`.**
+  Making that possible needed `jest.config.js`, mapping `@wordpress/element` to
+  `react` (the former is a webpack external, not an installed package; the
+  latter is a thin re-export and IS installed). `react`/`react-dom` were
+  promoted from transitive to explicit devDependencies, since the test imports
+  them directly and `import/no-extraneous-dependencies` is right to object.
+  **Item 1 — `csp_exclude_logged_in` vs page caching.** The exclusion was
+  decided at generation time and then cached with the response. Two directions,
+  only one of which PHP can fix. The fixable one is the one that matters: a
+  page generated for a logged-in user carries NO header, and if the cache
+  stores it, that headerless copy is served to logged-out visitors for the rest
+  of the TTL — the policy silently stops applying to exactly the people it
+  protects, and nothing is reported because no header was sent. Such responses
+  are now marked uncacheable (`DONOTCACHEPAGE` plus LiteSpeed's
+  `litespeed_control_set_nocache`). The unfixable direction — a logged-out
+  entry served to a logged-in user by a CDN not varying on the login cookie —
+  cannot be addressed from PHP, because PHP never runs on a cache hit; that is
+  stated in the method docblock and in the toggle's UI copy rather than
+  pretended away. Cost: with logged-in page caching enabled, front-end pages
+  are uncached for logged-in users while this toggle is on. Correctness over
+  hit rate for a small population, and the copy says so.
+  **Item 2 — window expiry.** `csp_collect_until` lapsing was previously just a
+  timestamp going stale, so pages cached while it was open kept advertising
+  `report-uri` and browsers kept POSTing to an endpoint answering 403 — the
+  per-report uncacheable bootstrap the time-boxed window exists to prevent.
+  `set_csp_collection()` now schedules `CSP_EXPIRE_CRON` for the deadline plus a
+  minute; the handler zeroes the setting and purges. Registered unconditionally
+  rather than behind `csp_enabled`, because a window outlives the toggle that
+  opened it, and backed by an `admin_init` catch-up for installs where WP-Cron
+  is unreliable (a single read of already-cached settings when idle).
+  `deactivate()` clears it, along with the file-monitor scan, which had been
+  left scheduled.
+  **Deviations:** (i) `prevent_page_caching()` is not unit-tested — it defines
+  a constant, so a second call in the same process is a no-op and the test
+  would be order-dependent. Covered by reading, not by assertion. (ii) The
+  three new third-party names (`DONOTCACHEPAGE`,
+  `litespeed_control_set_nocache`, `litespeed_purge_all`) take `phpcs:ignore`
+  with reasons, keeping the project total at its baseline. Note the
+  inconsistency: pre-existing `litespeed_purge_all` calls in
+  `class-spfw-rest-settings.php` and `class-spfw-module-fonts.php` are NOT
+  ignored and sit inside the baseline count.
+  **Verified:** 82 PHPUnit tests / 246 assertions (4 new); 26 JS tests across 3
+  suites (6 new render smoke tests); phpcs unchanged at 97E/161W;
+  CspPolicyCard.jsx lint total unchanged at 68 with zero errors on added lines;
+  lint:css clean; build succeeds; `.pot` unchanged at 510 msgids, one string
+  reworded.
+
 - 2026-09-08 (connect-src gaps + silent token truncation, → 2.8.0, same
   branch): closing the Part E item flagged during the CSP work — `connect-src`
   is an explicit allowlist while `frame-src` carries the payment origins, so
