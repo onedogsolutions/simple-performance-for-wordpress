@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
+import {
+	connectSrcGaps,
+	addOrigins,
+	THIRD_PARTY_BUNDLES,
+} from '../lib/csp-bundles';
+
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
@@ -246,6 +252,16 @@ export default function CspPolicyCard( {
 		settings.csp_emitted_header || 'Content-Security-Policy';
 	const enforcingNow = ! /-Report-Only$/i.test( emittedHeaderName );
 	const savedReportOnly = ! enforcingNow;
+
+	// Providers whose frames or scripts are already allowed but whose
+	// connect-src origins are not. Nothing will report these until a customer
+	// reaches the payment step, so enforcing on a clean violation log is not
+	// evidence that checkout survives it.
+	const gaps = connectSrcGaps( directives );
+
+	// Mirrors SPFW_Settings::CSP_MAX_TOKENS, read from the server so the two
+	// cannot drift. Exceeding it used to truncate silently on save.
+	const maxTokens = settings.csp_max_tokens || 30;
 	const isCustom = 'custom' === hardening.csp_mode;
 	const directives = hardening.csp_directives || {};
 	const collecting = !! cspReportStats.collecting;
@@ -271,6 +287,9 @@ export default function CspPolicyCard( {
 
 	// Trusted-tracker pre-fill confirmation modal.
 	const [ showTrustedConfirm, setShowTrustedConfirm ] = useState( false );
+
+	// Payment-provider pre-fill confirmation modal.
+	const [ showPaymentConfirm, setShowPaymentConfirm ] = useState( false );
 
 	// Bulk-allow confirmation state: null | 'all' | directive-name.
 	const [ bulkConfirm, setBulkConfirm ] = useState( null );
@@ -408,6 +427,46 @@ export default function CspPolicyCard( {
 			const merged = [ ...new Set( [ ...current, ...origins ] ) ];
 			next[ directive ] = merged;
 		} );
+		setHostText( {} );
+		onChange( 'csp_directives', next );
+	};
+
+	// Close one provider's connect-src gap.
+	const fixGap = ( missing ) => {
+		clearHostText( 'connect-src' );
+		onChange(
+			'csp_directives',
+			addOrigins( directives, 'connect-src', missing )
+		);
+	};
+
+	const fixAllGaps = () => {
+		clearHostText( 'connect-src' );
+		onChange(
+			'csp_directives',
+			gaps.reduce(
+				( acc, gap ) => addOrigins( acc, 'connect-src', gap.missing ),
+				directives
+			)
+		);
+	};
+
+	// Add every origin a payment provider needs, across all its directives.
+	const applyPaymentOrigins = () => {
+		setShowPaymentConfirm( false );
+
+		const next = THIRD_PARTY_BUNDLES.reduce( ( acc, bundle ) => {
+			return Object.keys( bundle.directives ).reduce(
+				( inner, directive ) =>
+					addOrigins(
+						inner,
+						directive,
+						bundle.directives[ directive ]
+					),
+				acc
+			);
+		}, directives );
+
 		setHostText( {} );
 		onChange( 'csp_directives', next );
 	};
@@ -554,6 +613,97 @@ export default function CspPolicyCard( {
 							}
 						/>
 					</SettingsRow>
+
+					{ gaps.length > 0 && (
+						<div
+							className={ `rounded-md p-4 ring-1 ring-inset ${
+								reportOnly
+									? 'bg-amber-50 ring-amber-200'
+									: 'bg-red-50 ring-red-200'
+							}` }
+						>
+							<h4
+								className={ `text-sm font-semibold ${
+									reportOnly
+										? 'text-amber-900'
+										: 'text-red-900'
+								}` }
+							>
+								{ reportOnly
+									? __(
+											'Not ready to enforce — payment connections are missing',
+											'simple-performance-for-wordpress'
+									  )
+									: __(
+											'Enforcing with missing payment connections',
+											'simple-performance-for-wordpress'
+									  ) }
+							</h4>
+							<p
+								className={ `mt-1 text-sm ${
+									reportOnly
+										? 'text-amber-800'
+										: 'text-red-800'
+								}` }
+							>
+								{ __(
+									'This policy already allows these providers to load, so the site uses them — but connect-src is missing origins their checkout scripts call. Nothing reports this until a customer reaches the payment step, so an empty violation list above is not evidence that checkout survives enforcing.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+
+							<ul className="mt-3 space-y-2">
+								{ gaps.map( ( gap ) => (
+									<li
+										key={ gap.bundle.id }
+										className="flex flex-wrap items-start justify-between gap-2"
+									>
+										<span className="text-sm text-gray-800">
+											<span className="font-semibold">
+												{ gap.bundle.label }
+											</span>
+											{ ': ' }
+											<span className="font-mono text-xs">
+												{ gap.missing.join( ' ' ) }
+											</span>
+										</span>
+										<button
+											type="button"
+											onClick={ () =>
+												fixGap( gap.missing )
+											}
+											className="shrink-0 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+										>
+											{ __(
+												'Add to connect-src',
+												'simple-performance-for-wordpress'
+											) }
+										</button>
+									</li>
+								) ) }
+							</ul>
+
+							{ gaps.length > 1 && (
+								<button
+									type="button"
+									onClick={ fixAllGaps }
+									className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+								>
+									{ __(
+										'Add all missing connect-src origins',
+										'simple-performance-for-wordpress'
+									) }
+								</button>
+							) }
+
+							<p className="mt-3 text-xs text-gray-600">
+								{ __(
+									'These lists come from each provider’s published CSP guidance and are a starting point, not a guarantee — integrations differ and providers add hosts. Confirm with a real test purchase before enforcing.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						</div>
+					) }
 
 					<SettingsRow
 						title={ __(
@@ -735,6 +885,53 @@ export default function CspPolicyCard( {
 											) }
 										</button>
 									) }
+									{ showPaymentConfirm ? (
+										<span className="flex items-center gap-x-2 text-sm">
+											<span className="text-gray-700">
+												{ __(
+													'Add Stripe & PayPal origins?',
+													'simple-performance-for-wordpress'
+												) }
+											</span>
+											<button
+												type="button"
+												onClick={ applyPaymentOrigins }
+												className="font-medium text-indigo-600 hover:text-indigo-500"
+											>
+												{ __(
+													'Confirm',
+													'simple-performance-for-wordpress'
+												) }
+											</button>
+											<button
+												type="button"
+												onClick={ () =>
+													setShowPaymentConfirm(
+														false
+													)
+												}
+												className="font-medium text-gray-500 hover:text-gray-700"
+											>
+												{ __(
+													'Cancel',
+													'simple-performance-for-wordpress'
+												) }
+											</button>
+										</span>
+									) : (
+										<button
+											type="button"
+											onClick={ () =>
+												setShowPaymentConfirm( true )
+											}
+											className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+										>
+											{ __(
+												'Pre-fill payment provider origins',
+												'simple-performance-for-wordpress'
+											) }
+										</button>
+									) }
 									<button
 										type="button"
 										onClick={ loadRecommended }
@@ -805,6 +1002,20 @@ export default function CspPolicyCard( {
 											) }
 											className="mt-2 block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 text-xs font-mono"
 										/>
+
+										{ ( directives[ directive.name ] || [] )
+											.length >= maxTokens && (
+											<p className="mt-1 text-xs font-medium text-red-700">
+												{ sprintf(
+													/* translators: %d: maximum number of sources per directive. */
+													__(
+														'At the %d-source limit for this directive — anything added beyond it is dropped when you save. Consolidate hosts with a wildcard (https://*.example.com) to make room.',
+														'simple-performance-for-wordpress'
+													),
+													maxTokens
+												) }
+											</p>
+										) }
 
 										{ reports.length > 0 && (
 											<div className="mt-2 rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">

@@ -116,6 +116,86 @@ class Csp_Header_Emission_Test extends TestCase {
 	}
 
 	/**
+	 * A commerce policy's connect-src must survive a save intact.
+	 *
+	 * The cap used to be 15, which an ordinary WooCommerce install running
+	 * Analytics, Tag Manager and Clarity reaches on its own — so the payment
+	 * origins added afterwards were silently dropped and checkout broke on
+	 * enforce with nothing in the UI to explain it.
+	 */
+	public function test_connect_src_survives_a_realistic_commerce_policy() {
+		$origins = array( "'self'" );
+
+		for ( $i = 0; $i < 20; $i++ ) {
+			$origins[] = 'https://host' . $i . '.example.com';
+		}
+
+		$origins[] = 'https://api.stripe.com';
+		$origins[] = 'https://*.paypal.com';
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_directives' => array( 'connect-src' => $origins ),
+				),
+			)
+		);
+
+		$stored = SPFW_Settings::value( 'hardening', 'csp_directives' );
+
+		$this->assertContains( 'https://api.stripe.com', $stored['connect-src'] );
+		$this->assertContains( 'https://*.paypal.com', $stored['connect-src'] );
+		$this->assertCount( 23, $stored['connect-src'] );
+	}
+
+	/**
+	 * The cap still exists — it is a bound, not a suggestion.
+	 */
+	public function test_token_cap_is_still_enforced() {
+		$origins = array();
+
+		for ( $i = 0; $i < 60; $i++ ) {
+			$origins[] = 'https://host' . $i . '.example.com';
+		}
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_directives' => array( 'connect-src' => $origins ),
+				),
+			)
+		);
+
+		$stored = SPFW_Settings::value( 'hardening', 'csp_directives' );
+
+		$this->assertCount( SPFW_Settings::CSP_MAX_TOKENS, $stored['connect-src'] );
+	}
+
+	/**
+	 * Wildcard host sources survive sanitization — the vendors' own guidance
+	 * (PayPal in particular) is written in terms of them, and they are how a
+	 * policy stays under the token cap.
+	 */
+	public function test_wildcard_origins_are_preserved() {
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_directives' => array(
+						'connect-src' => array( 'https://*.paypal.com', 'https://*.stripe.com' ),
+					),
+				),
+			)
+		);
+
+		$stored = SPFW_Settings::value( 'hardening', 'csp_directives' );
+
+		$this->assertSame(
+			array( 'https://*.paypal.com', 'https://*.stripe.com' ),
+			$stored['connect-src']
+		);
+	}
+
+	/**
 	 * Enforcing mode keeps them — that is where they take effect.
 	 */
 	public function test_preview_keeps_ignored_directives_when_enforcing() {

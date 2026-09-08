@@ -399,6 +399,68 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
+- 2026-09-08 (connect-src gaps + silent token truncation, → 2.8.0, same
+  branch): closing the Part E item flagged during the CSP work — `connect-src`
+  is an explicit allowlist while `frame-src` carries the payment origins, so
+  enforcing would break checkout.
+  **The blocker found first:** `sanitize_csp_directives()` capped each directive
+  at **15** tokens and truncated silently. The reporting site's live
+  `connect-src` was at exactly 15 (`'self'` + 14 tracker origins), so any
+  payment origin added to it would have been dropped on save and the "fix"
+  would have done nothing, invisibly. Raised to `CSP_MAX_TOKENS = 30` (a named
+  constant, no longer a magic number), and the builder now warns when a
+  directive reaches the cap. Wildcard host sources already survived
+  sanitization (`^(https?://)?(\*\.)?...`), which matters because the vendors'
+  own guidance is written in wildcards and they are how a policy stays under
+  the cap — pinned by a test so a future sanitizer tightening cannot silently
+  break the vendor lists.
+  **Decisions:** (1) The gap is detected structurally rather than waited for.
+  The Allow flow writes a reported origin into the directive that reported it,
+  which is correct but incomplete for an SDK that loads a frame first and calls
+  its API only at the payment step — that second violation may never be
+  reported on a site nobody test-buys from, so a clean violation log reads as
+  "safe to enforce" when it is not. `connectSrcGaps()` checks the policy
+  directly: if any of a provider's origins is already present anywhere (proof
+  the site uses it) and its connect-src origins are not, the card says so, in
+  amber while report-only and red while enforcing, with a one-click fix.
+  (2) Provider lists live in `src/lib/csp-bundles.js`, pure and unit-tested,
+  and are labelled in the UI as a starting point rather than a guarantee —
+  integrations differ (PayPal Fastlane pulls in Braintree, Stripe address
+  autocomplete pulls in Google Maps) and providers add hosts. The violation log
+  stays authoritative. (3) Nothing is written to the stored policy without an
+  explicit click: the gap fix and the new "Pre-fill payment provider origins"
+  button are both admin actions, the latter behind a confirm like the existing
+  tracker pre-fill.
+  **Sourcing caveat:** `docs.stripe.com` is blocked by this environment's
+  egress proxy, so the Stripe origins come from vendor guidance surfaced via
+  web search rather than fetched from the docs directly; PayPal's wildcard
+  recommendation was confirmed from its developer docs. Stripe's documented set
+  is `js.stripe.com`/`*.js.stripe.com`/`hooks.stripe.com` (script/frame) and
+  `api.stripe.com` (connect); `https://*.stripe.com` was added to connect-src
+  to cover the telemetry hosts (`q.`, `errors.`) that appear in practice, and
+  `m.stripe.network` for fraud detection, which no wildcard on `stripe.com`
+  covers. Over-allowing a vendor's own origins is the safe direction of error
+  here; under-allowing is what breaks checkout. **Worth re-verifying against
+  Stripe's docs from an unblocked network before relying on it.**
+  **Deviations:** (i) The plan said to extend the Allow action to offer
+  connect-src alongside the reporting directive. The standalone gap check
+  supersedes that and is strictly better — it fires whether or not a violation
+  was ever reported, which is the whole failure mode. Allow is unchanged.
+  (ii) `wp-scripts lint-js --fix <file>` ignores the path argument and
+  reformats the default glob; it silently rewrote 8 unrelated component files
+  and was reverted. **Do not use `--fix` in this repo** while the repo-wide
+  prettier baseline is red — hand-format instead, or it buries the diff and
+  rewrites the baseline CI runs `continue-on-error` against.
+  **Still deferred:** `csp_exclude_logged_in` vs page caching, and purging when
+  `csp_collect_until` expires on its own.
+  **Verified:** 78 PHPUnit tests / 242 assertions (3 new); 20 JS tests across 2
+  suites (12 new); phpcs full-project unchanged at 97E/161W; CspPolicyCard.jsx
+  lint total unchanged at 68 with zero errors on added lines; new lib files
+  lint clean; build succeeds; `.pot` 504 → 510, the 9 added strings and nothing
+  else. Noted in passing (pre-existing, not fixed): `tools/make-pot.php` does
+  not decode `\uXXXX` escapes, so the existing "visitors\u2019 browsers" msgid
+  ships mangled; new strings use literal characters to avoid joining it.
+
 - 2026-09-08 (unsaved-edit clobber on side-effect endpoints, → 2.8.0, same
   branch): follow-up to the dirty-tracking work above, fixing the pre-existing
   bug that work exposed. Seven endpoints persist something of their own and
