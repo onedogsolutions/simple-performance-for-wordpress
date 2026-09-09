@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.12.1
+Stable tag: 2.12.3
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.12.3 =
+* Fixed: "Disable embeds" deregistered the `wp-embed` script instead of dequeuing it, so any enqueued script declaring it as a dependency was silently dropped along with it. Same defect as the dashicons fix in 2.12.2, with a much smaller blast radius — few scripts depend on `wp-embed` and nothing was reported broken by it — but the script is now dequeued, which stops it being printed without taking anything else down.
+
+= 2.12.2 =
+* Fixed: Logged-out visitors lost any stylesheet that depends on dashicons. "Disable dashicons" deregistered the handle instead of dequeuing it, and WordPress silently skips every enqueued stylesheet whose dependency is missing — so the saving took unrelated CSS with it. Because the removal only applied to logged-out visitors, the site rendered correctly for the logged-in admin looking at it and broken for every customer. On a WooCommerce product page it stripped the add-on and variation-swatch CSS, leaving bare unstyled selects that could not be completed, so no order could be placed. The stylesheet is now dequeued: it is still not printed when nothing needs it, and it is printed when something enqueued genuinely depends on it.
 
 = 2.12.1 =
 * Fixed: The uploads directory reported "Present (enforcement unverified)" on most sites. The check only ran when `wp-content/uploads/index.php` happened to exist, and WordPress does not reliably create it — so the one directory where a malicious script is most likely to land was never actually verified. The check now requests a path that should not exist: a deny rule fires on the URL before any file-existence check, so 403 proves the rule is working and 404 proves it is not, with nothing needed on disk.

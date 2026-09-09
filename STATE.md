@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.12.1
-- **Last updated:** 2026-09-08
-- **Overall status:** ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Plugin version target:** 2.12.3
+- **Last updated:** 2026-09-09
+- **Overall status:** ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -132,13 +132,45 @@ the authoritative record.)
 | 11 | Option Cleaner & Ghost Capability Cleaner | ✅ Done | (this commit) |
 | 12 | Database Cleanup & Optimization Module | ✅ Done | (this commit) |
 | 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | 7615267 |
-| 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | (this commit) |
+| 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
+| 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
+| 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.12.0 (OpenLiteSpeed restart cost) is implemented and the build is clean.**
+**2.12.3 closes the `wp-embed` follow-up** (Step 16) — the same
+deregister-a-shared-handle defect, fixed the same way. Not symptom-driven:
+nothing was reported broken by it, and its unconditional removal could never
+have caused the logged-out-only failure below.
+
+**2.12.2 (logged-out dashicons dependency loss) is implemented and validated on
+real hardware (2026-09-09, maddogproducts.com, OpenLiteSpeed 1.9.1)** — after a
+graceful OLS restart and a full cache purge, anonymous visitors get the styled
+add-on fields and can add to cart. Field report that started it: with the plugin active, anonymous visitors got a
+WooCommerce product page whose add-on fields rendered as bare unstyled selects
+— including the `<select>` the swatch UI is supposed to replace — and could not
+complete the required fields, so no order could be placed. Logged in, the same
+page rendered correctly. Root cause and fix are in the dated log entry below.
+
+Worth watching after this ships, because they are the other two behaviors in
+the plugin that apply to logged-out visitors only and neither is exercised by
+the report: `restapi.require_auth` (off by default, and `wc/store` + `wc/v3` are
+in the default whitelist, so guest checkout survives it as shipped — but an
+admin who edits that whitelist can break the Store API for guests with no
+warning), and `hardening.csp_exclude_logged_in` (on by default, so an enforcing
+CSP is applied to customers and never to the admin testing it).
+
+Also unchanged and unrelated to this fix, but noted while reading the hardening
+paths: `SPFW_Plugin::deactivate()` removes the plugins/ and uploads/ .htaccess
+files but not the root `.htaccess` marker block, so root hardening rules outlive
+a deactivation. Not touched here — it is a separate decision about what
+deactivation should mean — but it means "deactivate the plugin" is not a clean
+A/B test of the root rules.
+
+### Prior release context (2.12.0/2.11.0, retained)
+
 2.11.0 is merged to `main` (PR #5, merge commit `1a60c6e`).
 
 Step 14 answers the follow-up question from the field report: the 2.11.0 fix was
@@ -412,6 +444,74 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-08 (logged-out visitors lost dependent stylesheets, → 2.12.2, branch
+  `claude/funny-lamport-589dr7`): reported as "the file hardening breaks
+  variations and checkout for logged-out users", with paired screenshots of the
+  same product page in incognito and logged in. The hardening `.htaccess` files
+  were not involved. The difference between the two screenshots is purely CSS:
+  incognito rendered browser-default-width `<select>` controls and left the Font
+  select visible next to the swatch images that are supposed to replace it, so a
+  stylesheet was missing for anonymous visitors and present for the admin.
+  **Root cause:** `SPFW_Module_Core::maybe_deregister_dashicons()` called
+  `wp_deregister_style( 'dashicons' )`, gated on `! is_user_logged_in()`.
+  Deregistering removes the handle from the registry, and
+  `WP_Dependencies::all_deps()` then drops every enqueued item whose deps are
+  not all registered — "item requires dependencies that don't exist" — silently,
+  with no notice and no console error, taking anything that depends on those
+  items with it. So the toggle's ~28 KB saving also removed whichever add-on /
+  variation-swatch stylesheet declared `dashicons` as a dependency. Required
+  add-on fields could not be completed, which is why the report reached us as a
+  checkout failure rather than a styling one.
+  **Why it was hard to see:** `disable_dashicons` defaults to **on**, and the
+  removal applies only to logged-out visitors — so the site renders correctly
+  for the admin looking at it and broken for every customer. It is also the
+  ONLY code path in the plugin that removes a front-end asset for logged-out
+  visitors and not for logged-in ones (`grep is_user_logged_in` over
+  `includes/`: this, the CSP exclusion, and the REST auth gate), which is what
+  made the attribution decisive rather than a guess.
+  **Fix:** `wp_dequeue_style( 'dashicons' )`. It takes the same saving —
+  nothing needs it, nothing prints it — and when a queued stylesheet does
+  declare it as a dependency WordPress resolves and prints it, which is the
+  correct outcome because that dependent needs it. The method is renamed
+  `maybe_dequeue_dashicons()`; the old name is kept as a delegating alias so a
+  site that unhooked it by name is not silently left on a dead callback.
+  **Decisions:** (1) Dequeue rather than "deregister only when nothing depends
+  on it": a dependency added after our priority-100 hook would defeat the
+  scan, and dequeue gets the same answer with no scan. (2) The logged-out gate
+  is kept — `wp_dequeue_style()` would strip the admin bar's icons for
+  logged-in users, since the bar enqueues the handle directly. (3) The test
+  bootstrap grew recording stubs for `add_action`, `wp_dequeue_style`,
+  `wp_deregister_style` and `is_user_logged_in`, plus `remove_action` /
+  `remove_filter` / `is_admin` no-ops so `SPFW_Module_Core::register()` can be
+  called under test at all; `add_action` was previously an empty function, so
+  no existing test depended on its return.
+  **Not fixed here (same footgun, different blast radius):**
+  `deregister_embed_script()` calls `wp_deregister_script( 'wp-embed' )` on
+  `wp_footer` priority 1, before footer scripts print, so a footer script
+  declaring `wp-embed` as a dependency would be dropped the same way. Left
+  alone because it applies to logged-in and logged-out visitors alike and so
+  cannot be the reported bug, and because almost nothing depends on `wp-embed`
+  — but it is the same defect and should get the same treatment. **Done in
+  Step 16 (2.12.3), at the user's request once 2.12.2 was field-verified.**
+  **Verified in the field (2026-09-09):** confirmed fixed on the reporting site
+  after a graceful OpenLiteSpeed restart and a full cache purge.
+  **One false lead worth recording, because it cost a round trip and will
+  recur.** Between installing the fix and the restart/purge, the product page
+  threw `Uncaught (in promise) {code: 0, details: []}` from WooCommerce PayPal
+  Payments' button script on page load, and Add to Cart stayed broken. It read
+  like a second, separate bug — the page was even excluded from the page cache
+  — and it survived a deactivate/reactivate. It was neither: it cleared with
+  the restart and full purge and needed no code change. The lesson is the
+  2.12.0 one arriving from the other direction: on OpenLiteSpeed a fix is not
+  observable until the server has reloaded AND every stored copy of the page is
+  gone, and a page-level cache exclusion does not imply the other caches (UCSS,
+  CCSS, combined JS/CSS) are clear. Until both have happened, a leftover
+  symptom is evidence of nothing. Diagnosis notes from that detour, kept only
+  so the next session does not re-derive them: `code: 0` with an empty
+  `details` is ppcp's non-PayPal-API branch (a plain PHP exception), and a
+  WordPress REST error is never that shape — its `code` is always a string —
+  which is what ruled the REST module out.
 
 - 2026-09-08 (CI red on `main`, pre-existing): `PHPUnit Tests (8.0)` has been
   failing on every recent `main` run (`1a7fe32`, `fda55bb`, `3b70ace`,
@@ -2106,6 +2206,72 @@ defined after them ran against a `/blog` install. Now reset in `setUp()`.
 
 Acceptance: PHPUnit 99/218, Jest 26/26, `npm run build` clean, `php -l` clean,
 PHPCS and `lint:js` at baseline, `.pot` regenerated, version 2.12.0.
+
+### Step 15 — Dashicons dequeue-not-deregister (logged-out stylesheet loss) ✅
+Field report from the same site: with the plugin active, an anonymous visitor
+got a WooCommerce product page whose add-on option fields rendered as bare
+unstyled selects — the Font `<select>` the swatch UI replaces was still visible
+— and the required fields could not be completed, so no order could be placed.
+The same page rendered correctly when logged in. Reported as a hardening
+problem; the `.htaccess` files are not involved.
+
+`SPFW_Module_Core::maybe_deregister_dashicons()` called `wp_deregister_style()`
+behind a `! is_user_logged_in()` gate. Deregistering removes the handle from
+the registry, and `WP_Dependencies::all_deps()` then silently skips every
+enqueued item whose dependencies are not all registered, plus anything
+depending on those — so the toggle removed whichever add-on / variation-swatch
+stylesheet declared `dashicons` as a dependency, for customers only. It is the
+only place in the plugin that removes a front-end asset for logged-out visitors
+and not for logged-in ones, which is what makes the attribution decisive.
+
+Deliverables:
+- `includes/modules/class-spfw-module-core.php`: `maybe_dequeue_dashicons()`
+  uses `wp_dequeue_style()`. Same saving when nothing needs the handle; when a
+  queued stylesheet declares it as a dependency WordPress resolves and prints
+  it, which is the correct outcome. `maybe_deregister_dashicons()` is retained
+  as a delegating alias so a site that unhooked it by name still works.
+- `tests/bootstrap.php`: recording stubs for `add_action`, `wp_dequeue_style`,
+  `wp_deregister_style`, `is_user_logged_in`, plus `remove_action` /
+  `remove_filter` / `is_admin` no-ops, so `SPFW_Module_Core` can be loaded and
+  `register()` called under test.
+- `tests/Dashicons_Dequeue_Test.php`: dequeue-not-deregister when logged out,
+  no removal when logged in, the legacy alias gets the fixed behavior, and
+  `register()` attaches the new callback (so the behavioral tests cannot pass
+  while the hook still points at the old one).
+- UI copy and `readme.txt` say what the toggle now does.
+
+Acceptance: PHPUnit 106 tests / 228 assertions (4 new; verified failing against
+the old `wp_deregister_style()` call and passing after), Jest 26/26,
+`npm run build` clean, `php -l` clean, PHPCS 88E/161W and `lint:js` 266 both
+unchanged at their baselines, `.pot` regenerated (485 entries, one string
+reworded), version synchronized to 2.12.2 across the plugin header,
+`SPFW_VERSION`, `readme.txt` and `package.json`.
+
+### Step 16 — `wp-embed` dequeue-not-deregister ✅
+The follow-up Step 15 flagged and deferred. `deregister_embed_script()` called
+`wp_deregister_script( 'wp-embed' )` on `wp_footer` priority 1 — ahead of
+`wp_print_footer_scripts()` at 20, so a footer script declaring `wp-embed` as a
+dependency was in range of the same silent drop.
+
+Nothing was reported broken by it, and nothing could have been mistaken for the
+2.12.2 bug: the removal is unconditional, so it hits logged-in and logged-out
+visitors alike and cannot produce a logged-out-only failure. It is fixed
+because it is the identical defect and dequeuing costs nothing, not because a
+symptom forced it.
+
+Deliverables:
+- `includes/modules/class-spfw-module-core.php`: `dequeue_embed_script()` uses
+  `wp_dequeue_script()`, with `deregister_embed_script()` retained as a
+  delegating alias, mirroring the dashicons pair.
+- `tests/bootstrap.php`: `wp_dequeue_script` / `wp_deregister_script` recording
+  stubs alongside the style pair.
+- `tests/Dashicons_Dequeue_Test.php` → `tests/Asset_Dequeue_Test.php`, renamed
+  because it now pins the general contract for both handles rather than one.
+
+Acceptance: PHPUnit 107 tests / 232 assertions (1 new, verified failing against
+the old `wp_deregister_script()` call), Jest 26/26, `npm run build` clean,
+`php -l` clean, PHPCS and `lint:js` at their baselines, `.pot` regenerated,
+version synchronized to 2.12.3.
 
 ## Open questions / blockers
 
