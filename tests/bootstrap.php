@@ -140,9 +140,10 @@ function is_admin() {
 // what the tests need to pin is which removal API a module reaches for, since
 // deregistering a handle other assets depend on silently drops those assets.
 // ---------------------------------------------------------------------------
-global $spfw_test_style_calls, $spfw_test_logged_in;
-$spfw_test_style_calls = array();
-$spfw_test_logged_in   = false;
+global $spfw_test_style_calls, $spfw_test_script_calls, $spfw_test_logged_in;
+$spfw_test_style_calls  = array();
+$spfw_test_script_calls = array();
+$spfw_test_logged_in    = false;
 
 function is_user_logged_in() {
 	global $spfw_test_logged_in;
@@ -157,6 +158,16 @@ function wp_dequeue_style( $handle ) {
 function wp_deregister_style( $handle ) {
 	global $spfw_test_style_calls;
 	$spfw_test_style_calls[] = array( 'deregister', $handle );
+}
+
+function wp_dequeue_script( $handle ) {
+	global $spfw_test_script_calls;
+	$spfw_test_script_calls[] = array( 'dequeue', $handle );
+}
+
+function wp_deregister_script( $handle ) {
+	global $spfw_test_script_calls;
+	$spfw_test_script_calls[] = array( 'deregister', $handle );
 }
 
 // ---------------------------------------------------------------------------

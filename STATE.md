@@ -14,9 +14,9 @@ the authoritative record.)
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.12.2
+- **Plugin version target:** 2.12.3
 - **Last updated:** 2026-09-09
-- **Overall status:** ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Overall status:** ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -134,10 +134,16 @@ the authoritative record.)
 | 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | 7615267 |
 | 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
 | 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
+| 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | (this commit) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
+
+**2.12.3 closes the `wp-embed` follow-up** (Step 16) — the same
+deregister-a-shared-handle defect, fixed the same way. Not symptom-driven:
+nothing was reported broken by it, and its unconditional removal could never
+have caused the logged-out-only failure below.
 
 **2.12.2 (logged-out dashicons dependency loss) is implemented and validated on
 real hardware (2026-09-09, maddogproducts.com, OpenLiteSpeed 1.9.1)** — after a
@@ -486,7 +492,8 @@ follow-ups deferred. Keep entries dated and terse.
   declaring `wp-embed` as a dependency would be dropped the same way. Left
   alone because it applies to logged-in and logged-out visitors alike and so
   cannot be the reported bug, and because almost nothing depends on `wp-embed`
-  — but it is the same defect and should get the same treatment.
+  — but it is the same defect and should get the same treatment. **Done in
+  Step 16 (2.12.3), at the user's request once 2.12.2 was field-verified.**
   **Verified in the field (2026-09-09):** confirmed fixed on the reporting site
   after a graceful OpenLiteSpeed restart and a full cache purge.
   **One false lead worth recording, because it cost a round trip and will
@@ -2239,6 +2246,32 @@ the old `wp_deregister_style()` call and passing after), Jest 26/26,
 unchanged at their baselines, `.pot` regenerated (485 entries, one string
 reworded), version synchronized to 2.12.2 across the plugin header,
 `SPFW_VERSION`, `readme.txt` and `package.json`.
+
+### Step 16 — `wp-embed` dequeue-not-deregister ✅
+The follow-up Step 15 flagged and deferred. `deregister_embed_script()` called
+`wp_deregister_script( 'wp-embed' )` on `wp_footer` priority 1 — ahead of
+`wp_print_footer_scripts()` at 20, so a footer script declaring `wp-embed` as a
+dependency was in range of the same silent drop.
+
+Nothing was reported broken by it, and nothing could have been mistaken for the
+2.12.2 bug: the removal is unconditional, so it hits logged-in and logged-out
+visitors alike and cannot produce a logged-out-only failure. It is fixed
+because it is the identical defect and dequeuing costs nothing, not because a
+symptom forced it.
+
+Deliverables:
+- `includes/modules/class-spfw-module-core.php`: `dequeue_embed_script()` uses
+  `wp_dequeue_script()`, with `deregister_embed_script()` retained as a
+  delegating alias, mirroring the dashicons pair.
+- `tests/bootstrap.php`: `wp_dequeue_script` / `wp_deregister_script` recording
+  stubs alongside the style pair.
+- `tests/Dashicons_Dequeue_Test.php` → `tests/Asset_Dequeue_Test.php`, renamed
+  because it now pins the general contract for both handles rather than one.
+
+Acceptance: PHPUnit 107 tests / 232 assertions (1 new, verified failing against
+the old `wp_deregister_script()` call), Jest 26/26, `npm run build` clean,
+`php -l` clean, PHPCS and `lint:js` at their baselines, `.pot` regenerated,
+version synchronized to 2.12.3.
 
 ## Open questions / blockers
 
