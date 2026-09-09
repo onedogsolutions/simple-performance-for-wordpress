@@ -15,7 +15,7 @@ the authoritative record.)
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
 - **Plugin version target:** 2.12.2
-- **Last updated:** 2026-09-08
+- **Last updated:** 2026-09-09
 - **Overall status:** ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
@@ -139,8 +139,10 @@ Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.12.2 (logged-out dashicons dependency loss) is implemented.** Field report
-from maddogproducts.com: with the plugin active, anonymous visitors got a
+**2.12.2 (logged-out dashicons dependency loss) is implemented and validated on
+real hardware (2026-09-09, maddogproducts.com, OpenLiteSpeed 1.9.1)** — after a
+graceful OLS restart and a full cache purge, anonymous visitors get the styled
+add-on fields and can add to cart. Field report that started it: with the plugin active, anonymous visitors got a
 WooCommerce product page whose add-on fields rendered as bare unstyled selects
 — including the `<select>` the swatch UI is supposed to replace — and could not
 complete the required fields, so no order could be placed. Logged in, the same
@@ -485,6 +487,24 @@ follow-ups deferred. Keep entries dated and terse.
   alone because it applies to logged-in and logged-out visitors alike and so
   cannot be the reported bug, and because almost nothing depends on `wp-embed`
   — but it is the same defect and should get the same treatment.
+  **Verified in the field (2026-09-09):** confirmed fixed on the reporting site
+  after a graceful OpenLiteSpeed restart and a full cache purge.
+  **One false lead worth recording, because it cost a round trip and will
+  recur.** Between installing the fix and the restart/purge, the product page
+  threw `Uncaught (in promise) {code: 0, details: []}` from WooCommerce PayPal
+  Payments' button script on page load, and Add to Cart stayed broken. It read
+  like a second, separate bug — the page was even excluded from the page cache
+  — and it survived a deactivate/reactivate. It was neither: it cleared with
+  the restart and full purge and needed no code change. The lesson is the
+  2.12.0 one arriving from the other direction: on OpenLiteSpeed a fix is not
+  observable until the server has reloaded AND every stored copy of the page is
+  gone, and a page-level cache exclusion does not imply the other caches (UCSS,
+  CCSS, combined JS/CSS) are clear. Until both have happened, a leftover
+  symptom is evidence of nothing. Diagnosis notes from that detour, kept only
+  so the next session does not re-derive them: `code: 0` with an empty
+  `details` is ppcp's non-PayPal-API branch (a plain PHP exception), and a
+  WordPress REST error is never that shape — its `code` is always a string —
+  which is what ruled the REST module out.
 
 - 2026-09-08 (CI red on `main`, pre-existing): `PHPUnit Tests (8.0)` has been
   failing on every recent `main` run (`1a7fe32`, `fda55bb`, `3b70ace`,
