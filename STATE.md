@@ -523,6 +523,24 @@ follow-ups deferred. Keep entries dated and terse.
   **Not verified:** nothing was run against a WordPress install. The live QA in
   the plan's §8.2 is entirely outstanding and is recorded under Open questions.
 
+- 2026-09-14 (release packaging is a committed script now, `tools/make-zip.php`):
+  the 2026-09-08 entry below noted there was no packaging script — `.distignore`
+  existed but nothing consumed it — and said it would be worth writing one if
+  packaging recurred. It has, so it is written. `php tools/make-zip.php` applies
+  `.distignore` with its two pattern kinds kept distinct (bare top-level names
+  resolve against the plugin root only; globs match a basename at any depth —
+  conflating them either drops a nested directory that belongs in the release or
+  ships stray `.DS_Store` files), writes every entry under the
+  `simple-performance-for-wordpress/` root wrapper that makes WordPress offer an
+  overwrite rather than a second copy (the 1.11.1 fix), and takes the version
+  from the plugin header so the filename cannot disagree with what WordPress
+  reports once installed. It refuses to build when `build/index.js` or
+  `build/index.asset.php` is missing: `build/` is gitignored but must ship, and
+  a ZIP without it installs cleanly and then renders a blank settings screen.
+  The 2.14.0 archive is 25 files / 205 KB, verified to carry `build/` and to
+  omit `src`, `tests`, `tools`, `vendor`, `node_modules`, `STATE.md` and the
+  plan files.
+
 - 2026-09-14 (**correction: CI's PHPUnit job is NOT broken** — an earlier entry
   in this session said it was): while implementing Step 19, `composer install`
   failed with `fatal: reference is not a tree: 0e8c1d19…` for `phpunit/phpunit`
