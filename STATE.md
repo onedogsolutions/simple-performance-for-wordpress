@@ -449,6 +449,28 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
+- 2026-09-14 (branch audit): no open PRs exist on the repository — every session
+  in this line has pushed a branch and merged it to `main` directly — so "are
+  all PRs merged" answers itself and the real question is which *branches* carry
+  unmerged commits. Two did. `claude/cors-font-loader-errors-01cd2j` is real
+  work and is recorded under Open questions above.
+  `claude/wordpress-speed-hardening-ae1kb6` @ `f18cd1e` (2026-08-01) was
+  **deleted**: one commit adding `SPEED_AND_HARDENING_PLAN.md`, a 658-line
+  roadmap of 19 items across five phases (1.13.0 → 2.0.0). Every one of the 19
+  has since shipped — checked by grepping `main` for each feature's marker
+  (`disable_block_css`, `streamline_dashboard`, `disable_app_passwords`,
+  `generic_login_errors`, `remove_users_sitemap_provider`, `preload_local_fonts`,
+  `protect_sensitive_files`, `block_xmlrpc_file`, `security_headers`,
+  `permissions_policy`, `add_admin_security_headers`, `disable_wp_cron`,
+  `speculation_rules`, `disable_search`, `disable_scaled_images`,
+  `csp_tighten_script_src`, `export_settings`, `import_settings`, plus
+  `.github/workflows/ci.yml` and `phpcs.xml.dist`), all present. It merged
+  cleanly, which is precisely why it was worth checking rather than merging:
+  it would have added a plan for finished work plus a STATE.md paragraph
+  asserting "No code from that plan has been implemented yet." The SHA is
+  recorded here because a deleted branch's commits stay reachable by SHA — `git
+  fetch origin f18cd1e` recovers it if the doc is ever wanted.
+
 - 2026-09-08 (logged-out visitors lost dependent stylesheets, → 2.12.2, branch
   `claude/funny-lamport-589dr7`): reported as "the file hardening breaks
   variations and checkout for logged-out users", with paired screenshots of the
@@ -2628,6 +2650,23 @@ exactly as it does today; the probe's verdict is byte-identical in shape across
 all three.
 
 ## Open questions / blockers
+
+- **Unmerged branch: `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13`.** Six
+  commits from 2026-07-27 (versions 1.13.0 → 1.15.0) fixing localized fonts
+  blocked by CORS after a domain change, plus per-stage font scan reporting.
+  **The work is genuinely absent from `main`** — verified, not assumed: `main`'s
+  fonts module contains no CORS handling, and its `fonts` settings group lacks
+  both `last_scan_report` and the rendered-CSS base the fix keys on. Deliberately
+  not merged on 2026-09-14: the branch forked at `84ac510` (2026-07-23) and
+  `main` has advanced 46 commits since, so a merge hits six conflicts —
+  `STATE.md`, `readme.txt`, `simple-performance-for-wordpress.php`,
+  `includes/class-spfw-settings.php`, `includes/class-spfw-rest-settings.php`,
+  `src/components/CspPolicyCard.jsx`. `main` must win on every version-bearing
+  file (it is at 2.13.0; the branch would drag it to 1.15.0), the fonts logic
+  must be replayed onto the current settings shape rather than merged over it,
+  and the module has had its own changes since (the 1.7.1 variable-font dedupe).
+  Treat as a dedicated session with a full fonts re-test, not a housekeeping
+  merge.
 
 - **Step 18, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
   the `.user.ini` strategy over the rewrite rules it already has? A 300-second
