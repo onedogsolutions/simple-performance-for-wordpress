@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.13.0
+Stable tag: 2.14.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,19 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.14.0 =
+* Fixed: font discovery was blind to any font it had already localized. While "Self-host Google Fonts" was on, the plugin dequeued the Google Fonts stylesheets during its own scan, so the scan could not see them — freezing the font set at whatever the first scan caught and leaving admins to toggle the feature off, purge, and rescan just to discover anything new. The scan's loopback request now leaves the original Google stylesheets in place, so rescanning works with self-hosting enabled and picks up families and weights added since the last scan.
+* Fixed: localized Google Fonts were blocked by CORS after a site moved domain (for example a production site cloned to staging). Font URLs were frozen into the stored stylesheet at scan time, so the clone kept requesting fonts from the original host; browsers fetch CSS-referenced fonts in CORS mode and discard cross-origin responses that carry no `Access-Control-Allow-Origin` header, which shows in the console as "blocked by CORS policy" plus a misleading `ERR_FAILED 200 (OK)`.
+* Changed: the generated stylesheet now uses root-relative font URLs when uploads are on the site's own host, so changing domain, switching to HTTPS, or adding/removing `www` can no longer strand the font URLs on the old origin. Font preload tags use the same base, so they cannot point somewhere the stylesheet does not.
+* Added: `uploads/ods-fonts/.htaccess` sends `Access-Control-Allow-Origin` for font files, so setups that legitimately serve uploads cross-origin work too. Guarded by `<IfModule mod_headers.c>`.
+* Added: `fonts.css` now regenerates by itself when the site's URL changes, instead of only when the file is missing.
+* Fixed: regenerating the localized stylesheet now also purges LiteSpeed's generated CSS — QUIC.cloud Unique CSS and Critical CSS, and the combined CSS/JS cache — not just the page cache. Those are separate purge targets, and a Unique CSS file built from an older stylesheet would keep serving its font URLs to the browser no matter how many times the stylesheet itself was rebuilt.
+* Added: "Scan details" on the Fonts tab reports what each stage of a font scan actually saw — which pages were fetched and how large they were, how many Google stylesheets came from the page render, the page HTML, linked stylesheets, inlined @font-face blocks and your manual declarations, how many faces each Google stylesheet yielded, and how many font files downloaded or failed. A scan that finds fewer fonts than expected now says where they were lost instead of only reporting the total.
+* Changed: the scan outcome message carries the key counts inline, so a scan that finds nothing says why on its own line without expanding anything. The report is stored and shown after a page reload, and a scan that fails outright records its diagnostics too — previously that path returned a bare error and discarded every count that explained it.
+* Added: the scan report distinguishes manual declarations that are *stored* from those actually *used*, and lists the stored ones — so "no manual fonts" no longer conflates a setting that never saved with a family name Google does not recognize.
+* Added: the Fonts tab shows where fonts are being served from, and warns when that is a different host than the site.
+* Fixed: an existing install is corrected on upgrade — no re-scan needed.
 
 = 2.13.0 =
 * Fixed: The default Content-Security-Policy blocked reCAPTCHA, and with it any password reset or checkout behind one. The default had no `frame-src` at all — so embedded content fell back to `default-src 'self'` and the captcha's iframe was refused — and `connect-src 'self'`, which refused the token call the widget makes. The visitor was told only that an anti-spam token was missing, with no way around it. The default now carries `frame-src 'self' https:` and `connect-src 'self' https:`, which still closes the holes the policy exists to close (`object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'`) while letting third-party HTTPS endpoints work. Existing policies are not rewritten: the builder now warns when yours has either hole and offers a one-click fix.

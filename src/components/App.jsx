@@ -292,6 +292,14 @@ export default function App() {
 						),
 					'error'
 				);
+
+				// A failed scan still persists its diagnostics; refetch so the
+				// Scan details panel shows why it failed instead of nothing.
+				// mergeServerSettings, not setSettings: a raw payload would
+				// discard whatever the admin has typed and not yet saved.
+				return apiFetch( { path: '/spfw/v1/settings' } )
+					.then( ( data ) => mergeServerSettings( data ) )
+					.catch( () => {} );
 			} );
 	};
 

@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.13.0
+- **Plugin version target:** 2.14.0
 - **Last updated:** 2026-09-14
-- **Overall status:** ⬜ Step 18 (server abstraction / nginx — designed, not implemented); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Overall status:** ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ⬜ Step 18 (server abstraction / nginx — designed, not implemented); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -137,10 +137,55 @@ the authoritative record.)
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
 | 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
 | 18 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
+| 19 | Font-loader carry-over: CORS portability, purge scope, scan diagnostics, scan blindness | ✅ Done | 3e2ef41 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
+
+**Step 19 shipped as 2.14.0 — live QA is the remaining gate.** The six
+unmerged font-loader commits from `claude/cors-font-loader-errors-01cd2j` are
+now on this branch, replayed rather than merged, per
+`FONT_LOADER_MERGE_PLAN.md`. The static suite is green (161 PHPUnit, 42 Jest,
+build, `php -l`, no new phpcs findings) but **nothing was run against a
+WordPress install**, and the original branch never completed its live QA either.
+
+Work `FONT_LOADER_MERGE_PLAN.md` §8.2 on a real site, in order. Two items are
+not the original branch's and are new here:
+
+1. On a site whose uploads host differs from the site host, confirm the
+   `<link rel="preload">` hrefs in `<head>` match the font URLs in `fonts.css`,
+   with no duplicate font fetches and no "preloaded but not used" warning.
+2. Upgrade an install sitting at 2.13.0 with localized fonts and confirm the
+   stored CSS is tokenized and `fonts.css` regenerates on the next front-end
+   request, with no re-scan.
+
+The highest-value check remains the one the original branch flagged and could
+not run: the `litespeed_purge_all_ucss` / `_ccss` / `_cssjs` hook names have
+never been confirmed against a live LSCache install. They fire via `do_action`,
+so a wrong name is a silent no-op that looks exactly like success. Confirm the
+UCSS file is actually rebuilt, not merely that nothing errored.
+
+**One pre-existing break found while building this, not caused by it:**
+`npm run lint:js` reports 265 prettier errors across seven components this
+change does not touch. CI runs php-lint, phpcs (continue-on-error), phpunit and
+build — not `lint:js` or `test:js` — which is how it drifted unnoticed. Worth
+its own commit; this change leaves it at 264 and every file it adds or replaces
+is lint-clean.
+
+An earlier note here claimed CI's PHPUnit job was also broken. **It is not** —
+see the 2026-09-14 correction in the decisions log. `composer install` and
+`composer test` both succeed against the committed lock; the failure was local
+to the build sandbox.
+
+**Step 18 (server abstraction / nginx) is designed and unbuilt.** Written up
+below; no code exists. Start with `SPFW_Server::detect()` and
+`supports_user_ini()` — every other deliverable in that step depends on knowing
+which server is running, and the current code never asks. Read the four open
+questions at the bottom of this file first; (a) and (b) change the shape of the
+implementation rather than its details.
+
+### Step 17 context (2.13.0, retained)
 
 **Step 17 shipped as 2.13.0.** It closes the 2026-09-14 maddogproducts.com
 report — a logged-out visitor could not complete a password reset because
@@ -165,13 +210,6 @@ release:
 F8 is knowingly left as-is: `wp-login.php` carries no CSP because `send_headers`
 does not fire there, so testing core login proves nothing about a front-end
 login modal — which is the form that actually failed.
-
-**Step 18 (server abstraction / nginx) is designed and unbuilt.** Written up
-below; no code exists. Start with `SPFW_Server::detect()` and
-`supports_user_ini()` — every other deliverable in that step depends on knowing
-which server is running, and the current code never asks. Read the four open
-questions at the bottom of this file first; (a) and (b) change the shape of the
-implementation rather than its details.
 
 ### Prior release context (2.12.0/2.11.0, retained)
 
@@ -448,6 +486,139 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-14 (font-loader carry-over implemented, → 2.14.0, Step 19): replayed
+  the six commits from `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13` onto
+  `main` per `FONT_LOADER_MERGE_PLAN.md`. No merge was run; the branch stays
+  unmerged and is now superseded.
+  **The plan's per-file sizing held.** `FontsSettings.jsx` and
+  `class-spfw-module-fonts.php` came across wholesale; the other four files
+  took one hunk each and every anchor was still where the plan said. All four
+  hazards were real and all four were handled as specified: `preload_local_fonts()`
+  now builds its href from `rendered_base()` and sits inside the `! $is_scan`
+  guard, the migration is gated on `< 2.14.0`, and the failure-path refetch uses
+  `mergeServerSettings`.
+  **Three deviations from the plan, all small.** (1) The plan put the
+  `fonts_runtime` rationale in an inline comment above the REST assignment; a
+  comment there splits phpcs's alignment group and added two
+  `MultipleStatementAlignment` warnings, so it moved into `runtime_info()`'s
+  docblock instead. (2) `package.json`'s `version` was bumped to 2.14.0 — the
+  plan's file list omitted it, but every release in this repo bumps it. (3) The
+  plan asked for the jest addition only in `settings-merge.test.js`; four render
+  smoke tests for `FontsSettings` were added to `renders.test.js` too, since the
+  component was replaced wholesale and that file exists precisely because a
+  build succeeding is not evidence the screen renders.
+  **Verified (static only):** `php -l` clean; PHPUnit 136 → **161 tests / 352
+  assertions**, all green, twice from a clean state; Jest 36 → **42**;
+  `npm run build` and `lint:css` clean; phpcs 87/150 against `main`'s 88/149
+  (`class-spfw-settings.php` unchanged at 24/66 despite ~140 new lines; the
+  fonts module's one error became a warning — the purge loop's hook name is now
+  dynamic). The H1 regression test was checked by reverting
+  `preload_local_fonts()` to `fonts_url()` and confirming it fails.
+  **A test-hygiene bug in the new suite, found and fixed:** the
+  unwritable-uploads test puts a regular file where the fonts directory belongs.
+  When that test failed mid-run the file survived, and every later test silently
+  failed to write — a poisoned run that reads exactly like a code regression.
+  `clear_fonts_dir()` now clears that case, so the suite cannot corrupt itself.
+  **Not verified:** nothing was run against a WordPress install. The live QA in
+  the plan's §8.2 is entirely outstanding and is recorded under Open questions.
+
+- 2026-09-14 (release packaging is a committed script now, `tools/make-zip.php`):
+  the 2026-09-08 entry below noted there was no packaging script — `.distignore`
+  existed but nothing consumed it — and said it would be worth writing one if
+  packaging recurred. It has, so it is written. `php tools/make-zip.php` applies
+  `.distignore` with its two pattern kinds kept distinct (bare top-level names
+  resolve against the plugin root only; globs match a basename at any depth —
+  conflating them either drops a nested directory that belongs in the release or
+  ships stray `.DS_Store` files), writes every entry under the
+  `simple-performance-for-wordpress/` root wrapper that makes WordPress offer an
+  overwrite rather than a second copy (the 1.11.1 fix), and takes the version
+  from the plugin header so the filename cannot disagree with what WordPress
+  reports once installed. It refuses to build when `build/index.js` or
+  `build/index.asset.php` is missing: `build/` is gitignored but must ship, and
+  a ZIP without it installs cleanly and then renders a blank settings screen.
+  The 2.14.0 archive is 25 files / 205 KB, verified to carry `build/` and to
+  omit `src`, `tests`, `tools`, `vendor`, `node_modules`, `STATE.md` and the
+  plan files.
+
+- 2026-09-14 (**correction: CI's PHPUnit job is NOT broken** — an earlier entry
+  in this session said it was): while implementing Step 19, `composer install`
+  failed with `fatal: reference is not a tree: 0e8c1d19…` for `phpunit/phpunit`
+  10.5.64, and composer's own hint ("maybe the tag was recreated?") was taken at
+  face value and written up here as a CI break on `main`. **That was wrong.**
+  `git ls-remote --tags` shows `refs/tags/10.5.64^{}` still resolving to exactly
+  `0e8c1d19cea35ad97d4887f363d07c78e30fbf06` — the tag was never recreated and
+  the committed lock is correct. A clean `composer install` against the
+  **unmodified** `composer.lock` succeeds, and `composer test` (what CI runs)
+  passes 161 tests / 352 assertions.
+  **Actual cause, local to the build sandbox:** this environment's egress policy
+  blocks `api.github.com` (403), so every dist download fails with "Could not
+  authenticate against github.com" and composer falls back to git source, which
+  works. The one-off "not a tree" happened because two composer processes were
+  racing the same cache — one `composer install` had been launched in the
+  background and a second was run in the foreground before it finished — so the
+  git fallback read a half-synced object store. Nothing was committed to fix it,
+  because there is nothing to fix; the earlier lock churn (three unrelated
+  transitive dev-dep bumps from `composer update phpunit/phpunit`) was correctly
+  reverted and stays reverted.
+  **Rule for the next session:** composer's "maybe the tag was recreated"
+  is a guess, not a diagnosis. Check `git ls-remote --tags` against the locked
+  reference before touching the lock, and never run two composer processes over
+  one cache.
+
+- 2026-09-14 (`npm run lint:js` has drifted on `main`, not caused by Step 19):
+  it fails with 265 prettier errors across seven components
+  (`CoreSettings`, `DatabaseSettings`, `HardeningSettings`, `OptionCleanerSettings`,
+  `PhpWhitelistCard`, `App`, `CspPolicyCard`). Verified by stashing this change
+  and re-running on a clean tree. CI runs php-lint, phpcs (continue-on-error),
+  phpunit and build — not `lint:js` or `test:js` — which is how it went
+  unnoticed. Step 19 leaves it at 264 (the replayed `FontsSettings.jsx` fixes
+  one); every file Step 19 adds or replaces is lint-clean. Worth its own commit
+  rather than being folded into a feature change.
+
+- 2026-09-14 (font-loader carry-over planned, → Step 19, `FONT_LOADER_MERGE_PLAN.md`):
+  the branch audit earlier the same day left
+  `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13` unmerged and called for a
+  dedicated session. This is that session's plan; no code was written.
+  **The audit's sizing was pessimistic in a useful direction and wrong in one
+  detail.** Per-file divergence since the fork (`84ac510`) turns out to be
+  minimal: `src/components/FontsSettings.jsx` is byte-identical to the fork
+  point on `main`, and `includes/modules/class-spfw-module-fonts.php` differs by
+  41 lines in one commit. The audit attributed the module's drift to the 1.7.1
+  variable-font dedupe; that is wrong — 1.7.1 predates the fork and is on both
+  sides. The real drift is `b96a499` adding `preload_local_fonts()`, and it is
+  also the single most dangerous thing about this port (below). Six conflicting
+  files, four of which take one hunk each with every anchor intact.
+  **Four hazards found, all postdating the branch's fork, two silent:**
+  (1) `preload_local_fonts()` builds hrefs from `fonts_url()` — absolute and
+  fully-qualified — and `rel="preload" as="font"` is fetched in CORS mode, so a
+  moved site would get a correctly root-relative `fonts.css` and `<head>`
+  preloads still on the old origin: the reported bug, reintroduced through a
+  path the fix never touches. Must use `rendered_base()`.
+  (2) the portability migration gates on `version_compare( $stored_ver, '1.13.0', '<' )`;
+  against a 2.13.0 install that is dead code, so the migration never runs and no
+  existing site is healed — passing a fresh-install test while doing nothing in
+  the field. Re-gate to 2.14.0.
+  (3) `register()`: the branch stands `serve_local_fonts` and
+  `remove_google_resource_hints` down during a scan loopback (the 1.15.0 fix);
+  `main` added a third hook to that block, which belongs under the same guard.
+  (4) the branch's failure-path refetch calls `setSettings()` with a raw server
+  payload — the exact bug `src/lib/settings-merge.js` was added in 2.8.0 to
+  prevent. Use `mergeServerSettings()`.
+  A fifth is accepted knowingly: `last_scan_report`/`rendered_for` live inside
+  the `fonts` group, which is in `PERSISTED_GROUPS`, so both ride every settings
+  POST and join the dirty fingerprint. Traced through `pendingEdits()` nothing
+  goes permanently dirty and the worst case is one redundant regeneration; the
+  real gap is that `last_scan_report` is stored as a raw array partly derived
+  from remote HTTP responses and needs deep sanitization, which phpcs in CI will
+  want anyway.
+  **Not verified here:** nothing was run against a live WordPress, and the
+  branch's own live QA was never completed (its session could not reach the
+  staging site). The plan carries four unverified field checks forward — notably
+  that the `litespeed_purge_all_ucss`/`_ccss`/`_cssjs` hook names have never
+  been confirmed against a live LSCache install, and a wrong name is a silent
+  no-op indistinguishable from success — plus two new ones from hazards (1) and
+  (2). Step 19 must not be marked ✅ on static tests alone.
 
 - 2026-09-14 (branch audit): no open PRs exist on the repository — every session
   in this line has pushed a branch and merged it to `main` directly — so "are
@@ -2657,24 +2828,160 @@ uploads via `.user.ini` where the stack allows it; an OLS install behaves
 exactly as it does today; the probe's verdict is byte-identical in shape across
 all three.
 
+### Step 19 — Font-loader carry-over from `claude/cors-font-loader-errors-01cd2j` ✅
+Planned 2026-09-14 in `FONT_LOADER_MERGE_PLAN.md` (root, `.distignore`d); no code
+written. Lands the six unmerged commits recorded under Open questions below, as a
+**replay rather than a merge**, targeting 2.14.0.
+
+**Four fixes, in the order the branch found them.**
+
+| Src version | Fix |
+|---|---|
+| 1.13.0 | Localized fonts blocked by CORS after a domain change — `%%SPFW_FONTS_URL%%` token in stored CSS, root-relative URLs when uploads are same-host, self-healing `fonts.css` via a `rendered_for` comparison, `mod_headers`-guarded ACAO `.htaccess` in the fonts directory, upgrade migration, Fonts/CSP diagnostics |
+| 1.13.1 | Regenerating `fonts.css` purges QUIC.cloud UCSS/CCSS and the CSS/JS combine cache, not just the page cache — the derived copy was the actual carrier on the reporting site |
+| 1.14.0 / 1.14.1 | Per-stage scan diagnostics, persisted across reloads, counts inline on the outcome line, retained on the failure path |
+| 1.15.0 | **Discovery was blind to any font it had already localized** — the scan's own loopback dequeued the very stylesheets it was scanning for, so a site's font set froze at whatever its first scan caught |
+
+**Why the conflict list overstates the work.** The branch forked at `84ac510`
+and `main` has advanced 48 commits, but measured per file:
+`src/components/FontsSettings.jsx` is **byte-identical to the fork point** on
+`main`, and `includes/modules/class-spfw-module-fonts.php` differs by **41 lines
+in one commit** (`b96a499`, adding `preload_local_fonts()`). Both are taken
+wholesale from `d4b2b13`. The remaining four files take one hunk each, and every
+anchor still exists on `main` — the REST line at `:247`, the CSP hint string at
+`:2068`, the `handleScanFonts()` failure path. The version-bearing files are not
+merged at all: `main` wins, and one new 2.14.0 changelog entry is authored.
+
+**Four integration hazards the branch cannot know about**, because they postdate
+its fork. These, not the file shuffling, are the reason this needed a session:
+
+1. **`preload_local_fonts()` bypasses the whole fix.** `main` added it after the
+   fork. It builds hrefs from `fonts_url()` — absolute and fully-qualified — and
+   `rel="preload" as="font"` is fetched in CORS mode. So a cloned site would get
+   a correctly root-relative `fonts.css` and `<head>` preloads still pointing at
+   the old origin, failing with the exact `blocked by CORS policy` +
+   `ERR_FAILED 200 (OK)` signature of the original report, reintroduced through a
+   path the fix does not touch. Must use `rendered_base()`.
+2. **The migration's version gate is dead code.** The branch gates on
+   `version_compare( $stored_ver, '1.13.0', '<' )`. Every install receiving this
+   is already at 2.13.0, so ported verbatim the migration **never runs** and the
+   "fixed on upgrade without a re-scan" property is silently lost — working in a
+   fresh-install test and doing nothing in the field. Re-gate to 2.14.0.
+3. **`register()` conflicts with the 1.15.0 fix.** The branch gates
+   `serve_local_fonts` and `remove_google_resource_hints` on `! $is_scan`;
+   `main` added a third hook to that same block. Put the preload inside the same
+   guard so "during a scan this module does nothing to the page" stays checkable
+   in one place.
+4. **`App.jsx` uses `mergeServerSettings`, not `setSettings`.** The branch's
+   failure-path refetch calls `setSettings()` with a raw server payload — exactly
+   the bug `src/lib/settings-merge.js` was added in 2.8.0 to prevent. It would
+   discard unsaved admin edits on a failed scan.
+
+A fifth, accepted knowingly: `last_scan_report` and `rendered_for` sit inside
+`fonts`, which is in `PERSISTED_GROUPS`, so both ride every settings POST and
+join the dirty fingerprint. Traced through, `pendingEdits()` compares per key and
+both move server→client together, so nothing goes permanently dirty; the costs
+are payload size and, at worst, one redundant `fonts.css` regeneration when a
+stale `rendered_for` is POSTed back. Not worth a read-only exclusion mechanism.
+The genuine gap there is sanitization — `last_scan_report` is stored as a raw
+array whose contents partly derive from remote HTTP responses, so it needs a
+`sanitize_scan_report()` walking known keys. phpcs runs in CI and will want it.
+
+**Tests.** `main` has CI and a jest suite the branch never had; its verification
+was ad-hoc harnesses run once and discarded. The plan converts them into
+`tests/Fonts_Portability_Test.php` (tokenize/render round trip, idempotence,
+cross-host fallback, hash stability across a domain move, the regex leaving
+`local()`/`unicode-range` alone, self-heal with all four purge hooks and
+`litespeed_purge_all` last, unwritable-uploads fallback) plus regression tests
+for hazards 1-3, and extends `settings-merge.test.js` for the fifth.
+
+**What shipped (2.14.0).** All four fixes, plus the four hazards handled:
+
+- `class-spfw-module-fonts.php` taken wholesale from `d4b2b13`, with `main`'s
+  `preload_local_fonts()` re-applied **building its href from
+  `rendered_base()`** (H1) and moved inside the `! $is_scan` guard (H3).
+- `class-spfw-settings.php`: `fonts.last_scan_report` + `fonts.rendered_for`
+  defaults and sanitize; `run_font_portability_migration()` gated on
+  **`< 2.14.0`** (H2), placed after the 2.11.0 block in the pre-cache section;
+  a new `sanitize_scan_report()` walks the report's known keys (counts to
+  `absint()`, URLs through `esc_url_raw()`, text through
+  `sanitize_text_field()`, unknown keys dropped) since its content is partly
+  derived from remote HTTP responses and re-enters on every Save.
+- `class-spfw-rest-settings.php`: one line exposing `fonts_runtime`. The
+  rationale lives in `runtime_info()`'s docblock rather than inline, because a
+  comment mid-block splits phpcs's alignment group and added two warnings.
+- `FontsSettings.jsx` wholesale; `App.jsx`'s failure-path refetch using
+  **`mergeServerSettings`** (H4); the CSP card's CDN hint extended to CORS.
+
+**Verified here (static only).** `php -l` clean across the tree; **161 PHPUnit
+tests / 352 assertions** green (was 136/282 — a new `Fonts_Portability_Test.php`
+adds 25); **42 Jest tests** green (was 36); `npm run build` and `lint:css`
+clean. phpcs: 87 errors / 150 warnings versus `main`'s 88 / 149 — the fonts
+module's one error became a warning (the purge loop's dynamic hook name) and
+`class-spfw-settings.php` is unchanged at 24/66 despite ~140 new lines.
+
+The H1 regression test was checked by reverting `preload_local_fonts()` to
+`fonts_url()` and confirming it fails — a test that cannot fail proves nothing.
+
+**One thing found while building, recorded under Decisions:**
+`npm run lint:js` is already broken on `main` (265 prettier errors across seven
+files this change does not touch; CI does not run it). A claim that CI's PHPUnit
+job was broken too was **wrong and has been retracted** — see the correction in
+the decisions log.
+
+**Acceptance is NOT fully met.** The static suite is green, but the live QA in
+`FONT_LOADER_MERGE_PLAN.md` §8.2 is untouched: no assertion here was made
+against a running WordPress. Step 19 is marked ✅ for the code, and the field
+checks are carried in Open questions as owed.
+
 ## Open questions / blockers
 
-- **Unmerged branch: `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13`.** Six
-  commits from 2026-07-27 (versions 1.13.0 → 1.15.0) fixing localized fonts
-  blocked by CORS after a domain change, plus per-stage font scan reporting.
-  **The work is genuinely absent from `main`** — verified, not assumed: `main`'s
-  fonts module contains no CORS handling, and its `fonts` settings group lacks
-  both `last_scan_report` and the rendered-CSS base the fix keys on. Deliberately
-  not merged on 2026-09-14: the branch forked at `84ac510` (2026-07-23) and
-  `main` has advanced 46 commits since, so a merge hits six conflicts —
-  `STATE.md`, `readme.txt`, `simple-performance-for-wordpress.php`,
-  `includes/class-spfw-settings.php`, `includes/class-spfw-rest-settings.php`,
-  `src/components/CspPolicyCard.jsx`. `main` must win on every version-bearing
-  file (it is at 2.13.0; the branch would drag it to 1.15.0), the fonts logic
-  must be replayed onto the current settings shape rather than merged over it,
-  and the module has had its own changes since (the 1.7.1 variable-font dedupe).
-  Treat as a dedicated session with a full fonts re-test, not a housekeeping
-  merge.
+- **Live QA owed for the 2.14.0 font loader (Step 19).** The code is on this
+  branch and the static suite is green, but **no assertion in it was made
+  against a running WordPress**, and the originating branch never completed its
+  live QA either (its session could not reach the staging site). Six checks, in
+  `FONT_LOADER_MERGE_PLAN.md` §8.2:
+  (a) the plan's §5.2 steps 1-8, running the two baseline `curl` checks *before*
+  installing so the fix is measured against a confirmed before-state;
+  (b) the ordering hazard — a site set to purge all on plugin change can requeue
+  UCSS generation *before* the first front-end request regenerates `fonts.css`,
+  rebuilding the derived file from the old stylesheet. Regenerate first (load one
+  front-end page), then purge;
+  (c) **the `litespeed_purge_all_ucss` / `_ccss` / `_cssjs` hook names have never
+  been confirmed against a live LSCache install.** They fire via `do_action`, so a
+  wrong name is a silent no-op — which looks exactly like success. Confirm the
+  UCSS file is actually rebuilt, not merely that no error appears;
+  (d) `uploads/ods-fonts/.htaccess` has never run on a real OpenLiteSpeed vhost.
+  The `<IfModule mod_headers.c>` guard is there so a server without `mod_headers`
+  ignores it rather than 500s;
+  (e) on a site whose uploads host differs from the site host, confirm the
+  `<link rel="preload">` hrefs match the font URLs in `fonts.css`, with no
+  duplicate fetches and no "preloaded but not used";
+  (f) upgrade an install at 2.13.0 with localized fonts and confirm the stored CSS
+  is tokenized and `fonts.css` regenerates on the next front-end request.
+
+- **Still unread on a live site: `manual_declared` vs `manual`.** Both of the
+  scans that produced the 1.15.0 finding reported `0 from manual declarations`
+  while the UI textarea held `Roboto Condensed:400,700` and
+  `Open Sans:400,600,700`. A reflection harness proved
+  `manual_css_urls()` → `parse_font_faces()` handles those specs correctly
+  (44 faces → 17 files), so the URL builder is not at fault. The scan report now
+  records what is *stored* separately from what could be *built*, which decides
+  between a persistence bug and a spec-parsing bug. That distinction has never
+  been read on a real scan — it is the first thing to look at on the next one.
+
+- **`npm run lint:js` has drifted on `main`.** Not caused by Step 19; recorded
+  in the decisions log for 2026-09-14. 265 prettier errors across seven
+  components Step 19 does not touch, unnoticed because CI does not run `lint:js`
+  or `test:js`. Wants its own commit. (The companion claim that CI's PHPUnit job
+  was broken was investigated and **retracted** — the lock is correct and
+  `composer test` passes; see the same log entry.)
+
+- **Superseded branch: `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13`.** Its
+  six commits were replayed onto `main` as 2.14.0 on 2026-09-14 (Step 19); the
+  branch itself was never merged and carries nothing that is not now on `main`.
+  It can be deleted once 2.14.0 is merged — which needs a repo admin, the same
+  HTTP 403 on ref deletion that blocked the other cleanup below.
 
 - **Step 18, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
   the `.user.ini` strategy over the rewrite rules it already has? A 300-second

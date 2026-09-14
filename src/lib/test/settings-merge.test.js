@@ -105,3 +105,59 @@ describe( 'applyEdits', () => {
 		expect( fromServer.hardening.csp_report_only ).toBe( true );
 	} );
 } );
+
+/**
+ * The font-scan report and the self-heal's `rendered_for` marker both live
+ * inside the `fonts` group, which IS a persisted group — so they ride the
+ * dirty-state fingerprint and every settings POST. That is accepted rather
+ * than special-cased, but only because the per-key comparison keeps them from
+ * behaving like unsaved edits. These tests pin that reasoning.
+ */
+describe( 'server-written keys inside the fonts group', () => {
+	const savedFonts = {
+		fonts: {
+			localize_google: true,
+			manual_families: [ 'Open Sans:400' ],
+			rendered_for: '/wp-content/uploads/ods-fonts',
+			last_scan_report: { message: 'old', diagnostics: { faces: 4 } },
+		},
+	};
+
+	it( 'does not report a scan report the admin never touched as a pending edit', () => {
+		expect( pendingEdits( savedFonts, savedFonts ) ).toEqual( {} );
+	} );
+
+	it( 'keeps an unsaved font edit while accepting a fresh scan report', () => {
+		const current = {
+			fonts: {
+				...savedFonts.fonts,
+				manual_families: [ 'Open Sans:400', 'Roboto:700' ],
+			},
+		};
+		const fromServer = {
+			fonts: {
+				...savedFonts.fonts,
+				rendered_for:
+					'https://cdn.example/wp-content/uploads/ods-fonts',
+				last_scan_report: {
+					message: 'new',
+					diagnostics: { faces: 17 },
+				},
+			},
+		};
+
+		const merged = applyEdits(
+			fromServer,
+			pendingEdits( current, savedFonts )
+		);
+
+		expect( merged.fonts.manual_families ).toEqual( [
+			'Open Sans:400',
+			'Roboto:700',
+		] );
+		expect( merged.fonts.last_scan_report.message ).toBe( 'new' );
+		expect( merged.fonts.rendered_for ).toBe(
+			'https://cdn.example/wp-content/uploads/ods-fonts'
+		);
+	} );
+} );

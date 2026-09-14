@@ -109,7 +109,16 @@ function apply_filters( $tag, $value ) {
 	return $value;
 }
 
-function do_action() {}
+// do_action() records rather than discards: SPFW_Module_Fonts::purge_generated_css()
+// fires four LiteSpeed purge hooks in a deliberate order (page cache last), and
+// "fires them in that order" is only assertable if the stub keeps them.
+global $spfw_test_actions_fired;
+$spfw_test_actions_fired = array();
+
+function do_action( $tag = '' ) {
+	global $spfw_test_actions_fired;
+	$spfw_test_actions_fired[] = $tag;
+}
 
 // Hook registrations are recorded so a test can assert which callback a module
 // actually attached, not merely that the callback behaves when called by hand.
@@ -125,7 +134,17 @@ function add_action( $tag, $callback = null, $priority = 10, $accepted_args = 1 
 	);
 }
 
-function add_filter() {}
+global $spfw_test_filters;
+$spfw_test_filters = array();
+
+function add_filter( $tag, $callback = null, $priority = 10, $accepted_args = 1 ) {
+	global $spfw_test_filters;
+	$spfw_test_filters[] = array(
+		'tag'      => $tag,
+		'callback' => $callback,
+		'priority' => $priority,
+	);
+}
 
 function remove_action() {}
 
@@ -334,6 +353,10 @@ class SPFW_Test_Filesystem {
 		return is_dir( $path );
 	}
 
+	public function mkdir( $path, $mode = false ) {
+		return is_dir( $path ) || @mkdir( $path, false === $mode ? 0755 : $mode, true );
+	}
+
 	public function put_contents( $path, $contents, $mode = false ) {
 		if ( ! is_dir( dirname( $path ) ) ) {
 			return false;
@@ -358,6 +381,145 @@ function WP_Filesystem() {
 }
 
 // ---------------------------------------------------------------------------
+// Fonts-module stubs.
+//
+// SPFW_Module_Fonts reaches further into WordPress than the other modules: it
+// renders markup, enqueues a stylesheet, and fetches over HTTP. The HTTP layer
+// is a controllable map rather than a fixed fake, so a test can describe the
+// exact remote conditions it means to reproduce (a page that returns nothing, a
+// Google response with two weights, a font file that 404s) instead of asserting
+// against whatever a generic stub happens to return.
+// ---------------------------------------------------------------------------
+function untrailingslashit( $string ) {
+	return rtrim( (string) $string, '/\\' );
+}
+
+function esc_url( $url ) {
+	// Mirrors core closely enough for assertions: core leaves a root-relative
+	// path alone rather than absolutizing it, which is the property the
+	// preload/stylesheet URL-parity test depends on.
+	$url = trim( (string) $url );
+	$url = str_replace( array( '"', "'", '<', '>' ), '', $url );
+	return $url;
+}
+
+function esc_html( $text ) {
+	return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' );
+}
+
+function esc_html__( $text, $domain = 'default' ) {
+	return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' );
+}
+
+function esc_attr( $text ) {
+	return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' );
+}
+
+function wp_generate_password( $length = 12, $special_chars = true, $extra_special_chars = false ) {
+	return substr( str_repeat( 'abcdef0123456789', 8 ), 0, $length );
+}
+
+function add_query_arg( $args, $url = '' ) {
+	if ( ! is_array( $args ) ) {
+		return $url;
+	}
+
+	$sep = ( false === strpos( (string) $url, '?' ) ) ? '?' : '&';
+
+	return $url . $sep . http_build_query( $args );
+}
+
+function get_posts( $args = array() ) {
+	return array();
+}
+
+function get_permalink( $post = 0 ) {
+	return '';
+}
+
+class WP_Error {
+
+	public $code;
+	public $message;
+
+	public function __construct( $code = '', $message = '' ) {
+		$this->code    = $code;
+		$this->message = $message;
+	}
+
+	public function get_error_message() {
+		return $this->message;
+	}
+
+	public function get_error_code() {
+		return $this->code;
+	}
+}
+
+function is_wp_error( $thing ) {
+	return $thing instanceof WP_Error;
+}
+
+// URL => array( 'code' => int, 'body' => string ), or a WP_Error instance.
+// Anything not listed returns a 404 with an empty body, so a test that forgets
+// to describe a URL fails loudly rather than silently passing on a default.
+global $spfw_test_http;
+$spfw_test_http = array();
+
+function wp_remote_get( $url, $args = array() ) {
+	global $spfw_test_http;
+
+	foreach ( $spfw_test_http as $match => $response ) {
+		if ( false !== strpos( (string) $url, $match ) ) {
+			return $response;
+		}
+	}
+
+	return array(
+		'code' => 404,
+		'body' => '',
+	);
+}
+
+function wp_remote_retrieve_body( $response ) {
+	return is_array( $response ) && isset( $response['body'] ) ? $response['body'] : '';
+}
+
+function wp_remote_retrieve_response_code( $response ) {
+	return is_array( $response ) && isset( $response['code'] ) ? $response['code'] : 0;
+}
+
+// Enqueued styles, and the registry serve_local_fonts() walks looking for a
+// Google Fonts src to dequeue.
+class SPFW_Test_Styles {
+
+	public $registered = array();
+}
+
+global $spfw_test_styles, $spfw_test_enqueued_styles;
+$spfw_test_styles          = null;
+$spfw_test_enqueued_styles = array();
+
+function wp_styles() {
+	global $spfw_test_styles;
+
+	if ( ! $spfw_test_styles ) {
+		$spfw_test_styles = new SPFW_Test_Styles();
+	}
+
+	return $spfw_test_styles;
+}
+
+function wp_enqueue_style( $handle, $src = '', $deps = array(), $ver = false ) {
+	global $spfw_test_enqueued_styles;
+	$spfw_test_enqueued_styles[] = array(
+		'handle' => $handle,
+		'src'    => $src,
+		'ver'    => $ver,
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Load plugin classes under test.
 // ---------------------------------------------------------------------------
 require_once SPFW_PATH . 'includes/class-spfw-settings.php';
@@ -365,5 +527,6 @@ require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 require_once SPFW_PATH . 'includes/interface-spfw-module.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
+require_once SPFW_PATH . 'includes/modules/class-spfw-module-fonts.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
 require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
