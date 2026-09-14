@@ -61,8 +61,12 @@ function wp_parse_url( $url, $component = -1 ) {
 	return parse_url( $url, $component );
 }
 
+global $spfw_test_home_url;
+$spfw_test_home_url = 'http://example.com';
+
 function home_url( $path = '' ) {
-	return 'http://example.com' . $path;
+	global $spfw_test_home_url;
+	return $spfw_test_home_url . $path;
 }
 
 function esc_url_raw( $url ) {
@@ -107,9 +111,64 @@ function apply_filters( $tag, $value ) {
 
 function do_action() {}
 
-function add_action() {}
+// Hook registrations are recorded so a test can assert which callback a module
+// actually attached, not merely that the callback behaves when called by hand.
+global $spfw_test_hooks;
+$spfw_test_hooks = array();
+
+function add_action( $tag, $callback = null, $priority = 10, $accepted_args = 1 ) {
+	global $spfw_test_hooks;
+	$spfw_test_hooks[] = array(
+		'tag'      => $tag,
+		'callback' => $callback,
+		'priority' => $priority,
+	);
+}
 
 function add_filter() {}
+
+function remove_action() {}
+
+function remove_filter() {}
+
+function is_admin() {
+	return false;
+}
+
+// ---------------------------------------------------------------------------
+// Enqueue-registry stubs. These record calls rather than model WP_Dependencies:
+// what the tests need to pin is which removal API a module reaches for, since
+// deregistering a handle other assets depend on silently drops those assets.
+// ---------------------------------------------------------------------------
+global $spfw_test_style_calls, $spfw_test_script_calls, $spfw_test_logged_in;
+$spfw_test_style_calls  = array();
+$spfw_test_script_calls = array();
+$spfw_test_logged_in    = false;
+
+function is_user_logged_in() {
+	global $spfw_test_logged_in;
+	return (bool) $spfw_test_logged_in;
+}
+
+function wp_dequeue_style( $handle ) {
+	global $spfw_test_style_calls;
+	$spfw_test_style_calls[] = array( 'dequeue', $handle );
+}
+
+function wp_deregister_style( $handle ) {
+	global $spfw_test_style_calls;
+	$spfw_test_style_calls[] = array( 'deregister', $handle );
+}
+
+function wp_dequeue_script( $handle ) {
+	global $spfw_test_script_calls;
+	$spfw_test_script_calls[] = array( 'dequeue', $handle );
+}
+
+function wp_deregister_script( $handle ) {
+	global $spfw_test_script_calls;
+	$spfw_test_script_calls[] = array( 'deregister', $handle );
+}
 
 // ---------------------------------------------------------------------------
 // In-memory transient + object cache (simulates the wp_options / object-cache
@@ -181,6 +240,77 @@ function current_user_can( $capability ) {
 	return ! empty( $spfw_test_capabilities[ $capability ] );
 }
 
+// ---------------------------------------------------------------------------
+// Template conditionals and cron, for the CSP collection-coverage tests.
+//
+// $spfw_test_page holds the page type the next request should look like;
+// every conditional below answers against it. Kept as one switch rather than
+// a stub per function so a test can never accidentally describe a request that
+// is both a 404 and the cart.
+// ---------------------------------------------------------------------------
+global $spfw_test_page, $spfw_test_cron;
+$spfw_test_page = '';
+$spfw_test_cron = array();
+
+function is_404() {
+	global $spfw_test_page;
+	return '404' === $spfw_test_page;
+}
+
+function is_search() {
+	global $spfw_test_page;
+	return 'search' === $spfw_test_page;
+}
+
+function is_front_page() {
+	global $spfw_test_page;
+	return 'home' === $spfw_test_page;
+}
+
+function is_home() {
+	global $spfw_test_page;
+	return 'home' === $spfw_test_page;
+}
+
+function is_archive() {
+	global $spfw_test_page;
+	return 'archive' === $spfw_test_page;
+}
+
+function is_singular( $type = '' ) {
+	global $spfw_test_page;
+
+	if ( 'page' === $type ) {
+		return 'page' === $spfw_test_page;
+	}
+
+	return in_array( $spfw_test_page, array( 'page', 'post' ), true );
+}
+
+function wp_clear_scheduled_hook( $hook ) {
+	global $spfw_test_cron;
+	unset( $spfw_test_cron[ $hook ] );
+}
+
+function wp_schedule_single_event( $timestamp, $hook ) {
+	global $spfw_test_cron;
+	$spfw_test_cron[ $hook ] = $timestamp;
+	return true;
+}
+
+function wp_next_scheduled( $hook ) {
+	global $spfw_test_cron;
+	return isset( $spfw_test_cron[ $hook ] ) ? $spfw_test_cron[ $hook ] : false;
+}
+
+function is_ssl() {
+	return false;
+}
+
+function rest_url( $path = '' ) {
+	return 'http://example.com/wp-json/' . ltrim( (string) $path, '/' );
+}
+
 function wp_doing_ajax() {
 	return defined( 'DOING_AJAX' ) && DOING_AJAX;
 }
@@ -190,10 +320,50 @@ function wp_unslash( $value ) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal WP_Filesystem stub.
+//
+// SPFW_Htaccess::write() goes through WP_Filesystem, which previously could not
+// run here at all — filesystem() would try to require wp-admin/includes/file.php
+// and fatal. That left the whole write path untested, which is why the payload
+// tests all pin a high stored version to keep migrations from writing. Direct
+// filesystem calls are enough for what the write path actually does.
+// ---------------------------------------------------------------------------
+class SPFW_Test_Filesystem {
+
+	public function is_dir( $path ) {
+		return is_dir( $path );
+	}
+
+	public function put_contents( $path, $contents, $mode = false ) {
+		if ( ! is_dir( dirname( $path ) ) ) {
+			return false;
+		}
+
+		return false !== file_put_contents( $path, $contents );
+	}
+
+	public function delete( $path ) {
+		return file_exists( $path ) ? unlink( $path ) : true;
+	}
+}
+
+function WP_Filesystem() {
+	global $wp_filesystem;
+
+	if ( ! $wp_filesystem ) {
+		$wp_filesystem = new SPFW_Test_Filesystem();
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Load plugin classes under test.
 // ---------------------------------------------------------------------------
 require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
 require_once SPFW_PATH . 'includes/interface-spfw-module.php';
+require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
+require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
 require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';

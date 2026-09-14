@@ -9,8 +9,7 @@
  * false-assurance bug this feature corrects, and a false "not enforced" would
  * send the admin chasing a healthy vhost. The probe itself is not tested here
  * because the HTTP layer (wp_remote_get) is deliberately not stubbed in the
- * lightweight bootstrap — the same reason shape_upgrade_check_result() is the
- * tested seam of the upgrade check.
+ * lightweight bootstrap.
  *
  * @package Simple_Performance_For_WordPress
  */
@@ -43,10 +42,16 @@ class Htaccess_Enforcement_Test extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		global $spfw_test_options, $spfw_test_rest_routes, $spfw_test_capabilities;
+		global $spfw_test_options, $spfw_test_rest_routes, $spfw_test_capabilities, $spfw_test_home_url;
 		$spfw_test_options      = array();
 		$spfw_test_rest_routes  = array();
 		$spfw_test_capabilities = array( 'manage_options' => true );
+
+		// The subdirectory-install tests set this and cannot restore it from
+		// inside the test body, so every test defined after them used to
+		// inherit a /blog install and its URI base. Reset to the bootstrap
+		// default here so payload assertions are order-independent.
+		$spfw_test_home_url = 'http://example.com';
 
 		$this->reset_settings_cache();
 
@@ -538,5 +543,584 @@ class Htaccess_Enforcement_Test extends TestCase {
 		$this->assertSame( WP_REST_Server::CREATABLE, $args['methods'] );
 		$this->assertSame( array( $controller, 'verify_htaccess' ), $args['callback'] );
 		$this->assertSame( array( $controller, 'check_permissions' ), $args['permission_callback'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// OpenLiteSpeed-compatible RewriteRule payloads.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * The root payload for sensitive_files includes a RewriteRule that
+	 * OpenLiteSpeed honors, in addition to the Apache FilesMatch block.
+	 */
+	public function test_root_payload_includes_rewrite_rule_for_sensitive_files() {
+		$this->set_hardening( array( 'protect_sensitive_files' => true ) );
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteRule ^/?(readme\\.html|license\\.txt|wp-config-sample\\.php|.*\\.(log|sql|bak|old|orig|env))$ - [F,L]',
+			$payload
+		);
+		$this->assertStringContainsString( '<FilesMatch', $payload );
+	}
+
+	/**
+	 * The root payload for block_xmlrpc includes a RewriteRule for xmlrpc.php.
+	 */
+	public function test_root_payload_includes_rewrite_rule_for_xmlrpc() {
+		$this->set_hardening( array( 'block_xmlrpc_file' => true ) );
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString( 'RewriteRule ^/?xmlrpc\\.php$ - [F,L]', $payload );
+		$this->assertStringContainsString( '<Files "xmlrpc.php">', $payload );
+	}
+
+	/**
+	 * The blanket deny-PHP payload includes a RewriteRule that refuses
+	 * PHP-family extensions before the FilesMatch block.
+	 */
+	public function test_deny_php_payload_includes_rewrite_rule() {
+		$payload = SPFW_Htaccess::payload_deny_php();
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [F,L]',
+			$payload
+		);
+		$this->assertStringContainsString( '<FilesMatch', $payload );
+	}
+
+	/**
+	 * The whitelist-aware deny-PHP payload allows whitelisted files through
+	 * with [L], then denies everything else with [F,L], so OpenLiteSpeed gets
+	 * real enforcement even though <FilesMatch> is inert there.
+	 */
+	public function test_whitelist_payload_allows_then_denies_with_rewrite_rules() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringContainsString( 'RewriteEngine On', $payload );
+		$this->assertStringContainsString(
+			'RewriteCond %{REQUEST_URI} ^/wp-content/plugins\\/allowed\\.php$',
+			$payload
+		);
+
+		// The allow rule must appear before the deny rule.
+		$allow_pos = strpos( $payload, 'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [L]' );
+		$deny_pos  = strpos( $payload, 'RewriteRule \\.(?i:php[0-9]*|phtml|phps|phar|inc)$ - [F,L]' );
+
+		$this->assertNotFalse( $allow_pos, 'whitelist allow rule missing' );
+		$this->assertNotFalse( $deny_pos, 'whitelist deny rule missing' );
+		$this->assertLessThan( $deny_pos, $allow_pos, 'allow rule must precede deny rule' );
+	}
+
+	/**
+	 * Root RewriteRule patterns include the site path prefix for subdirectory
+	 * installs so /blog/readme.html is blocked on a /blog/ WordPress install.
+	 */
+	public function test_root_payload_rewrite_rules_respect_subdirectory_install() {
+		global $spfw_test_home_url;
+		$spfw_test_home_url = 'http://example.com/blog';
+
+		$this->set_hardening(
+			array(
+				'protect_sensitive_files' => true,
+				'block_xmlrpc_file'       => true,
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'root' );
+
+		$this->assertStringContainsString( 'RewriteRule ^/?blog\\/(readme\\.html|license\\.txt|wp-config-sample\\.php|.*\\.(log|sql|bak|old|orig|env))$ - [F,L]', $payload );
+		$this->assertStringContainsString( 'RewriteRule ^/?blog\\/xmlrpc\\.php$ - [F,L]', $payload );
+	}
+
+	/**
+	 * Whitelist RewriteCond patterns include the site path prefix for
+	 * subdirectory installs.
+	 */
+	public function test_whitelist_payload_rewrite_conditions_respect_subdirectory_install() {
+		global $spfw_test_home_url;
+		$spfw_test_home_url = 'http://example.com/blog';
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringContainsString(
+			'RewriteCond %{REQUEST_URI} ^/blog/wp-content/plugins\\/allowed\\.php$',
+			$payload
+		);
+	}
+
+	/**
+	 * The whitelist allow chain is not enough on its own: mod_rewrite runs
+	 * before authorization, so a file the RewriteRule let through is still
+	 * refused by the <FilesMatch> deny on every server that honors it. The
+	 * payload must therefore re-grant each whitelisted basename with a <Files>
+	 * section placed AFTER the deny block, since Apache merges <Files> and
+	 * <FilesMatch> in source order and the last matching section wins.
+	 *
+	 * This is the assertion whose absence let the LiteSpeed Guest Mode 403 ship
+	 * in 2.10.0 — the payload looked correct on OpenLiteSpeed only because OLS
+	 * ignores <FilesMatch> entirely.
+	 */
+	public function test_whitelist_payload_grants_authz_after_the_deny_block() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/litespeed-cache/guest.vary.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$deny_pos  = strpos( $payload, '<FilesMatch "\\\\.(?i:php[0-9]*|phtml|phps|phar|inc)$">' );
+		$grant_pos = strpos( $payload, '<Files "guest.vary.php">' );
+
+		$this->assertNotFalse( $deny_pos, 'FilesMatch deny block missing' );
+		$this->assertNotFalse( $grant_pos, 'whitelist <Files> grant missing' );
+		$this->assertLessThan(
+			$grant_pos,
+			$deny_pos,
+			'the <Files> grant must follow the <FilesMatch> deny or Apache keeps denying'
+		);
+		$this->assertStringContainsString( 'Require all granted', $payload );
+
+		// Pre-2.4 servers get the same exemption in the authz fallback block.
+		$this->assertStringContainsString( 'Allow from all', $payload );
+	}
+
+	/**
+	 * The blanket payload (no whitelist) grants nothing — the authz exemption
+	 * exists only to serve whitelist entries.
+	 */
+	public function test_blanket_payload_grants_no_authz_exemption() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'Require all granted', $payload );
+		$this->assertStringNotContainsString( 'Allow from all', $payload );
+	}
+
+	/**
+	 * A stored path carrying a character that could terminate a quoted
+	 * .htaccess argument is dropped rather than interpolated, so a value that
+	 * predates the sanitizer's charset check cannot produce a file that 500s
+	 * the directory.
+	 */
+	public function test_whitelist_payload_drops_paths_with_unsafe_characters() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/evil".php', 'plugins/good.php' ),
+			)
+		);
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'evil', $payload );
+		$this->assertStringContainsString( '<Files "good.php">', $payload );
+	}
+
+	// ---------------------------------------------------------------------
+	// shape_enforcement_result(): allow-mode (whitelist) canaries.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * A whitelisted file that answers 200 is reachable — the pass condition for
+	 * an allow-mode canary. Its expected code is the allow code, not the deny
+	 * code, and the per-row label overrides the shared canary label.
+	 */
+	public function test_shape_marks_reachable_whitelist_file_as_allowed() {
+		$row          = $this->probe_row( 'whitelist', 200 );
+		$row['label'] = 'plugins/litespeed-cache/guest.vary.php';
+
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $row ) )
+		);
+
+		$this->assertSame( 'allowed', $shaped['targets'][0]['state'] );
+		$this->assertSame( '200', $shaped['targets'][0]['expected'] );
+		$this->assertSame(
+			'plugins/litespeed-cache/guest.vary.php',
+			$shaped['targets'][0]['label']
+		);
+		$this->assertFalse( $shaped['whitelist_blocked'] );
+	}
+
+	/**
+	 * A whitelisted file answering 403 is the failure this probe exists to
+	 * catch, and it raises the report-level whitelist_blocked flag.
+	 */
+	public function test_shape_marks_blocked_whitelist_file() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 403 ) ) )
+		);
+
+		$this->assertSame( 'whitelist_blocked', $shaped['targets'][0]['state'] );
+		$this->assertTrue( $shaped['whitelist_blocked'] );
+	}
+
+	/**
+	 * An allow-mode canary must not move the vhost-level htaccess_honored
+	 * verdict in either direction: a whitelisted file is reachable both when
+	 * the rules work as intended and when the server ignores .htaccess
+	 * entirely, so it proves nothing about enforcement.
+	 */
+	public function test_shape_whitelist_canary_does_not_move_the_headline() {
+		$reachable = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 200 ) ) )
+		);
+		$this->assertSame( 'unknown', $reachable['htaccess_honored'] );
+
+		$blocked = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'whitelist', 403 ) ) )
+		);
+		$this->assertSame( 'unknown', $blocked['htaccess_honored'] );
+
+		// A real deny canary alongside it still decides the headline.
+		$mixed = SPFW_Module_Hardening::shape_enforcement_result(
+			array(
+				'targets' => array(
+					$this->probe_row( 'whitelist', 200 ),
+					$this->probe_row( 'plugins', 403 ),
+				),
+			)
+		);
+		$this->assertSame( 'yes', $mixed['htaccess_honored'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// Auto-allow for known direct-access plugin endpoints.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Create a known direct-access file on disk so the detector sees it.
+	 *
+	 * @return string Absolute path written.
+	 */
+	private function install_known_direct_access_file() {
+		$path = WP_CONTENT_DIR . '/plugins/litespeed-cache/guest.vary.php';
+		wp_mkdir_p( dirname( $path ) );
+		file_put_contents( $path, "<?php // stub\n" );
+
+		return $path;
+	}
+
+	/**
+	 * With auto-allow on (the default), an installed LiteSpeed Guest Mode file
+	 * is permitted by the very first payload, without the admin whitelisting
+	 * anything. This is what removes the two-restart broken window on
+	 * OpenLiteSpeed, where an .htaccess edit is inert until a graceful restart.
+	 */
+	public function test_known_direct_access_file_is_allowed_without_being_whitelisted() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening( array( 'plugins_htaccess' => true ) );
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			$this->assertStringContainsString( 'guest.vary.php', $payload );
+			$this->assertStringContainsString( '<Files "guest.vary.php">', $payload );
+			$this->assertStringContainsString(
+				'RewriteCond %{REQUEST_URI} ^/wp-content/plugins\\/litespeed\\-cache\\/guest\\.vary\\.php$',
+				$payload
+			);
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	/**
+	 * The allowance is gated on the file existing: a site without LiteSpeed
+	 * installed gets a blanket deny, not a standing hole for a path that is
+	 * not there.
+	 */
+	public function test_known_direct_access_file_absent_yields_blanket_deny() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+
+		$this->assertStringNotContainsString( 'guest.vary.php', $payload );
+		$this->assertStringNotContainsString( 'Require all granted', $payload );
+	}
+
+	/**
+	 * Turning auto_allow_known_php off restores the total deny, so an admin who
+	 * does not use Guest Mode is not stuck with the allowance.
+	 */
+	public function test_auto_allow_can_be_turned_off() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening(
+				array(
+					'plugins_htaccess'     => true,
+					'auto_allow_known_php' => false,
+				)
+			);
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			$this->assertStringNotContainsString( 'guest.vary.php', $payload );
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	/**
+	 * An admin entry and the auto-added one never produce a duplicate rule.
+	 */
+	public function test_auto_allow_does_not_duplicate_an_explicit_whitelist_entry() {
+		$path = $this->install_known_direct_access_file();
+
+		try {
+			$this->set_hardening(
+				array(
+					'plugins_htaccess' => true,
+					'php_whitelist'    => array( 'plugins/litespeed-cache/guest.vary.php' ),
+				)
+			);
+			$payload = SPFW_Htaccess::payload( 'plugins' );
+
+			// Emitted twice by design — once for mod_authz_core and once in
+			// the pre-2.4 <IfModule !mod_authz_core.c> fallback, which is
+			// indented. Count the un-indented one to prove the path was not
+			// added twice over (explicit entry plus auto-detected).
+			$this->assertSame(
+				1,
+				substr_count( $payload, "\n<Files \"guest.vary.php\">" ),
+				'the allowance must be emitted once, not once per source'
+			);
+			$this->assertSame(
+				1,
+				substr_count( $payload, 'RewriteCond' ),
+				'one RewriteCond, not one per source'
+			);
+		} finally {
+			unlink( $path );
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// No-op writes (every needless rewrite costs an OpenLiteSpeed restart).
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Writing a payload that already matches the file byte for byte must not
+	 * touch it. On OpenLiteSpeed a rewrite desynchronizes the running server
+	 * from disk until the next graceful restart, so a no-op write is not free.
+	 * Callers rewrite on any php_whitelist change and that comparison is
+	 * order-sensitive, so a mere reorder used to land here.
+	 */
+	public function test_write_does_not_touch_a_file_that_already_matches() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+		$this->assertFileExists( $this->plugins_path );
+
+		// Backdate so any rewrite is detectable by mtime.
+		touch( $this->plugins_path, time() - 500 );
+		clearstatcache();
+		$before = filemtime( $this->plugins_path );
+
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		clearstatcache();
+		$this->assertSame(
+			$before,
+			filemtime( $this->plugins_path ),
+			'an identical payload must not rewrite the file'
+		);
+	}
+
+	/**
+	 * A genuinely different payload is still written.
+	 */
+	public function test_write_still_updates_a_file_whose_payload_changed() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$this->assertStringContainsString(
+			'<Files "allowed.php">',
+			file_get_contents( $this->plugins_path )
+		);
+	}
+
+	// ---------------------------------------------------------------------
+	// Staleness: has .htaccess changed since the verdict was measured?
+	// ---------------------------------------------------------------------
+
+	/**
+	 * With no probe ever run there is nothing to compare against, so this
+	 * reports false. An unknown is not a warning.
+	 */
+	public function test_changed_since_probe_is_false_without_a_stored_probe() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * A stored result predating the fingerprint (an upgrade) also reports
+	 * false rather than warning about a comparison it cannot make.
+	 */
+	public function test_changed_since_probe_is_false_for_a_pre_fingerprint_result() {
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+				),
+			)
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * When the files still match the fingerprint the verdict is current.
+	 */
+	public function test_changed_since_probe_is_false_when_files_match() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => SPFW_Module_Hardening::current_htaccess_hashes(),
+				),
+			)
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * Editing .htaccess after the probe makes the cached verdict describe rules
+	 * that are no longer on disk. On OpenLiteSpeed it also means the running
+	 * server is still applying the previous rules until a graceful restart,
+	 * which is the state this flag exists to surface instead of a stale green
+	 * badge.
+	 */
+	public function test_changed_since_probe_is_true_after_the_file_changes() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$stale = SPFW_Module_Hardening::current_htaccess_hashes();
+
+		// A later edit — here, the admin adding a whitelist entry.
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'php_whitelist'    => array( 'plugins/allowed.php' ),
+			)
+		);
+		SPFW_Htaccess::write( 'plugins' );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'php_whitelist'        => array( 'plugins/allowed.php' ),
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => $stale,
+				),
+			)
+		);
+
+		$this->assertTrue( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	/**
+	 * A file disappearing counts as a change too, not just an edit.
+	 */
+	public function test_changed_since_probe_is_true_when_the_file_is_removed() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		SPFW_Htaccess::write( 'plugins' );
+
+		$hashes = SPFW_Module_Hardening::current_htaccess_hashes();
+		unlink( $this->plugins_path );
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess'     => true,
+				'htaccess_enforcement' => array(
+					'htaccess_honored' => 'yes',
+					'targets'          => array(),
+					'checked'          => 1700000000,
+					'payload_hashes'   => $hashes,
+				),
+			)
+		);
+
+		$this->assertTrue( SPFW_Module_Hardening::htaccess_changed_since_probe() );
+	}
+
+	// ---------------------------------------------------------------------
+	// Synthetic uploads canary (403 vs 404 needs no file on disk).
+	// ---------------------------------------------------------------------
+
+	/**
+	 * A 403 on a path that does not exist proves the deny rule ran: `[F]` fires
+	 * on the URL before any file-existence check.
+	 */
+	public function test_shape_marks_synthetic_403_as_enforced() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'uploads_synthetic', 403 ) ) )
+		);
+
+		$this->assertSame( 'enforced', $shaped['targets'][0]['state'] );
+		$this->assertSame( 'yes', $shaped['htaccess_honored'] );
+	}
+
+	/**
+	 * A 404 means the request reached the filesystem unimpeded, so the rule is
+	 * inert. Previously the uploads rule went unprobed entirely whenever
+	 * wp-content/uploads/index.php was absent — which WordPress does not
+	 * reliably create — and reported "unverified" forever on the directory
+	 * where a planted script is most likely to land.
+	 */
+	public function test_shape_marks_synthetic_404_as_not_enforced() {
+		$shaped = SPFW_Module_Hardening::shape_enforcement_result(
+			array( 'targets' => array( $this->probe_row( 'uploads_synthetic', 404 ) ) )
+		);
+
+		$this->assertSame( 'not_enforced', $shaped['targets'][0]['state'] );
+		$this->assertSame( 'no', $shaped['htaccess_honored'] );
+	}
+
+	/**
+	 * The synthetic canary must name a file that cannot plausibly exist, since
+	 * the whole verdict rests on it being absent.
+	 */
+	public function test_synthetic_canary_is_a_php_path() {
+		$this->assertMatchesRegularExpression(
+			'/^[a-z0-9-]+\.php$/',
+			SPFW_Module_Hardening::SYNTHETIC_CANARY
+		);
 	}
 }

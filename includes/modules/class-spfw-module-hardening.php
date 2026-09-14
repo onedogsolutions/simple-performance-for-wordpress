@@ -44,16 +44,83 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * base-uri 'self' (blocks <base> hijacking), frame-ancestors 'self'
 	 * (clickjacking). Used whenever the admin has not supplied a custom policy.
 	 *
+	 * `script-src` carries `blob:` because LiteSpeed Cache's "Load JS Delayed"
+	 * re-executes inline scripts through URL.createObjectURL(new Blob(...)).
+	 * `blob:` is its own scheme — the `https:` source does not cover it — so
+	 * without it every delayed script is refused and the page loses jQuery.
+	 * It costs little here: this policy already allows 'unsafe-inline' and
+	 * https:, so an attacker who could mint a blob URL already has script
+	 * execution. It matters only under csp_strict_dynamic, where
+	 * inject_script_hashes() drops bare schemes anyway.
+	 *
+	 * `connect-src` carries `https:` and `frame-src` is present at all because
+	 * of what their absence did in the field (2026-09-14, maddogproducts.com):
+	 * with `connect-src 'self'` and no `frame-src`, an enforcing default policy
+	 * blocks the reCAPTCHA iframe (no frame-src means the `default-src 'self'`
+	 * fallback applies) and blocks reCAPTCHA Enterprise's token call, so a
+	 * logged-out visitor cannot complete a password reset — the form reports
+	 * only "Anti-spam verification token is missing". The same two directives
+	 * break every embedded video, map, and payment iframe on the internet.
+	 *
+	 * A default that breaks the site is not a safer default: admins turn the
+	 * whole feature back off, which is strictly worse than a policy that still
+	 * closes the high-value holes above while letting third-party HTTPS
+	 * endpoints work. Narrowing these two is exactly what the policy builder
+	 * and the violation collector are for, and an admin who narrows them has
+	 * chosen to.
+	 *
+	 * Must stay in sync with the `csp_directives` default in SPFW_Settings —
+	 * Csp_Header_Emission_Test asserts the two parse to the same map.
+	 *
 	 * @var string
 	 */
-	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
+	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data: blob:; font-src 'self' data: https:; connect-src 'self' https:; media-src 'self'; worker-src 'self' blob:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
+
+	/**
+	 * Directives a browser ignores when the policy arrives in the report-only
+	 * header, and logs a console error about on every page load.
+	 *
+	 * Per CSP Level 3, `frame-ancestors` and `sandbox` only take effect in an
+	 * enforcing policy. Emitting them while the admin is still testing produces
+	 * a steady stream of "directive ignored when delivered in a report-only
+	 * policy" errors that reads exactly like a broken policy — so they are
+	 * stripped from the report-only header and restored the moment it enforces.
+	 * Clickjacking stays covered in the meantime by `X-Frame-Options:
+	 * SAMEORIGIN` from the `security_headers` toggle.
+	 *
+	 * @var string[]
+	 */
+	const REPORT_ONLY_IGNORED = array( 'frame-ancestors', 'sandbox' );
 
 	/**
 	 * Cron hook name for the periodic file-integrity scan.
 	 *
 	 * @var string
 	 */
+	/**
+	 * Filename requested when probing a directory that has no canary file on
+	 * disk. Must not exist: the verdict rests on 403 (rule ran) versus 404
+	 * (request reached the filesystem).
+	 */
+	const SYNTHETIC_CANARY = 'spfw-enforcement-probe.php';
+
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
+
+	/**
+	 * One-off cron hook that closes a lapsed violation-collection window.
+	 *
+	 * The window closing is not just a stored timestamp going stale: while it
+	 * was open, every cached page was stored WITH `report-uri` in its header,
+	 * and a full-page cache will keep serving those copies for the rest of its
+	 * TTL. Visitors' browsers then keep POSTing reports to an endpoint that has
+	 * closed and answers 403 — an uncacheable full WordPress bootstrap per
+	 * report, which is exactly the cost the time-boxed window exists to avoid.
+	 * So the deadline schedules a real event that zeroes the setting and purges
+	 * the cache, rather than the window merely expiring on paper.
+	 *
+	 * @var string
+	 */
+	const CSP_EXPIRE_CRON = 'spfw_csp_collection_expired';
 
 	/**
 	 * Transient key for the file-monitor rate-limit cooldown (one alert
@@ -69,18 +136,6 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @var string[]
 	 */
 	const MONITOR_EXTENSIONS = array( 'php', 'php5', 'php7', 'php8', 'phtml', 'phps', 'phar', 'inc' );
-
-	/**
-	 * Directories the WordPress upgrader writes through, mapped to the label
-	 * shown for each in the admin UI. Order is the probe order.
-	 *
-	 * @var array<string,string>
-	 */
-	const UPGRADE_DIRS = array(
-		'upgrade'     => 'wp-content/upgrade',
-		'temp_backup' => 'wp-content/upgrade-temp-backup',
-		'plugins'     => 'wp-content/plugins',
-	);
 
 	/**
 	 * Enforcement canaries for the .htaccess rule groups this plugin authors.
@@ -99,27 +154,117 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @var array<string,array{label:string,deny:int[],allow:int[]}>
 	 */
 	const ENFORCEMENT_CANARIES = array(
-		'plugins'         => array(
+		'plugins'           => array(
 			'label' => 'wp-content/plugins/index.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'uploads'         => array(
+		'uploads'           => array(
 			'label' => 'wp-content/uploads/index.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'sensitive_files' => array(
+		'sensitive_files'   => array(
 			'label' => 'readme.html / license.txt',
 			'deny'  => array( 403 ),
 			'allow' => array( 200 ),
 		),
-		'xmlrpc'          => array(
+		'xmlrpc'            => array(
 			'label' => 'xmlrpc.php',
 			'deny'  => array( 403 ),
 			'allow' => array( 200, 405 ),
 		),
+		// Probed only when wp-content/uploads/index.php is absent, which is
+		// common — WordPress does not reliably create it. Requests a path that
+		// should not exist, because a deny rule fires on the URL before any
+		// file-existence check: 403 proves the rule ran, 404 proves the request
+		// reached the filesystem unimpeded. Without this the uploads rule was
+		// simply never probed and reported "unverified" forever, on the one
+		// directory where a planted script is most likely to land.
+		'uploads_synthetic' => array(
+			'label' => 'wp-content/uploads/ (synthetic .php path)',
+			'deny'  => array( 403 ),
+			'allow' => array( 404, 200 ),
+		),
+		// Inverted: this canary is a file the admin explicitly whitelisted, so
+		// an allow code is the pass and a deny code is the failure. Its label
+		// is supplied per row (one row per whitelisted path).
+		'whitelist'         => array(
+			'label' => 'whitelisted PHP file',
+			'mode'  => 'allow',
+			'deny'  => array( 403 ),
+			'allow' => array( 200 ),
+		),
 	);
+
+	/**
+	 * PHP files that well-known plugins serve over HTTP from inside
+	 * wp-content, and that the deny-PHP hardening therefore breaks unless
+	 * they are whitelisted. Paths are relative to WP_CONTENT_DIR, matching
+	 * the php_whitelist format.
+	 *
+	 * Used to surface a warning when such a file is installed but not
+	 * whitelisted. Detection is by file existence rather than by an active-
+	 * plugin or option check, so it keeps working across the vendors' own
+	 * refactors and does not depend on their internal option names.
+	 *
+	 * @var array<string,string> Path => human label.
+	 */
+	const KNOWN_DIRECT_ACCESS_PHP = array(
+		'plugins/litespeed-cache/guest.vary.php' => 'LiteSpeed Cache — Guest Mode vary cookie',
+	);
+
+	/**
+	 * Known direct-access PHP files that are installed on this site but absent
+	 * from the whitelist, while the .htaccess that would block them is on.
+	 *
+	 * Reported, never auto-applied: a hardening whitelist that grows without
+	 * the admin seeing it is the wrong default, and the admin may legitimately
+	 * prefer to turn the feature off in the other plugin instead.
+	 *
+	 * @return array<int,array{path:string,label:string}>
+	 */
+	public static function whitelist_suggestions() {
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( empty( $h['plugins_htaccess'] ) && empty( $h['uploads_htaccess'] ) ) {
+			return array();
+		}
+
+		// With auto-allow on, the payload already permits every known file that
+		// is installed, so there is nothing to warn about — warning anyway
+		// would send the admin to fix a problem they do not have. The
+		// suggestion only earns its place when auto-allow has been turned off.
+		if ( ! empty( $h['auto_allow_known_php'] ) ) {
+			return array();
+		}
+
+		$whitelist   = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
+		$suggestions = array();
+
+		foreach ( self::KNOWN_DIRECT_ACCESS_PHP as $path => $label ) {
+			$toggle = 0 === strpos( $path, 'uploads/' ) ? 'uploads_htaccess' : 'plugins_htaccess';
+
+			if ( empty( $h[ $toggle ] ) ) {
+				continue;
+			}
+
+			if ( in_array( $path, $whitelist, true ) ) {
+				continue;
+			}
+
+			if ( ! file_exists( WP_CONTENT_DIR . '/' . $path ) ) {
+				continue;
+			}
+
+			$suggestions[] = array(
+				'path'  => $path,
+				'label' => $label,
+			);
+		}
+
+		return $suggestions;
+	}
 
 	/**
 	 * Attach hooks: an admin-only integrity check, a settings-change listener
@@ -204,6 +349,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			add_filter( 'xmlrpc_methods', array( $this, 'strip_pingback_methods' ) );
 			add_filter( 'wp_headers', array( $this, 'strip_pingback_header' ) );
 		}
+
+		// Collection-window expiry. Registered unconditionally, not behind
+		// csp_enabled: a window can outlive the toggle that opened it (disable
+		// CSP mid-window and the deadline is still stored), and the cached
+		// pages advertising report-uri outlive both.
+		add_action( self::CSP_EXPIRE_CRON, array( $this, 'close_expired_collection' ) );
+		add_action( 'admin_init', array( $this, 'close_expired_collection' ) );
 
 		// File integrity monitor: schedule the twice-daily scan when enabled.
 		// The cron callback scans wp-content for PHP file changes and sends
@@ -495,15 +647,25 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	/**
 	 * Run the .htaccess enforcement probe and cache the shaped result.
 	 *
-	 * Mirrors run_upgrade_compat_check(): probe (impure) then shape (pure) then
-	 * persist, so get_settings() can return the verdict without re-probing on
-	 * every admin load. The stored result is what the admin UI reads until the
-	 * next explicit "Verify enforcement" or the one-shot post-write read.
+	 * Probe (impure) then shape (pure) then persist, so get_settings() can
+	 * return the verdict without re-probing on every admin load. The stored
+	 * result is what the admin UI reads until the next explicit "Verify
+	 * enforcement" or the one-shot post-write read.
 	 *
 	 * @return array Shaped enforcement report (see shape_enforcement_result()).
 	 */
 	public function run_htaccess_enforcement_check() {
 		$result = $this->probe_htaccess_enforcement();
+
+		// Fingerprint the .htaccess files this verdict was measured against.
+		// A later edit makes the verdict describe rules that are no longer on
+		// disk, and on OpenLiteSpeed it also means the running server is still
+		// serving the OLD rules: OLS parses .htaccess rewrite rules once, when
+		// the directory is first accessed after startup, and caches them until
+		// a graceful restart. Comparing this fingerprint to the current files
+		// is what lets the admin screen say "changed since last verified"
+		// instead of showing a stale green badge.
+		$result['payload_hashes'] = self::current_htaccess_hashes();
 
 		// The shaped result carries its own 'checked' timestamp, so no separate
 		// time key is stored; get_settings() reads the timestamp from there.
@@ -543,13 +705,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$targets[] = $this->probe_canary( 'plugins', plugins_url( 'index.php' ) );
 		}
 
-		// uploads deny-PHP: only meaningful when the canary file exists.
+		// uploads deny-PHP: prefer the real index.php canary, where a 200
+		// proves the request was served. When it is absent — which is common,
+		// since WordPress does not reliably create it — fall back to a path
+		// that should not exist, where 403 vs 404 is just as decisive and
+		// needs nothing on disk.
 		if ( ! empty( $h['uploads_htaccess'] ) ) {
 			$uploads = wp_upload_dir();
 			$disk    = trailingslashit( $uploads['basedir'] ) . 'index.php';
 
 			if ( file_exists( $disk ) ) {
 				$targets[] = $this->probe_canary( 'uploads', trailingslashit( $uploads['baseurl'] ) . 'index.php' );
+			} else {
+				$targets[] = $this->probe_canary(
+					'uploads_synthetic',
+					trailingslashit( $uploads['baseurl'] ) . self::SYNTHETIC_CANARY
+				);
 			}
 		}
 
@@ -566,6 +737,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// Root xmlrpc.php server block.
 		if ( ! empty( $h['block_xmlrpc_file'] ) ) {
 			$targets[] = $this->probe_canary( 'xmlrpc', home_url( '/xmlrpc.php' ) );
+		}
+
+		// Whitelisted files, probed in the opposite direction: these must be
+		// reachable. Without this the probe reports a fully healthy site while
+		// hardening 403s a file the admin explicitly allowed — the exact state
+		// a LiteSpeed Guest Mode install lands in. Capped because each probe is
+		// a loopback request with an 8s timeout.
+		foreach ( $this->whitelist_probe_targets( $h ) as $probe ) {
+			$targets[] = $this->probe_canary( 'whitelist', $probe['url'], $probe['path'] );
 		}
 
 		return self::shape_enforcement_result(
@@ -587,14 +767,20 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @param string $target Canary key (an ENFORCEMENT_CANARIES key).
 	 * @param string $url    Absolute canary URL.
+	 * @param string $label  Optional per-row label, overriding the canary's.
+	 *                       Used by the whitelist rows, which share one key.
 	 * @return array{target:string,url:string,code:int} Raw row; code 0 on error.
 	 */
-	private function probe_canary( $target, $url ) {
+	private function probe_canary( $target, $url, $label = '' ) {
 		$row = array(
 			'target' => $target,
 			'url'    => $url,
 			'code'   => 0,
 		);
+
+		if ( '' !== $label ) {
+			$row['label'] = $label;
+		}
 
 		$probe_url = add_query_arg( 'spfw_nocache', (string) time(), $url );
 
@@ -621,11 +807,97 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * Fingerprint of the .htaccess content this plugin currently has on disk,
+	 * keyed by target. Absent or unreadable targets map to an empty string, so
+	 * a file appearing or disappearing also registers as a change.
+	 *
+	 * Pure-ish: reads the filesystem, no network. Used to tell "this verdict
+	 * still describes the files on disk" from "the files changed after the
+	 * verdict was measured".
+	 *
+	 * @return array<string,string>
+	 */
+	public static function current_htaccess_hashes() {
+		$hashes = array();
+
+		foreach ( array( 'plugins', 'uploads', 'root' ) as $target ) {
+			$path = SPFW_Htaccess::path( $target );
+
+			$hashes[ $target ] = file_exists( $path ) ? (string) sha1_file( $path ) : '';
+		}
+
+		return $hashes;
+	}
+
+	/**
+	 * Whether the .htaccess files changed after the cached enforcement verdict
+	 * was measured, making that verdict describe rules that are no longer what
+	 * is on disk.
+	 *
+	 * On OpenLiteSpeed this is also the signal that the running server is out
+	 * of step with disk and needs a graceful restart. Returns false when no
+	 * probe has run yet, or when the stored result predates this fingerprint
+	 * (an upgrade) — an unknown is not a warning.
+	 *
+	 * @return bool
+	 */
+	public static function htaccess_changed_since_probe() {
+		$enforcement = SPFW_Settings::value( 'hardening', 'htaccess_enforcement', array() );
+
+		if ( ! is_array( $enforcement ) || empty( $enforcement['payload_hashes'] )
+			|| ! is_array( $enforcement['payload_hashes'] ) ) {
+			return false;
+		}
+
+		return self::current_htaccess_hashes() !== $enforcement['payload_hashes'];
+	}
+
+	/**
+	 * Whitelisted paths worth probing: those under a directory whose deny-PHP
+	 * rule is actually on, and whose file exists on disk (an absent file would
+	 * 404 and prove nothing). Capped at five to bound the probe's wall time.
+	 *
+	 * URLs are built with content_url() and disk paths with WP_CONTENT_DIR,
+	 * matching how SPFW_Htaccess builds the RewriteCond for the same entry.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return array<int,array{path:string,url:string}>
+	 */
+	private function whitelist_probe_targets( array $h ) {
+		$whitelist = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
+		$targets   = array();
+
+		foreach ( $whitelist as $path ) {
+			$path   = (string) $path;
+			$toggle = 0 === strpos( $path, 'uploads/' ) ? 'uploads_htaccess' : 'plugins_htaccess';
+
+			if ( empty( $h[ $toggle ] ) ) {
+				continue;
+			}
+
+			if ( ! file_exists( WP_CONTENT_DIR . '/' . $path ) ) {
+				continue;
+			}
+
+			$targets[] = array(
+				'path' => $path,
+				'url'  => content_url( '/' . $path ),
+			);
+
+			if ( count( $targets ) >= 5 ) {
+				break;
+			}
+		}
+
+		return $targets;
+	}
+
+	/**
 	 * Classify raw canary response codes into an honest enforcement verdict.
 	 *
 	 * Pure: no filesystem, WordPress, network, or translation access, so the
 	 * classification is unit-testable without an install (wp_remote_get() is not
-	 * stubbed in tests/bootstrap.php), exactly like shape_upgrade_check_result().
+	 * stubbed in tests/bootstrap.php).
 	 * Conservative by design: only a code a rule is meant to deny proves
 	 * 'enforced', only a clear allow code proves 'not_enforced', and everything
 	 * else (a redirect, a 404 for an absent canary, a connection failure of 0, a
@@ -639,15 +911,18 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *
 	 * @param array $raw Raw probe output: 'targets' (rows of {target,url,code})
 	 *                   and 'checked'.
-	 * @return array Report: 'htaccess_honored' (yes|no|unknown), 'targets' (rows
-	 *               of {target,label,url,observed_code,expected,state}), and
+	 * @return array Report: 'htaccess_honored' (yes|no|unknown),
+	 *               'whitelist_blocked' (bool — a file the admin whitelisted is
+	 *               being refused), 'targets' (rows of
+	 *               {target,label,url,observed_code,expected,state}), and
 	 *               'checked'.
 	 */
 	public static function shape_enforcement_result( array $raw ) {
-		$raw_targets  = isset( $raw['targets'] ) && is_array( $raw['targets'] ) ? $raw['targets'] : array();
-		$targets      = array();
-		$any_enforced = false;
-		$any_bypassed = false;
+		$raw_targets   = isset( $raw['targets'] ) && is_array( $raw['targets'] ) ? $raw['targets'] : array();
+		$targets       = array();
+		$any_enforced  = false;
+		$any_bypassed  = false;
+		$any_wl_broken = false;
 
 		foreach ( $raw_targets as $row ) {
 			if ( ! is_array( $row ) || ! isset( $row['target'] ) ) {
@@ -666,23 +941,47 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$code  = isset( $row['code'] ) ? (int) $row['code'] : 0;
 			$deny  = isset( $canary['deny'] ) ? (array) $canary['deny'] : array( 403 );
 			$allow = isset( $canary['allow'] ) ? (array) $canary['allow'] : array( 200 );
+			$mode  = isset( $canary['mode'] ) ? (string) $canary['mode'] : 'deny';
 
-			if ( in_array( $code, $deny, true ) ) {
+			if ( 'allow' === $mode ) {
+				// An allow-mode canary is a file that must stay reachable, so
+				// the verdict inverts. It deliberately moves neither
+				// $any_enforced nor $any_bypassed: reaching a whitelisted file
+				// says nothing about whether the server honors .htaccess at
+				// all, since an inert one would serve it too.
+				if ( in_array( $code, $allow, true ) ) {
+					$state = 'allowed';
+				} elseif ( in_array( $code, $deny, true ) ) {
+					$state         = 'whitelist_blocked';
+					$any_wl_broken = true;
+				} else {
+					$state = 'unknown';
+				}
+
+				$expected = $allow;
+			} elseif ( in_array( $code, $deny, true ) ) {
 				$state        = 'enforced';
 				$any_enforced = true;
+				$expected     = $deny;
 			} elseif ( in_array( $code, $allow, true ) ) {
 				$state        = 'not_enforced';
 				$any_bypassed = true;
+				$expected     = $deny;
 			} else {
-				$state = 'unknown';
+				$state    = 'unknown';
+				$expected = $deny;
 			}
+
+			$label = isset( $row['label'] ) && '' !== $row['label']
+				? (string) $row['label']
+				: ( isset( $canary['label'] ) ? (string) $canary['label'] : $key );
 
 			$targets[] = array(
 				'target'        => $key,
-				'label'         => isset( $canary['label'] ) ? (string) $canary['label'] : $key,
+				'label'         => $label,
 				'url'           => isset( $row['url'] ) ? (string) $row['url'] : '',
 				'observed_code' => $code,
-				'expected'      => implode( '/', array_map( 'strval', $deny ) ),
+				'expected'      => implode( '/', array_map( 'strval', $expected ) ),
 				'state'         => $state,
 			);
 		}
@@ -696,9 +995,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return array(
-			'htaccess_honored' => $honored,
-			'targets'          => $targets,
-			'checked'          => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
+			'htaccess_honored'  => $honored,
+			'whitelist_blocked' => $any_wl_broken,
+			'targets'           => $targets,
+			'checked'           => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
 		);
 	}
 
@@ -862,7 +1162,28 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		$h = SPFW_Settings::group( 'hardening' );
 
-		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() ) {
+		// While a collection window is open, an administrator receives the
+		// policy even though csp_exclude_logged_in would normally withhold it.
+		// Without this the person running the test is the one visitor the test
+		// cannot see: they browse the site, their browser is sent no CSP header
+		// at all, nothing is violated, nothing is reported, and the window
+		// closes on an empty log that reads as proof the policy is safe. The
+		// interaction-gated paths that actually break — a login modal, a
+		// checkout step — are precisely the ones only a human deliberately
+		// exercises, so excluding that human from the policy removes the only
+		// realistic way they get tested.
+		$self_test = self::admin_self_test_active( $h );
+
+		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() && ! $self_test ) {
+			// This response deliberately carries no CSP. Left cacheable, that
+			// headerless copy is stored by the page cache and then served to
+			// logged-out visitors for the rest of its TTL — so the policy
+			// silently stops applying to exactly the people it protects, and
+			// no violation is ever reported because no header was sent. Mark
+			// the response uncacheable so the omission cannot outlive this
+			// request.
+			self::prevent_page_caching( 'CSP header omitted for a logged-in user' );
+
 			return;
 		}
 
@@ -884,7 +1205,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// 'strict-dynamic'. Hashes are stable across cache hits (unlike nonces),
 		// so this is correct under full-page caching.
 		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
-			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
 		}
 
 		// Violation collection is a time-boxed diagnostic window, not a
@@ -905,11 +1226,50 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// testing. report-uri is deprecated but universally honored and fires
 		// immediately per violation, which is exactly what this feedback loop
 		// needs.
-		$report_url = self::collection_open( $h ) && self::collection_sampled( $h )
+		$report_only = ! empty( $h['csp_report_only'] );
+
+		// Drop the directives a report-only policy ignores (see
+		// REPORT_ONLY_IGNORED) before anything is appended, so the header we
+		// send carries only directives the browser will actually act on.
+		if ( $report_only ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+		}
+
+		// The admin's own page views are never sampled away: a sample rate is
+		// there to bound the report volume from real traffic, and one
+		// administrator clicking through the site is not a volume problem. It
+		// is, however, the only traffic guaranteed to reach the pages that
+		// matter, so discarding 90% of it would defeat the window.
+		$report_url = self::collection_open( $h ) && ( $self_test || self::collection_sampled( $h ) )
 			? self::csp_report_url()
 			: '';
 
 		if ( '' !== $report_url ) {
+			// This response asks the browser to report violations, so it must
+			// not be stored and replayed. The header is set here, in PHP, on
+			// send_headers — which does not run at all for a full-page cache
+			// hit. Left cacheable, what a window collects is limited to
+			// whatever the cache happened to regenerate while it was open, and
+			// the sampling coin-flip above is decided once per cache entry
+			// rather than per visitor (so a single unlucky flip silences an
+			// entire page for the whole window). On a LiteSpeed/QUIC.cloud site
+			// — the stack this plugin targets — that is most of the front end.
+			//
+			// It costs real performance, which is why the window is time-boxed,
+			// the admin opens it deliberately, and the UI says so.
+			if ( ! empty( $h['csp_collect_nocache'] ) ) {
+				self::prevent_page_caching( 'CSP violation-collection window open' );
+			}
+
+			// Coverage is recorded later in the same request, not here.
+			// `send_headers` fires from WP::main() BEFORE query_posts() and
+			// handle_404(), so no template conditional is answerable yet —
+			// is_404(), is_singular() and WooCommerce's is_cart()/is_checkout()
+			// would all read false and every page would be filed as 'other'.
+			// Deferring to template_redirect, which runs once the query has
+			// actually happened, is what makes the checklist mean anything.
+			add_action( 'template_redirect', array( $this, 'record_coverage_for_request' ), 1 );
+
 			// When a CDN/proxy rewrites the report URL's origin so it differs
 			// from the page's own origin ('self'), the browser would block the
 			// report POST under connect-src. Inject the report origin into the
@@ -921,11 +1281,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy .= ' report-uri ' . $report_url . ';';
 		}
 
-		$header = ! empty( $h['csp_report_only'] )
-			? 'Content-Security-Policy-Report-Only'
-			: 'Content-Security-Policy';
-
-		header( $header . ': ' . $policy );
+		header( self::csp_header_name( $h ) . ': ' . $policy );
 	}
 
 	/**
@@ -953,7 +1309,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
-			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
+		}
+
+		// Mirror add_csp_header()'s report-only strip, or the admin would be
+		// shown directives that are not in the header on the wire.
+		if ( ! empty( $h['csp_report_only'] ) ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
 		}
 
 		// Append the report-uri if a collection window is open, mirroring
@@ -967,6 +1329,111 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		return $policy;
+	}
+
+	/**
+	 * Ask every full-page cache we know of not to store this response.
+	 *
+	 * `DONOTCACHEPAGE` is the de-facto constant honored by LiteSpeed Cache,
+	 * W3 Total Cache, WP Rocket and WP Super Cache; LiteSpeed also has its own
+	 * action, which is the one that works when the constant is checked too
+	 * late. Both are cheap and neither errors when the cache is absent.
+	 *
+	 * Note what this does NOT fix: a cache entry generated for a logged-out
+	 * visitor (and so carrying the header) being served to a logged-in user by
+	 * a CDN that does not vary on the login cookie. Nothing in PHP can prevent
+	 * that, because PHP never runs for a cache hit. The exclusion is therefore
+	 * best-effort in that direction and exact in this one — which is the
+	 * direction that matters, since it is the one where a visitor loses the
+	 * policy rather than merely receiving it unexpectedly.
+	 *
+	 * @param string $reason Human-readable reason, surfaced in LiteSpeed's log.
+	 */
+	private static function prevent_page_caching( $reason ) {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Third-party de-facto constant; the name is the contract other cache plugins read.
+			define( 'DONOTCACHEPAGE', true );
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- LiteSpeed Cache's own hook; a prefixed name would not reach it.
+		do_action( 'litespeed_control_set_nocache', 'SPFW: ' . $reason );
+	}
+
+	/**
+	 * Close a violation-collection window whose deadline has passed, and purge
+	 * the page cache so no stored copy keeps advertising `report-uri`.
+	 *
+	 * Runs from its own one-off cron event and, as a catch-up for installs
+	 * where WP-Cron is unreliable, on `admin_init`. Both paths are a single
+	 * read of the already-cached settings array when there is nothing to do.
+	 */
+	public function close_expired_collection() {
+		$h     = SPFW_Settings::group( 'hardening' );
+		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+
+		// Nothing scheduled, or the window is genuinely still open.
+		if ( $until <= 0 || $until > time() ) {
+			return;
+		}
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_collect_until' => 0,
+				),
+			)
+		);
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- LiteSpeed Cache's own hook; a prefixed name would not reach it.
+		do_action( 'litespeed_purge_all' );
+	}
+
+	/**
+	 * Name of the CSP header the current settings emit.
+	 *
+	 * Exposed so the admin UI can label the emitted-policy preview with the
+	 * header it will actually be sent as. A policy string on its own gives the
+	 * admin no way to tell a report-only policy from an enforcing one, which is
+	 * the difference between "logging what would break" and "breaking it".
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return string
+	 */
+	public static function csp_header_name( array $h ) {
+		return ! empty( $h['csp_report_only'] )
+			? 'Content-Security-Policy-Report-Only'
+			: 'Content-Security-Policy';
+	}
+
+	/**
+	 * Remove named directives from a policy string.
+	 *
+	 * Splits on `;` and compares the first token of each directive, so a host
+	 * that happens to contain a directive name is never mistaken for one.
+	 *
+	 * @param string   $policy Policy string.
+	 * @param string[] $names  Lower-case directive names to drop.
+	 * @return string
+	 */
+	private static function remove_directives( $policy, array $names ) {
+		$kept = array();
+
+		foreach ( explode( ';', (string) $policy ) as $part ) {
+			$part = trim( $part );
+
+			if ( '' === $part ) {
+				continue;
+			}
+
+			$tokens = preg_split( '/\s+/', $part );
+			$name   = strtolower( isset( $tokens[0] ) ? $tokens[0] : '' );
+
+			if ( ! in_array( $name, $names, true ) ) {
+				$kept[] = $part;
+			}
+		}
+
+		return empty( $kept ) ? '' : implode( '; ', $kept ) . ';';
 	}
 
 	/**
@@ -984,6 +1451,231 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
 
 		return $until > time();
+	}
+
+	/**
+	 * Whether this request should receive the policy despite being logged in,
+	 * because an administrator is self-testing inside an open window.
+	 *
+	 * Deliberately narrow: it requires the window to be open, the setting to
+	 * be on, and the user to hold `manage_options`. It cannot leak into normal
+	 * operation, because outside a window it is always false — and a window
+	 * closes itself.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return bool
+	 */
+	public static function admin_self_test_active( array $h ) {
+		if ( empty( $h['csp_collect_admin'] ) || ! self::collection_open( $h ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'is_user_logged_in' ) || ! is_user_logged_in() ) {
+			return false;
+		}
+
+		return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Transient holding which page types a collection window has actually
+	 * reached.
+	 *
+	 * An empty violation log has two completely different meanings — "the
+	 * policy is clean" and "nothing exercised the pages where it is not" — and
+	 * nothing in the UI could tell them apart. Reports alone cannot close that
+	 * gap: a page that loads cleanly produces no report, so silence is
+	 * indistinguishable from absence. Recording which page types were served a
+	 * reporting policy is the missing half.
+	 *
+	 * @var string
+	 */
+	const CSP_COVERAGE_KEY = 'spfw_csp_coverage';
+
+	/**
+	 * Page types the coverage checklist tracks, in the order the UI lists them.
+	 *
+	 * The WooCommerce entries are filtered out on sites without it — see
+	 * applicable_page_types().
+	 *
+	 * @var string[]
+	 */
+	const COLLECTION_PAGE_TYPES = array(
+		'home',
+		'page',
+		'post',
+		'archive',
+		'search',
+		'404',
+		'shop',
+		'product',
+		'cart',
+		'checkout',
+		'account',
+	);
+
+	/**
+	 * WooCommerce-only entries of COLLECTION_PAGE_TYPES.
+	 *
+	 * @var string[]
+	 */
+	const WOO_PAGE_TYPES = array( 'shop', 'product', 'cart', 'checkout', 'account' );
+
+	/**
+	 * The page types worth asking this site's admin to cover.
+	 *
+	 * @return string[]
+	 */
+	public static function applicable_page_types() {
+		if ( class_exists( 'WooCommerce' ) ) {
+			return self::COLLECTION_PAGE_TYPES;
+		}
+
+		return array_values( array_diff( self::COLLECTION_PAGE_TYPES, self::WOO_PAGE_TYPES ) );
+	}
+
+	/**
+	 * Classify the current request for the coverage checklist.
+	 *
+	 * Order matters: cart, checkout and account are ordinary pages as far as
+	 * `is_singular( 'page' )` is concerned, so the specific tests come first.
+	 *
+	 * @return string One of COLLECTION_PAGE_TYPES, or 'other'.
+	 */
+	public static function current_page_type() {
+		// A list of pairs rather than a type => callback map: PHP coerces a
+		// numeric-string array key, so '404' would become the integer 404 and
+		// this method would return an int where every caller expects a string.
+		$tests = array(
+			array( '404', 'is_404' ),
+			array( 'search', 'is_search' ),
+			array( 'cart', 'is_cart' ),
+			array( 'checkout', 'is_checkout' ),
+			array( 'account', 'is_account_page' ),
+			array( 'product', 'is_product' ),
+			array( 'shop', 'is_shop' ),
+		);
+
+		foreach ( $tests as $test ) {
+			list( $type, $fn ) = $test;
+
+			if ( function_exists( $fn ) && call_user_func( $fn ) ) {
+				return $type;
+			}
+		}
+
+		if ( function_exists( 'is_front_page' ) && is_front_page() ) {
+			return 'home';
+		}
+
+		if ( function_exists( 'is_home' ) && is_home() ) {
+			return 'home';
+		}
+
+		if ( function_exists( 'is_singular' ) ) {
+			if ( is_singular( 'page' ) ) {
+				return 'page';
+			}
+
+			if ( is_singular() ) {
+				return 'post';
+			}
+		}
+
+		if ( function_exists( 'is_archive' ) && is_archive() ) {
+			return 'archive';
+		}
+
+		return 'other';
+	}
+
+	/**
+	 * Record coverage for the request that is currently being served.
+	 *
+	 * Runs on `template_redirect` rather than `send_headers` — see the note at
+	 * the call site — and only for requests that were actually sent a reporting
+	 * policy, so the checklist reports what was tested rather than what was
+	 * merely visited.
+	 */
+	public function record_coverage_for_request() {
+		self::record_collection_coverage( SPFW_Settings::group( 'hardening' ) );
+	}
+
+	/**
+	 * Note that this page type was served a reporting policy during the current
+	 * window.
+	 *
+	 * Writes at most once per page type per window: a type already recorded
+	 * costs one cached transient read and nothing else, so this stays off the
+	 * hot path even with the page cache bypassed. Coverage is keyed to the
+	 * window's deadline, so opening a new window starts from nothing rather
+	 * than inheriting last week's checkmarks.
+	 *
+	 * @param array $h Hardening settings group.
+	 */
+	public static function record_collection_coverage( array $h ) {
+		$window = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+
+		if ( $window <= 0 ) {
+			return;
+		}
+
+		$type = self::current_page_type();
+
+		if ( 'other' === $type ) {
+			return;
+		}
+
+		$store = self::read_coverage( $window );
+
+		if ( isset( $store['types'][ $type ] ) ) {
+			return;
+		}
+
+		$store['types'][ $type ] = time();
+
+		set_transient( self::CSP_COVERAGE_KEY, $store, max( 60, $window - time() ) + DAY_IN_SECONDS );
+	}
+
+	/**
+	 * Read the coverage store, discarding it if it belongs to an earlier window.
+	 *
+	 * @param int $window Current window deadline.
+	 * @return array{window:int,types:array<string,int>}
+	 */
+	private static function read_coverage( $window ) {
+		$raw = get_transient( self::CSP_COVERAGE_KEY );
+
+		if ( ! is_array( $raw ) || ! isset( $raw['window'] ) || (int) $raw['window'] !== (int) $window ) {
+			return array(
+				'window' => (int) $window,
+				'types'  => array(),
+			);
+		}
+
+		return array(
+			'window' => (int) $raw['window'],
+			'types'  => isset( $raw['types'] ) && is_array( $raw['types'] ) ? $raw['types'] : array(),
+		);
+	}
+
+	/**
+	 * Coverage for the current window, as { type => bool }, for the admin UI.
+	 *
+	 * @return array<string,bool>
+	 */
+	public static function collection_coverage() {
+		$h      = SPFW_Settings::group( 'hardening' );
+		$window = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+		$store  = self::read_coverage( $window );
+
+		$out = array();
+
+		foreach ( self::applicable_page_types() as $type ) {
+			$out[ $type ] = isset( $store['types'][ $type ] );
+		}
+
+		return $out;
 	}
 
 	/**
@@ -1173,59 +1865,69 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Replace 'unsafe-inline' in script-src with the collected sha256 hashes
-	 * plus 'strict-dynamic'. This is the Phase E tightening step: hashes are
-	 * stable across cache hits (unlike nonces), so they are correct under
-	 * full-page caching.
+	 * Replace 'unsafe-inline' in script-src with the collected sha256 hashes,
+	 * and — only when the admin has separately opted in — add 'strict-dynamic'.
 	 *
-	 * Note: 'strict-dynamic' changes how host allowlists are interpreted —
-	 * once present, https: and host sources in script-src are IGNORED by
-	 * supporting browsers. This is intentional: trust propagates from the
-	 * hashed scripts to any scripts they load.
+	 * Hashes are stable across cache hits (unlike nonces), so they are correct
+	 * under full-page caching. That is the whole of what hashing buys, and it
+	 * is safe: a policy that lists hashes alongside its existing host sources
+	 * still loads every script it loaded before.
 	 *
-	 * @param string   $policy  The CSP policy string.
-	 * @param string[] $hashes  Base64-encoded sha256 digests.
+	 * 'strict-dynamic' is a different and much larger change, which is why it
+	 * is now its own setting rather than an unannounced rider on this one. Once
+	 * present, supporting browsers IGNORE https: and every host source in
+	 * script-src — trust propagates only from the hashed scripts to whatever
+	 * they themselves load. So any <script src> written directly into the HTML
+	 * by a theme or a third party (reCAPTCHA's api.js, a hand-placed GTM
+	 * snippet) is refused unless a hashed script loaded it.
+	 *
+	 * Bundling the two meant "tighten script-src" silently discarded the host
+	 * allowlist the admin had just built from the violation log, and broke
+	 * exactly the third-party widgets the allowlist existed to permit.
+	 *
+	 * @param string   $policy         The CSP policy string.
+	 * @param string[] $hashes         Base64-encoded sha256 digests.
+	 * @param bool     $strict_dynamic Whether to add 'strict-dynamic' and drop
+	 *                                 the host/scheme sources it would void.
 	 * @return string
 	 */
-	private static function inject_script_hashes( $policy, array $hashes ) {
+	private static function inject_script_hashes( $policy, array $hashes, $strict_dynamic = false ) {
 		$directives = self::parse_policy_to_directives( $policy );
 
 		if ( ! isset( $directives['script-src'] ) || ! is_array( $directives['script-src'] ) ) {
 			return $policy;
 		}
 
-		$script_src = $directives['script-src'];
-
-		// Remove 'unsafe-inline' — the hashes replace it.
+		// Remove 'unsafe-inline' — the hashes replace it. (A browser that
+		// understands hashes ignores 'unsafe-inline' in the same directive
+		// anyway; dropping it keeps the emitted header honest about that.
+		// See the note above on why 'strict-dynamic' is not bundled in here.
 		$script_src = array_filter(
-			$script_src,
+			$directives['script-src'],
 			static function ( $token ) {
 				return "'unsafe-inline'" !== $token;
 			}
 		);
 
-		// Remove host/scheme sources that 'strict-dynamic' would ignore anyway.
-		// Keep 'self', 'none', and nonce/hash sources.
-		$script_src = array_filter(
-			$script_src,
-			static function ( $token ) {
-				// Keep keyword sources and existing hashes/nonces.
-				if ( 0 === strpos( $token, "'" ) ) {
-					return true;
+		if ( $strict_dynamic ) {
+			// Drop the host and scheme sources 'strict-dynamic' would make the
+			// browser ignore, so the emitted policy says what it means. Keep
+			// 'self', 'none', and existing nonce/hash sources.
+			$script_src = array_filter(
+				$script_src,
+				static function ( $token ) {
+					return 0 === strpos( $token, "'" );
 				}
-				// Drop bare scheme (https:) and host sources.
-				return false;
-			}
-		);
+			);
+		}
 
-		// Add the collected hashes.
 		foreach ( $hashes as $hash ) {
 			$script_src[] = "'sha256-" . $hash . "'";
 		}
 
-		// Add 'strict-dynamic' so trust propagates to scripts loaded by the
-		// hashed scripts (common in analytics and tag managers).
-		$script_src[] = "'strict-dynamic'";
+		if ( $strict_dynamic ) {
+			$script_src[] = "'strict-dynamic'";
+		}
 
 		$directives['script-src'] = array_values( array_unique( $script_src ) );
 
@@ -1580,438 +2282,4 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$this->maybe_send_file_alert( $changes );
 	}
 
-	/**
-	 * Absolute paths of the directories the upgrader writes through, keyed the
-	 * same way as UPGRADE_DIRS.
-	 *
-	 * @return array<string,string>
-	 */
-	public static function upgrade_dir_paths() {
-		return array(
-			'upgrade'     => WP_CONTENT_DIR . '/upgrade',
-			'temp_backup' => WP_CONTENT_DIR . '/upgrade-temp-backup',
-			'plugins'     => WP_PLUGIN_DIR,
-		);
-	}
-
-	/**
-	 * Run the upgrade-compatibility probe and return a normalized report.
-	 *
-	 * The two errors an admin actually sees when an install or update fails
-	 * both come from plain filesystem operations under wp-content/:
-	 * move_dir() from wp-content/plugins/<slug> into
-	 * wp-content/upgrade-temp-backup/plugins/<slug> ("Could not move the old
-	 * version to the upgrade-temp-backup directory") and dirlist() on the
-	 * unpacked source under wp-content/upgrade/ ("Filesystem error: A
-	 * directory could not be read"). Neither can be produced by an .htaccess
-	 * rule — those only govern HTTP requests, never rename() or opendir() —
-	 * so a failure here means ownership, permissions, or leftover state, and
-	 * the report names which.
-	 *
-	 * Every scratch file and directory the probe creates is removed again.
-	 *
-	 * @return array Report payload (see shape_upgrade_check_result()).
-	 */
-	public function run_upgrade_compat_check() {
-		global $wp_filesystem;
-
-		$fs_ready = function_exists( 'WP_Filesystem' ) && WP_Filesystem();
-		$fs       = $fs_ready ? $wp_filesystem : null;
-
-		$directories = array();
-
-		foreach ( self::upgrade_dir_paths() as $key => $path ) {
-			$directories[ $key ] = $this->probe_upgrade_dir( $key, $path, $fs );
-		}
-
-		return self::shape_upgrade_check_result(
-			array(
-				'directories'   => $directories,
-				'upgrader_move' => $this->probe_upgrader_move( $fs ),
-				'fs_ready'      => $fs_ready,
-				'fs_method'     => $fs_ready ? get_filesystem_method() : '',
-				'php_user'      => self::php_user(),
-				'checked'       => time(),
-			)
-		);
-	}
-
-	/**
-	 * Probe one directory the upgrader writes through: create two scratch
-	 * directories inside it, move a directory from one to the other (the
-	 * shape of the upgrader's own move, which needs write access to the
-	 * parent), list the moved directory through WP_Filesystem (the dirlist()
-	 * call behind "A directory could not be read"), then remove the scratch.
-	 *
-	 * @param string                  $key  Short directory key.
-	 * @param string                  $path Absolute path.
-	 * @param WP_Filesystem_Base|null $fs   Filesystem abstraction, or null when
-	 *                                      WP_Filesystem() could not initialize.
-	 * @return array Raw probe row.
-	 */
-	private function probe_upgrade_dir( $key, $path, $fs ) {
-		$row = array(
-			'key'      => $key,
-			'path'     => $path,
-			'exists'   => is_dir( $path ),
-			'writable' => false,
-			'movable'  => false,
-			'readable' => false,
-			'owner'    => self::dir_owner( $path ),
-			'php_user' => self::php_user(),
-			'error'    => '',
-			'stale'    => 0,
-		);
-
-		// The upgrader creates wp-content/upgrade and upgrade-temp-backup on
-		// demand, so a directory that does not exist yet is only a failure if
-		// it cannot be created either.
-		if ( ! $row['exists'] && ! wp_mkdir_p( $path ) ) {
-			$row['error'] = __( 'Directory does not exist and could not be created.', 'simple-performance-for-wordpress' );
-
-			return $row;
-		}
-
-		$row['exists']   = is_dir( $path );
-		$row['writable'] = wp_is_writable( $path );
-		$row['owner']    = self::dir_owner( $path );
-		$row['stale']    = in_array( $key, array( 'upgrade', 'temp_backup' ), true )
-			? self::count_leftovers( $path )
-			: 0;
-
-		if ( ! $fs instanceof WP_Filesystem_Base ) {
-			$row['error'] = __( 'WordPress could not initialize its filesystem abstraction (WP_Filesystem), which the upgrader requires.', 'simple-performance-for-wordpress' );
-
-			return $row;
-		}
-
-		if ( ! $row['writable'] ) {
-			$row['error'] = __( 'Not writable by the PHP process.', 'simple-performance-for-wordpress' );
-
-			return $row;
-		}
-
-		$uniq    = 'spfw-probe-' . uniqid( '', true );
-		$src     = trailingslashit( $path ) . $uniq . '-src';
-		$dst     = trailingslashit( $path ) . $uniq . '-dst';
-		$payload = trailingslashit( $src ) . 'plugin-sim';
-		$moved   = trailingslashit( $dst ) . 'plugin-sim';
-
-		if ( ! $fs->mkdir( $src ) || ! $fs->mkdir( $dst ) || ! $fs->mkdir( $payload ) ) {
-			$row['error'] = __( 'Could not create the probe scratch directories.', 'simple-performance-for-wordpress' );
-
-			$fs->delete( $src, true );
-			$fs->delete( $dst, true );
-
-			return $row;
-		}
-
-		$fs->put_contents( trailingslashit( $payload ) . 'probe.txt', 'spfw-probe' );
-
-		$row['movable'] = method_exists( $fs, 'move' ) && $fs->move( $payload, $moved, true );
-
-		if ( ! $row['movable'] ) {
-			$row['error'] = __( 'A directory could not be moved out of this location.', 'simple-performance-for-wordpress' );
-		} else {
-			$list            = $fs->dirlist( $moved, false, false );
-			$row['readable'] = is_array( $list ) && isset( $list['probe.txt'] );
-
-			if ( ! $row['readable'] ) {
-				$row['error'] = __( 'The directory contents could not be listed.', 'simple-performance-for-wordpress' );
-			}
-		}
-
-		$fs->delete( $src, true );
-		$fs->delete( $dst, true );
-
-		return $row;
-	}
-
-	/**
-	 * Reproduce the upgrader's own move: a scratch directory in
-	 * wp-content/plugins/ renamed into wp-content/upgrade-temp-backup/plugins/.
-	 *
-	 * This is the exact operation behind "Could not move the old version to
-	 * the upgrade-temp-backup directory", and because it spans two different
-	 * parents it needs write access to both — something a per-directory probe
-	 * cannot see on its own.
-	 *
-	 * @param WP_Filesystem_Base|null $fs Filesystem abstraction, or null.
-	 * @return array{ok:bool,error:string}
-	 */
-	private function probe_upgrader_move( $fs ) {
-		$row = array(
-			'ok'    => false,
-			'error' => '',
-		);
-
-		if ( ! $fs instanceof WP_Filesystem_Base ) {
-			$row['error'] = __( 'WordPress could not initialize its filesystem abstraction (WP_Filesystem), which the upgrader requires.', 'simple-performance-for-wordpress' );
-
-			return $row;
-		}
-
-		$backup = WP_CONTENT_DIR . '/upgrade-temp-backup/plugins';
-		$uniq   = 'spfw-probe-' . uniqid( '', true );
-		$src    = trailingslashit( WP_PLUGIN_DIR ) . $uniq;
-		$dst    = trailingslashit( $backup ) . $uniq;
-
-		if ( ! wp_mkdir_p( $backup ) || ! $fs->mkdir( $src ) ) {
-			$row['error'] = __( 'Could not create the probe scratch directories.', 'simple-performance-for-wordpress' );
-
-			$fs->delete( $src, true );
-
-			return $row;
-		}
-
-		$fs->put_contents( trailingslashit( $src ) . 'probe.txt', 'spfw-probe' );
-
-		$row['ok'] = method_exists( $fs, 'move' ) && $fs->move( $src, $dst, true );
-
-		if ( ! $row['ok'] ) {
-			$row['error'] = __( 'A plugin directory could not be moved into wp-content/upgrade-temp-backup/. This is what produces "Could not move the old version to the upgrade-temp-backup directory".', 'simple-performance-for-wordpress' );
-		}
-
-		$fs->delete( $src, true );
-		$fs->delete( $dst, true );
-
-		return $row;
-	}
-
-	/**
-	 * Normalize raw probe output into the payload the admin UI renders.
-	 *
-	 * Pure: no filesystem, WordPress, or translation access, so both the shape
-	 * and the pass/fail verdict can be unit-tested without an install.
-	 *
-	 * `pass` reflects capability only. Leftover debris is reported separately
-	 * as `stale_total` because a directory can be perfectly writable and still
-	 * hold orphaned backups from an interrupted run — a warning worth showing,
-	 * but not a failed check.
-	 *
-	 * @param array $raw Raw probe output: 'directories' (probe rows keyed by
-	 *                   directory key), 'upgrader_move' (an { ok, error } row),
-	 *                   'fs_ready', 'fs_method', 'php_user', and 'checked'.
-	 * @return array Normalized report: 'pass', 'fs_ready', 'fs_method',
-	 *               'php_user', 'directories', 'upgrader_move', 'stale_total',
-	 *               and 'checked'.
-	 */
-	public static function shape_upgrade_check_result( array $raw ) {
-		$directories = array();
-		$pass        = true;
-		$stale_total = 0;
-		$raw_dirs    = isset( $raw['directories'] ) && is_array( $raw['directories'] ) ? $raw['directories'] : array();
-
-		foreach ( self::UPGRADE_DIRS as $key => $label ) {
-			$in  = isset( $raw_dirs[ $key ] ) && is_array( $raw_dirs[ $key ] ) ? $raw_dirs[ $key ] : array();
-			$out = array(
-				'key'      => $key,
-				'label'    => $label,
-				'path'     => isset( $in['path'] ) ? (string) $in['path'] : '',
-				'exists'   => ! empty( $in['exists'] ),
-				'writable' => ! empty( $in['writable'] ),
-				'movable'  => ! empty( $in['movable'] ),
-				'readable' => ! empty( $in['readable'] ),
-				'owner'    => isset( $in['owner'] ) ? (string) $in['owner'] : '',
-				'php_user' => isset( $in['php_user'] ) ? (string) $in['php_user'] : '',
-				'error'    => isset( $in['error'] ) ? (string) $in['error'] : '',
-				'stale'    => isset( $in['stale'] ) ? max( 0, (int) $in['stale'] ) : 0,
-				'ok'       => false,
-			);
-
-			$out['ok'] = $out['exists'] && $out['writable'] && $out['movable'] && $out['readable'];
-
-			$stale_total += $out['stale'];
-
-			if ( ! $out['ok'] ) {
-				$pass = false;
-			}
-
-			$directories[] = $out;
-		}
-
-		$move     = isset( $raw['upgrader_move'] ) && is_array( $raw['upgrader_move'] ) ? $raw['upgrader_move'] : array();
-		$move_ok  = ! empty( $move['ok'] );
-		$fs_ready = ! empty( $raw['fs_ready'] );
-
-		if ( ! $move_ok || ! $fs_ready ) {
-			$pass = false;
-		}
-
-		return array(
-			'pass'          => $pass,
-			'fs_ready'      => $fs_ready,
-			'fs_method'     => isset( $raw['fs_method'] ) ? (string) $raw['fs_method'] : '',
-			'php_user'      => isset( $raw['php_user'] ) ? (string) $raw['php_user'] : '',
-			'directories'   => $directories,
-			'upgrader_move' => array(
-				'ok'    => $move_ok,
-				'error' => isset( $move['error'] ) ? (string) $move['error'] : '',
-			),
-			'stale_total'   => $stale_total,
-			'checked'       => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
-		);
-	}
-
-	/**
-	 * Count orphaned items left behind by an interrupted update run.
-	 *
-	 * Both scratch directories are emptied by the upgrader when a run
-	 * completes, so anything that survives is debris, and later updates fail
-	 * over it. wp-content/upgrade-temp-backup holds per-type subdirectories
-	 * (plugins/, themes/), so those are descended into once to count the real
-	 * orphaned items. Empty scaffolding is not counted: WordPress recreates it
-	 * on demand and it blocks nothing.
-	 *
-	 * @param string $path Absolute directory path.
-	 * @return int
-	 */
-	private static function count_leftovers( $path ) {
-		$count = 0;
-
-		foreach ( self::list_dir( $path ) as $name ) {
-			$full = trailingslashit( $path ) . $name;
-
-			if ( is_dir( $full ) && in_array( $name, array( 'plugins', 'themes' ), true ) ) {
-				foreach ( self::list_dir( $full ) as $child ) {
-					if ( self::has_contents( trailingslashit( $full ) . $child ) ) {
-						++$count;
-					}
-				}
-
-				continue;
-			}
-
-			if ( self::has_contents( $full ) ) {
-				++$count;
-			}
-		}
-
-		return $count;
-	}
-
-	/**
-	 * Names of the entries directly inside a directory, dots excluded.
-	 *
-	 * @param string $path Absolute directory path.
-	 * @return string[]
-	 */
-	private static function list_dir( $path ) {
-		if ( ! is_dir( $path ) ) {
-			return array();
-		}
-
-		$entries = @scandir( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-		if ( ! is_array( $entries ) ) {
-			return array();
-		}
-
-		return array_values( array_diff( $entries, array( '.', '..' ) ) );
-	}
-
-	/**
-	 * Whether a path is a file, or a directory holding at least one entry.
-	 *
-	 * @param string $path Absolute path.
-	 * @return bool
-	 */
-	private static function has_contents( $path ) {
-		if ( is_file( $path ) ) {
-			return true;
-		}
-
-		return count( self::list_dir( $path ) ) > 0;
-	}
-
-	/**
-	 * Remove orphaned leftovers from the upgrader's scratch directories.
-	 *
-	 * This is the repair for the failure the probe detects: an interrupted
-	 * update leaves plugin copies under wp-content/upgrade-temp-backup/ and
-	 * unpacked files under wp-content/upgrade/, and every later update then
-	 * fails over the debris. Refuses to run while an update is genuinely in
-	 * progress, which WordPress signals with its .maintenance file.
-	 *
-	 * @return array|WP_Error { removed: int } on success.
-	 */
-	public function clear_upgrade_leftovers() {
-		if ( file_exists( ABSPATH . '.maintenance' ) ) {
-			return new WP_Error(
-				'spfw_update_in_progress',
-				__( 'An update appears to be running right now, so the leftovers were not removed. Try again once it finishes.', 'simple-performance-for-wordpress' ),
-				array( 'status' => 409 )
-			);
-		}
-
-		global $wp_filesystem;
-
-		if ( ! function_exists( 'WP_Filesystem' ) || ! WP_Filesystem() || ! $wp_filesystem instanceof WP_Filesystem_Base ) {
-			return new WP_Error(
-				'spfw_filesystem_unavailable',
-				__( 'WordPress could not initialize its filesystem abstraction (WP_Filesystem), so the leftovers could not be removed.', 'simple-performance-for-wordpress' ),
-				array( 'status' => 500 )
-			);
-		}
-
-		$removed = 0;
-
-		foreach ( array( WP_CONTENT_DIR . '/upgrade', WP_CONTENT_DIR . '/upgrade-temp-backup' ) as $target ) {
-			foreach ( self::list_dir( $target ) as $name ) {
-				if ( $wp_filesystem->delete( trailingslashit( $target ) . $name, true ) ) {
-					++$removed;
-				}
-			}
-		}
-
-		return array( 'removed' => $removed );
-	}
-
-	/**
-	 * Owner of a path as a name when it can be resolved, otherwise the
-	 * numeric uid. Empty when the path does not exist.
-	 *
-	 * @param string $path Absolute path.
-	 * @return string
-	 */
-	private static function dir_owner( $path ) {
-		if ( ! file_exists( $path ) ) {
-			return '';
-		}
-
-		$uid = @fileowner( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-		if ( false === $uid ) {
-			return '';
-		}
-
-		if ( function_exists( 'posix_getpwuid' ) ) {
-			$info = @posix_getpwuid( $uid ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-			if ( is_array( $info ) && ! empty( $info['name'] ) ) {
-				return (string) $info['name'];
-			}
-		}
-
-		return (string) $uid;
-	}
-
-	/**
-	 * Name of the user the PHP process runs as. Comparing it against a
-	 * directory's owner is what makes an ownership mismatch diagnosable from
-	 * the admin instead of from a shell.
-	 *
-	 * @return string
-	 */
-	private static function php_user() {
-		if ( function_exists( 'posix_geteuid' ) && function_exists( 'posix_getpwuid' ) ) {
-			$info = @posix_getpwuid( posix_geteuid() ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-			if ( is_array( $info ) && ! empty( $info['name'] ) ) {
-				return (string) $info['name'];
-			}
-		}
-
-		return (string) get_current_user();
-	}
 }

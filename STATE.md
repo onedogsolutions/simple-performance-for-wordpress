@@ -9,16 +9,17 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `main` (font-weight fix merged from
+- **Branch:** `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.7.0
-- **Last updated:** 2026-09-07
-- **Overall status:** ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Plugin version target:** 2.13.0
+- **Last updated:** 2026-09-14
+- **Overall status:** ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
+  Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
   Hardening-toggle write bug fixed + hardening options expanded (branch
   `claude/toggle-htaccess-plan-fsl3p0`); ✅ Content-Security-Policy header added
   with safety/exclusion options (branch `claude/state-md-missing-header-pbhit2`);
@@ -74,12 +75,19 @@ the authoritative record.)
   sha256 snapshot scanner, twice-daily cron, email alerts, on-demand scan
   endpoint, CSP-style whitelist UI card, 2.4.0); ✅ Scan results list
   collapsed by default behind a "Show file list" expand button (2.5.0); ✅
-  Upgrade-compatibility probe + leftover cleanup, and root `.htaccess`
-  self-check deferred off update/upload requests (2.6.0); ✅ `.htaccess`
+  Root `.htaccess` self-check deferred off update/upload requests (2.6.0); ✅ `.htaccess`
   enforcement honesty — runtime verification of whether the vhost actually
   applies the file-protection rules, three-state integrity+enforcement badges,
   self-healing `reconcile()` of authored root-block drift, root Restore +
-  import mapping fixes, and always-on XML-RPC PHP fallback (2.7.0)
+  import mapping fixes, and always-on XML-RPC PHP fallback (2.7.0); ✅ WooCommerce
+  Add to Cart fix — the "non-store pages" toggle no longer dequeues the Add to
+  Cart handler chain, store content is detected in blocks/shortcodes, and a
+  `spfw_is_woo_page` filter covers page-builder layouts — plus CSP admin
+  honesty (emitted header labelled with its real name and an enforcing badge,
+  `frame-ancestors` stripped from report-only policies, unsaved-changes
+  tracking) (2.8.0); ✅ OpenLiteSpeed-compatible mod_rewrite fallbacks added
+  to root and deny-PHP .htaccess payloads, whitelist allow-then-deny chain
+  fixed, and automatic reconciliation on upgrade (2.10.0)
 
 ## Shared project facts (true for every step)
 
@@ -123,62 +131,102 @@ the authoritative record.)
 | 10 | Quick-toggle parity + WooCommerce tab + card UI | ✅ Done | (this commit) |
 | 11 | Option Cleaner & Ghost Capability Cleaner | ✅ Done | (this commit) |
 | 12 | Database Cleanup & Optimization Module | ✅ Done | (this commit) |
+| 13 | LiteSpeed compatibility: whitelist authz fix, `blob:` CSP, allow-canaries | ✅ Done | 7615267 |
+| 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
+| 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
+| 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
+| 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**2.7.0 (`.htaccess` enforcement honesty — runtime verification, three-state
-integrity+enforcement badges, self-healing `reconcile()` of authored drift, root
-Restore + import fixes, always-on XML-RPC PHP fallback) is built and packaged for
-QA on a live WordPress install.**
+**Step 17 shipped as 2.13.0.** It closes the 2026-09-14 maddogproducts.com
+report — a logged-out visitor could not complete a password reset because
+reCAPTCHA never returned a token — and the larger problem behind it: the
+violation log read clean throughout the report-only window because almost
+nothing could reach it.
 
-The 2.7.0 work came out of two reports on the ott-dev LiteSpeed vhost. (a) The
-Directory Hardening card showed a green "Active" badge while `readme.html` and
-`license.txt` returned HTTP 200 and `wp-content/plugins/index.php` executed —
-the vhost has "Auto Load from .htaccess" effectively off, so the deny rules are
-inert, but `SPFW_Htaccess::status()` only checks *file present + sha1 == stored
-hash* and reported `ok`. (b) The root marker block had drifted (missing its
-`# group: block_xmlrpc` section) yet still read `ok`, because status compares
-disk to the *stored hash*, never to the payload the *current toggles* require;
-root was also excluded from `run_payload_migration()`, and the root card's
-Restore was mis-mapped to the plugins file. A latent gap was closed too: the PHP
-`xmlrpc_enabled` filter ran only when `disable_xmlrpc && ! block_xmlrpc_file`,
-so with the server block inert, enabling it left XML-RPC protected by neither
-layer. 2.7.0 verifies enforcement at runtime and reports it honestly, self-heals
-authored drift, fixes the mis-mapped actions, and keeps the PHP fallback on
-whenever `disable_xmlrpc` is set. Governing constraint: `readme.html`,
-`license.txt`, and `plugins/*.php` are served directly by the web server (no WP
-bootstrap), so **no PHP hook can intercept them** — the honest fix is detection
-+ guidance, not a PHP fallback for the file rules (only `xmlrpc.php` bootstraps
-WP and has a viable PHP path).
+Two things remain open, both recorded under Step 17 and neither blocking the
+release:
 
-**Part E (live ott-dev vhost remediation) is approval-gated and was NOT executed
-— this is a code-only change.** It needs explicit go-ahead + host access: enable
-LiteSpeed "Auto Load from .htaccess" (WebAdmin → Virtual Host → Rewrite) or move
-the deny rules into the vhost/context config, graceful-reload OpenLiteSpeed,
-then re-sync the root block in SPFW (Restore, or let `reconcile()` run) with
-`disable_xmlrpc` on, and run "Verify enforcement" to confirm `readme.html`,
-`license.txt`, `plugins/index.php`, and `xmlrpc.php` all return 403 (cross-check
-via Novamira MCP per prior practice).
+1. **The F2 field check.** Does LiteSpeed Cache / QUIC.cloud replay a PHP-set
+   CSP header on a cache hit? `csp_collect_nocache` makes the answer irrelevant
+   *during a collection window*, which is what the collector needed. Outside a
+   window it still matters: if the header is not replayed, an enforcing policy
+   is simply absent on cache hits and the protection is thinner than the UI
+   implies. Check this before assuming otherwise.
+2. **The 401 in the original report.** `recaptcha/enterprise/pat` returned 401,
+   which is a server response rather than a CSP block. It may be a second,
+   independent problem (site-key or domain mismatch) that 2.13.0 does not touch.
+   Reproduce with the DevTools console unfiltered.
 
-Remaining before release is manual testing on a WordPress + OpenLiteSpeed site —
-confirm: "Verify enforcement" reports `not_enforced` (amber badge + card banner)
-on a vhost that ignores `.htaccess` and `enforced` (green) once the server
-applies the rules; the shaped result is cached and read without probing on load;
-the one automatic read rides the existing post-write root self-check (no new
-per-load loopback); a drifted root block (missing `block_xmlrpc`) is silently
-re-synced by `reconcile()` on the next non-update admin request and via the
-version-gated upgrade path; foreign edits are never clobbered (stay `altered` +
-Restore); the root card's Restore rewrites the root block (not plugins) and
-re-arms `spfw_root_htaccess_check`; settings import re-derives the root block
-when a root toggle is on; and with `disable_xmlrpc` on but the server block
-inert, XML-RPC is still denied by the PHP filter. Also still outstanding from
-2.5.0/2.6.0: the upgrade-compatibility "Run check" / "Clear leftovers" flows; a
-plugin install and bulk update both succeeding with every hardening toggle on;
-the root self-check still rolling back on a 500; the PHP-whitelist
-allow-then-deny payload; the file-integrity monitor cron + hourly-capped alert;
-and the "Locked Down" preset enabling the monitor.
+F8 is knowingly left as-is: `wp-login.php` carries no CSP because `send_headers`
+does not fire there, so testing core login proves nothing about a front-end
+login modal — which is the form that actually failed.
+
+### Prior release context (2.12.0/2.11.0, retained)
+
+2.11.0 is merged to `main` (PR #5, merge commit `1a60c6e`).
+
+Step 14 answers the follow-up question from the field report: the 2.11.0 fix was
+correct but inert on the reporting server until OpenLiteSpeed was restarted,
+because OLS caches .htaccess rewrite rules from startup. That restart cannot be
+avoided and the plugin must not attempt it. What 2.12.0 changes is how *often*
+it is needed and whether the UI is honest while it is pending — see Step 14.
+
+Gates: PHPUnit 99 tests / 218 assertions (11 new — auto-allow present/absent/
+disabled/de-duplicated, no-op vs. real writes, and five staleness cases),
+Jest 26/26, `npm run build` clean, `php -l` clean, PHPCS (88 errors / 161
+warnings) and `lint:js` (266 problems) both at their pre-existing baselines,
+`.pot` regenerated to 485 entries, version synchronized to 2.12.0.
+
+**Validated on real hardware (2026-09-08, maddogproducts.com, OpenLiteSpeed
+1.9.1).** The earlier caveat is discharged:
+- `wp-content/plugins/index.php` → **403** (deny enforcing)
+- `wp-content/plugins/litespeed-cache/guest.vary.php` → **200** (allowance
+  working, nothing whitelisted by hand)
+- `readme.html` → **403** (root block enforcing)
+
+So the allow-then-deny RewriteCond/RewriteRule chain does work on OLS, and the
+auto-allow puts the LiteSpeed endpoint through without admin intervention.
+
+Two field observations worth keeping:
+- The plugins `.htaccess` sat on disk with valid deny rules while
+  `plugins/index.php` still returned 200; after toggling the blocks on and a
+  graceful restart, the rules bit. Consistent with the OLS rule-caching thesis,
+  though the toggle and the restart moved together so it is not a clean
+  attribution.
+- `autoLoadHtaccess 1` was set on the vhost the whole time. A site can have
+  correct config, a correct `.htaccess`, and still enforce nothing, purely
+  because the running server has not reloaded — which is exactly the gap the
+  2.12.0 staleness banner reports.
+
+**Uploads canary gap, found in the field and fixed in this step.** The Hardening
+tab showed plugins "Enforced" but uploads "Present (enforcement unverified)",
+because the uploads probe ran only when `wp-content/uploads/index.php` existed
+and WordPress does not reliably create it. The probe now falls back to
+requesting `SYNTHETIC_CANARY`, a path that should not exist: `[F]` fires on the
+URL before any file-existence check, so 403 proves the rule ran and 404 proves
+the request reached the filesystem — decisive, and needing nothing on disk. The
+uploads card reads either canary via `combine_enforcement()`.
+
+**CI remains red on `main` for a pre-existing, unrelated reason** —
+`PHPUnit Tests (8.0)` fails inside `composer install` because `composer.lock`
+pins PHPUnit 10.5.64 whose `sebastian/*` deps require PHP >= 8.1, while the
+matrix runs 8.0 and the plugin header declares `Requires PHP: 8.0`. Diagnosis
+and two candidate fixes are on PR #5; neither is applied because both change CI
+or dependency policy. This is the one outstanding item that is nobody's
+follow-up yet.
+
+Longer-term, worth considering: `KNOWN_DIRECT_ACCESS_PHP` currently holds a
+single entry. Other plugins with direct-access PHP endpoints (the ShortPixel /
+Imagify / EWWW / UpdraftPlus paths already in the UI pre-fill list) are
+candidates, but each needs verifying against the current vendor code before
+being auto-allowed rather than merely suggested. Also still open: packaging is
+a hand-run Python walk rather than a committed script, and
+`csp_tighten_script_src` is expected to be unusable alongside LiteSpeed's JS
+optimization (hash drift per cache entry) and has no UI warning saying so.
 
 ---
 
@@ -393,6 +441,436 @@ Record here anything a later step needs to know: choices that differ from the sp
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
 
+- 2026-09-08 (logged-out visitors lost dependent stylesheets, → 2.12.2, branch
+  `claude/funny-lamport-589dr7`): reported as "the file hardening breaks
+  variations and checkout for logged-out users", with paired screenshots of the
+  same product page in incognito and logged in. The hardening `.htaccess` files
+  were not involved. The difference between the two screenshots is purely CSS:
+  incognito rendered browser-default-width `<select>` controls and left the Font
+  select visible next to the swatch images that are supposed to replace it, so a
+  stylesheet was missing for anonymous visitors and present for the admin.
+  **Root cause:** `SPFW_Module_Core::maybe_deregister_dashicons()` called
+  `wp_deregister_style( 'dashicons' )`, gated on `! is_user_logged_in()`.
+  Deregistering removes the handle from the registry, and
+  `WP_Dependencies::all_deps()` then drops every enqueued item whose deps are
+  not all registered — "item requires dependencies that don't exist" — silently,
+  with no notice and no console error, taking anything that depends on those
+  items with it. So the toggle's ~28 KB saving also removed whichever add-on /
+  variation-swatch stylesheet declared `dashicons` as a dependency. Required
+  add-on fields could not be completed, which is why the report reached us as a
+  checkout failure rather than a styling one.
+  **Why it was hard to see:** `disable_dashicons` defaults to **on**, and the
+  removal applies only to logged-out visitors — so the site renders correctly
+  for the admin looking at it and broken for every customer. It is also the
+  ONLY code path in the plugin that removes a front-end asset for logged-out
+  visitors and not for logged-in ones (`grep is_user_logged_in` over
+  `includes/`: this, the CSP exclusion, and the REST auth gate), which is what
+  made the attribution decisive rather than a guess.
+  **Fix:** `wp_dequeue_style( 'dashicons' )`. It takes the same saving —
+  nothing needs it, nothing prints it — and when a queued stylesheet does
+  declare it as a dependency WordPress resolves and prints it, which is the
+  correct outcome because that dependent needs it. The method is renamed
+  `maybe_dequeue_dashicons()`; the old name is kept as a delegating alias so a
+  site that unhooked it by name is not silently left on a dead callback.
+  **Decisions:** (1) Dequeue rather than "deregister only when nothing depends
+  on it": a dependency added after our priority-100 hook would defeat the
+  scan, and dequeue gets the same answer with no scan. (2) The logged-out gate
+  is kept — `wp_dequeue_style()` would strip the admin bar's icons for
+  logged-in users, since the bar enqueues the handle directly. (3) The test
+  bootstrap grew recording stubs for `add_action`, `wp_dequeue_style`,
+  `wp_deregister_style` and `is_user_logged_in`, plus `remove_action` /
+  `remove_filter` / `is_admin` no-ops so `SPFW_Module_Core::register()` can be
+  called under test at all; `add_action` was previously an empty function, so
+  no existing test depended on its return.
+  **Not fixed here (same footgun, different blast radius):**
+  `deregister_embed_script()` calls `wp_deregister_script( 'wp-embed' )` on
+  `wp_footer` priority 1, before footer scripts print, so a footer script
+  declaring `wp-embed` as a dependency would be dropped the same way. Left
+  alone because it applies to logged-in and logged-out visitors alike and so
+  cannot be the reported bug, and because almost nothing depends on `wp-embed`
+  — but it is the same defect and should get the same treatment. **Done in
+  Step 16 (2.12.3), at the user's request once 2.12.2 was field-verified.**
+  **Verified in the field (2026-09-09):** confirmed fixed on the reporting site
+  after a graceful OpenLiteSpeed restart and a full cache purge.
+  **One false lead worth recording, because it cost a round trip and will
+  recur.** Between installing the fix and the restart/purge, the product page
+  threw `Uncaught (in promise) {code: 0, details: []}` from WooCommerce PayPal
+  Payments' button script on page load, and Add to Cart stayed broken. It read
+  like a second, separate bug — the page was even excluded from the page cache
+  — and it survived a deactivate/reactivate. It was neither: it cleared with
+  the restart and full purge and needed no code change. The lesson is the
+  2.12.0 one arriving from the other direction: on OpenLiteSpeed a fix is not
+  observable until the server has reloaded AND every stored copy of the page is
+  gone, and a page-level cache exclusion does not imply the other caches (UCSS,
+  CCSS, combined JS/CSS) are clear. Until both have happened, a leftover
+  symptom is evidence of nothing. Diagnosis notes from that detour, kept only
+  so the next session does not re-derive them: `code: 0` with an empty
+  `details` is ppcp's non-PayPal-API branch (a plain PHP exception), and a
+  WordPress REST error is never that shape — its `code` is always a string —
+  which is what ruled the REST module out.
+
+- 2026-09-08 (CI red on `main`, pre-existing): `PHPUnit Tests (8.0)` has been
+  failing on every recent `main` run (`1a7fe32`, `fda55bb`, `3b70ace`,
+  `ab48a33`, `e7be924`, `eb22647` — six for six). It is not a test failure:
+  `composer install` aborts in resolution because `composer.lock` pins PHPUnit
+  10.5.64 whose `sebastian/*` deps require PHP >= 8.1, while the matrix runs
+  8.0 and the plugin header declares `Requires PHP: 8.0`. `composer.json`
+  permits `^9.6 || ^10.5`, but `install` always honors the lock, so the `^9.6`
+  alternative is never reached. Fail-fast then cancels the 8.2/8.3 legs, which
+  makes the run look worse than it is. Two candidate fixes are written up on
+  PR #5: `composer update` in the phpunit job (keeps 8.0 coverage, loses
+  lockfile fidelity in CI), or dropping 8.0 from the phpunit matrix only (keeps
+  the lock, narrows what `Requires PHP: 8.0` is actually verified against).
+  Deliberately NOT applied here — it is a CI/dependency policy change, outside
+  the 2.11.0 fix, and the maintainer's call. Note `phpcs` is
+  `continue-on-error: true`, so it can never redden the run.
+
+- 2026-09-08 (release packaging): there is no packaging script in the repo —
+  `.distignore` exists but nothing consumes it, and `rsync` is absent from the
+  build container, so the ZIP was assembled with a short Python walk that
+  applies `.distignore` (top-level path prefixes plus basename globs at any
+  depth) and writes every entry under a `simple-performance-for-wordpress/`
+  root wrapper, which is what makes WordPress treat an upload as an overwrite
+  of the existing plugin rather than a new one (the 1.11.1 fix). `npm run
+  build` must run first: `build/` is gitignored but ships in the release. The
+  2.11.0 archive is 25 files / 177 KB and correctly omits `src`, `tests`,
+  `tools`, `vendor`, `node_modules`, `STATE.md`, and the composer/npm/webpack
+  config files. Worth turning into a committed script if packaging recurs.
+
+- 2026-09-08 (LiteSpeed compatibility, → 2.11.0): the 2.10.0 whitelist was
+  never correct on Apache or LiteSpeed Enterprise, only on OpenLiteSpeed. The
+  allow-then-deny RewriteRule chain is a *rewrite*-layer decision, and
+  `[L]` ends only the rewrite pass — authorization runs afterwards and the
+  `<FilesMatch> … Require all denied` block refused the file regardless. It
+  looked correct because the one server we tested on (OLS) ignores
+  `<FilesMatch>` entirely, so the rewrite chain was the only thing running.
+  The fix relies on Apache merging `<Files>`/`<FilesMatch>` in source order,
+  last match winning, so the grant is emitted *after* the deny.
+  Considered and rejected: `<If "%{REQUEST_URI} =~ …">`, which would express
+  the path directly instead of a basename, but requires `AllowOverride All`
+  and 500s a vhost without it — the same constraint that keeps
+  `Options -Indexes` out of these payloads. Path precision instead comes from
+  the existing RewriteCond chain, which still answers the same basename at any
+  other path with `[F,L]`.
+
+- 2026-09-08 (allow-canaries, → 2.11.0): `shape_enforcement_result()` gained a
+  per-canary `mode`. An allow-mode row deliberately moves neither
+  `$any_enforced` nor `$any_bypassed`: a whitelisted file is reachable both
+  when the rules work as intended *and* when the server ignores .htaccess
+  entirely, so it carries no information about the vhost-level
+  `htaccess_honored` verdict. It sets a separate `whitelist_blocked` flag
+  instead. Note that all whitelist rows share the `whitelist` target key, so
+  they carry a per-row `label` and the React list key had to become
+  `target:label` — `derive_enforcement()` in the REST layer collapses them to
+  one entry, which is harmless because no card reads that key.
+
+- 2026-09-08 (whitelist charset, → 2.11.0): whitelist paths are interpolated
+  into both a RewriteCond pattern and a `<Files "…">` argument, so a quote
+  would produce an .htaccess that 500s the directory. The sanitizer now
+  restricts them to `[A-Za-z0-9._/-]`, and `payload_deny_php_for_target()`
+  re-checks independently — the sanitizer only runs on save, so values stored
+  before this release would otherwise reach the payload unchecked.
+
+- 2026-09-08 (env note): `vendor/bin/phpcs` ships with no `installed_paths`
+  configured in a fresh clone, so it fails with "Referenced sniff WordPress
+  does not exist" until you run
+  `vendor/bin/phpcs --config-set installed_paths vendor/wp-coding-standards/wpcs,vendor/phpcompatibility/php-compatibility,vendor/phpcompatibility/phpcompatibility-paragonie,vendor/phpcompatibility/phpcompatibility-wp,vendor/phpcsstandards/phpcsutils,vendor/phpcsstandards/phpcsextra`.
+  Not a code issue; recorded so the next session does not read it as a
+  regression. Baselines to compare against: PHPCS 88 errors / 161 warnings,
+  `lint:js` 266 problems.
+
+- 2026-09-08 (2.8.1 version bump): released as 2.8.1 rather than re-cutting
+  2.8.0, because a 2.8.0 package had already been handed over during the
+  session — including one build carrying the Hardening-tab render crash. Same
+  version number would not have prompted an update on an install already
+  holding 2.8.0. **No code difference from the final 2.8.0 build**; the
+  changelog entry says so rather than inventing a delta.
+
+- 2026-09-08 (upgrade-compatibility removal, → 2.9.0): the probe + cleanup
+  feature shipped in 2.6.0 was removed wholesale at the user's direction — it
+  had done its job (the real cause was orphaned `upgrade-temp-backup` debris,
+  not SPFW) and was no longer needed. Removed: `UPGRADE_DIRS`, the eleven probe/
+  shape/cleanup methods in `SPFW_Module_Hardening`, the two REST routes and
+  handlers, the `upgradeCheck`/`isCheckingUpgrade`/`isCleaningUpgrade` state and
+  handlers in `App.jsx`, the card + results panel + `CheckPill` in
+  `HardeningSettings.jsx`, and `tests/Upgrade_Compat_Check_Test.php`.
+  **Decisions:** (1) historical changelog entries for 2.6.0 were kept and
+  annotated "(Removed in 2.9.0.)" rather than rewritten, and the 2.6.0 decision
+  log entry below was annotated likewise, so the record of *why* the probe
+  existed survives its removal; (2) the 2.8.0 changelog line listing
+  side-effect endpoints was edited to drop the two removed routes, since that
+  line describes current behavior; (3) stale cross-references in comments
+  (`mirrors run_upgrade_compat_check()` in the enforcement probe docblock, the
+  `shape_upgrade_check_result()` mention in `Htaccess_Enforcement_Test.php`) were
+  rewritten rather than left dangling; (4) `package.json` version was brought
+  into line at 2.9.0 — it had been pinned at `1.0.0` and never tracked the
+  plugin version, so this aligns it going forward; (5) `.pot` regenerated via
+  `tools/make-pot.php` (475 entries, down from 497) so the removed strings no
+  longer ship. **Verified:** `npm run build` clean; PHPUnit 71 tests / 155
+  assertions (was 82 tests before the 11 removed upgrade-check tests); PHPCS and
+  `lint:js` identical to their pre-existing baselines; repo-wide grep shows zero
+  runtime references to the removed symbols; ZIP packaged per `.distignore`
+  with the top-level `simple-performance-for-wordpress/` wrapper.
+
+- 2026-09-08 (CSP cache coherence + a shipped render crash, → 2.8.0, same
+  branch): the last two Part E items, plus a regression this session
+  introduced and shipped.
+  **The regression, first, because it matters most:** the connect-src commit
+  placed `const gaps = connectSrcGaps( directives )` ABOVE `const directives =
+  hardening.csp_directives || {}` in `CspPolicyCard.jsx`. Webpack compiles a
+  temporal-dead-zone reference without complaint; it throws only at render, so
+  `npm run build` succeeding proved nothing. The Hardening tab raised
+  `ReferenceError: Cannot access 'directives' before initialization` and did
+  not render. That went out in a ZIP and was merged to `main`. Fixed by
+  reordering, and — since a green build is evidently not evidence the admin
+  screen loads — `src/components/test/renders.test.js` now mounts each
+  component. Verified the test actually catches it by running the suite against
+  the shipped file: all five CspPolicyCard cases fail with that exact error and
+  pass on the fix. **Lesson for future sessions: a webpack build is a syntax
+  check, not a smoke test. Run `npm run test:js`.**
+  Making that possible needed `jest.config.js`, mapping `@wordpress/element` to
+  `react` (the former is a webpack external, not an installed package; the
+  latter is a thin re-export and IS installed). `react`/`react-dom` were
+  promoted from transitive to explicit devDependencies, since the test imports
+  them directly and `import/no-extraneous-dependencies` is right to object.
+  **Item 1 — `csp_exclude_logged_in` vs page caching.** The exclusion was
+  decided at generation time and then cached with the response. Two directions,
+  only one of which PHP can fix. The fixable one is the one that matters: a
+  page generated for a logged-in user carries NO header, and if the cache
+  stores it, that headerless copy is served to logged-out visitors for the rest
+  of the TTL — the policy silently stops applying to exactly the people it
+  protects, and nothing is reported because no header was sent. Such responses
+  are now marked uncacheable (`DONOTCACHEPAGE` plus LiteSpeed's
+  `litespeed_control_set_nocache`). The unfixable direction — a logged-out
+  entry served to a logged-in user by a CDN not varying on the login cookie —
+  cannot be addressed from PHP, because PHP never runs on a cache hit; that is
+  stated in the method docblock and in the toggle's UI copy rather than
+  pretended away. Cost: with logged-in page caching enabled, front-end pages
+  are uncached for logged-in users while this toggle is on. Correctness over
+  hit rate for a small population, and the copy says so.
+  **Item 2 — window expiry.** `csp_collect_until` lapsing was previously just a
+  timestamp going stale, so pages cached while it was open kept advertising
+  `report-uri` and browsers kept POSTing to an endpoint answering 403 — the
+  per-report uncacheable bootstrap the time-boxed window exists to prevent.
+  `set_csp_collection()` now schedules `CSP_EXPIRE_CRON` for the deadline plus a
+  minute; the handler zeroes the setting and purges. Registered unconditionally
+  rather than behind `csp_enabled`, because a window outlives the toggle that
+  opened it, and backed by an `admin_init` catch-up for installs where WP-Cron
+  is unreliable (a single read of already-cached settings when idle).
+  `deactivate()` clears it, along with the file-monitor scan, which had been
+  left scheduled.
+  **Deviations:** (i) `prevent_page_caching()` is not unit-tested — it defines
+  a constant, so a second call in the same process is a no-op and the test
+  would be order-dependent. Covered by reading, not by assertion. (ii) The
+  three new third-party names (`DONOTCACHEPAGE`,
+  `litespeed_control_set_nocache`, `litespeed_purge_all`) take `phpcs:ignore`
+  with reasons, keeping the project total at its baseline. Note the
+  inconsistency: pre-existing `litespeed_purge_all` calls in
+  `class-spfw-rest-settings.php` and `class-spfw-module-fonts.php` are NOT
+  ignored and sit inside the baseline count.
+  **Verified:** 82 PHPUnit tests / 246 assertions (4 new); 26 JS tests across 3
+  suites (6 new render smoke tests); phpcs unchanged at 97E/161W;
+  CspPolicyCard.jsx lint total unchanged at 68 with zero errors on added lines;
+  lint:css clean; build succeeds; `.pot` unchanged at 510 msgids, one string
+  reworded.
+
+- 2026-09-08 (connect-src gaps + silent token truncation, → 2.8.0, same
+  branch): closing the Part E item flagged during the CSP work — `connect-src`
+  is an explicit allowlist while `frame-src` carries the payment origins, so
+  enforcing would break checkout.
+  **The blocker found first:** `sanitize_csp_directives()` capped each directive
+  at **15** tokens and truncated silently. The reporting site's live
+  `connect-src` was at exactly 15 (`'self'` + 14 tracker origins), so any
+  payment origin added to it would have been dropped on save and the "fix"
+  would have done nothing, invisibly. Raised to `CSP_MAX_TOKENS = 30` (a named
+  constant, no longer a magic number), and the builder now warns when a
+  directive reaches the cap. Wildcard host sources already survived
+  sanitization (`^(https?://)?(\*\.)?...`), which matters because the vendors'
+  own guidance is written in wildcards and they are how a policy stays under
+  the cap — pinned by a test so a future sanitizer tightening cannot silently
+  break the vendor lists.
+  **Decisions:** (1) The gap is detected structurally rather than waited for.
+  The Allow flow writes a reported origin into the directive that reported it,
+  which is correct but incomplete for an SDK that loads a frame first and calls
+  its API only at the payment step — that second violation may never be
+  reported on a site nobody test-buys from, so a clean violation log reads as
+  "safe to enforce" when it is not. `connectSrcGaps()` checks the policy
+  directly: if any of a provider's origins is already present anywhere (proof
+  the site uses it) and its connect-src origins are not, the card says so, in
+  amber while report-only and red while enforcing, with a one-click fix.
+  (2) Provider lists live in `src/lib/csp-bundles.js`, pure and unit-tested,
+  and are labelled in the UI as a starting point rather than a guarantee —
+  integrations differ (PayPal Fastlane pulls in Braintree, Stripe address
+  autocomplete pulls in Google Maps) and providers add hosts. The violation log
+  stays authoritative. (3) Nothing is written to the stored policy without an
+  explicit click: the gap fix and the new "Pre-fill payment provider origins"
+  button are both admin actions, the latter behind a confirm like the existing
+  tracker pre-fill.
+  **Sourcing caveat:** `docs.stripe.com` is blocked by this environment's
+  egress proxy, so the Stripe origins come from vendor guidance surfaced via
+  web search rather than fetched from the docs directly; PayPal's wildcard
+  recommendation was confirmed from its developer docs. Stripe's documented set
+  is `js.stripe.com`/`*.js.stripe.com`/`hooks.stripe.com` (script/frame) and
+  `api.stripe.com` (connect); `https://*.stripe.com` was added to connect-src
+  to cover the telemetry hosts (`q.`, `errors.`) that appear in practice, and
+  `m.stripe.network` for fraud detection, which no wildcard on `stripe.com`
+  covers. Over-allowing a vendor's own origins is the safe direction of error
+  here; under-allowing is what breaks checkout. **Worth re-verifying against
+  Stripe's docs from an unblocked network before relying on it.**
+  **Deviations:** (i) The plan said to extend the Allow action to offer
+  connect-src alongside the reporting directive. The standalone gap check
+  supersedes that and is strictly better — it fires whether or not a violation
+  was ever reported, which is the whole failure mode. Allow is unchanged.
+  (ii) `wp-scripts lint-js --fix <file>` ignores the path argument and
+  reformats the default glob; it silently rewrote 8 unrelated component files
+  and was reverted. **Do not use `--fix` in this repo** while the repo-wide
+  prettier baseline is red — hand-format instead, or it buries the diff and
+  rewrites the baseline CI runs `continue-on-error` against.
+  **Still deferred:** `csp_exclude_logged_in` vs page caching, and purging when
+  `csp_collect_until` expires on its own.
+  **Verified:** 78 PHPUnit tests / 242 assertions (3 new); 20 JS tests across 2
+  suites (12 new); phpcs full-project unchanged at 97E/161W; CspPolicyCard.jsx
+  lint total unchanged at 68 with zero errors on added lines; new lib files
+  lint clean; build succeeds; `.pot` 504 → 510, the 9 added strings and nothing
+  else. Noted in passing (pre-existing, not fixed): `tools/make-pot.php` does
+  not decode `\uXXXX` escapes, so the existing "visitors\u2019 browsers" msgid
+  ships mangled; new strings use literal characters to avoid joining it.
+
+- 2026-09-08 (unsaved-edit clobber on side-effect endpoints, → 2.8.0, same
+  branch): follow-up to the dirty-tracking work above, fixing the pre-existing
+  bug that work exposed. Seven endpoints persist something of their own and
+  return the **full** settings payload — restore-htaccess, csp-report/collect,
+  scan-fonts, scan-files, verify-htaccess — and
+  `App.jsx` applied each one wholesale. Any edit the admin had made but not
+  saved was discarded with no indication: toggle Report-Only, press "Start
+  collecting", lose the toggle. Adding the dirty banner made this worse, not
+  better — the banner would correctly go clean while the edit vanished.
+  **Decisions:** (1) Two paths, not one. `commitSettings()` stays an
+  authoritative replace for the four cases where the payload IS the new truth
+  (initial load, Save, import, preset — the last two are destructive by
+  intent and confirmed by the admin). The seven side-effect endpoints now go
+  through `mergeServerSettings()`, which makes the payload the new saved
+  baseline and layers pending edits back on top, leaving the form dirty.
+  (2) Edits are diffed **per key**, not per group, so a payload that writes one
+  key in `hardening` (a collection deadline) does not have to discard an
+  unsaved edit to a different key in the same group. Values compare by
+  `JSON.stringify` so `csp_directives` arrays/objects compare by value.
+  (3) The helpers moved to `src/lib/settings-merge.js`, free of any WordPress
+  or React import. That was forced rather than chosen: `@wordpress/element` is
+  a webpack external (`wp.element`) and is not an installed package, so jest
+  cannot resolve `App.jsx` and the helpers were untestable where they were.
+  They are pure functions with nothing React-specific about them anyway.
+  **Deviations:** the plan had no JS test layer; `@wordpress/scripts` already
+  ships jest, so `npm run test:js` was added to `package.json` and
+  `src/lib/test/settings-merge.test.js` covers the diff/merge behavior (8
+  tests). No new dependency, no jest config file. `src/` is in `.distignore`,
+  so none of it ships in the ZIP.
+  **Verified:** 8 JS tests pass; 75 PHPUnit tests / 237 assertions unchanged;
+  phpcs full-project total unchanged (97E/161W); the two new JS files lint
+  clean and App.jsx has zero lint errors on added lines; `npm run build`
+  succeeds.
+
+- 2026-09-08 (WooCommerce Add to Cart breakage + CSP admin honesty, → 2.8.0,
+  branch `claude/csp-generator-enforced-policy-7mriy7`): reported as "Report-Only
+  is on but an enforced CSP is being emitted, and it is blocking Add to Cart".
+  **The CSP half of the report was a misdiagnosis, and the plugin caused the
+  misdiagnosis.** Live `curl -sI` on maddogproducts.com returned exactly one
+  header, `content-security-policy-report-only`, freshly generated (no
+  `x-litespeed-cache: hit`) — the emission logic was correct all along
+  (`add_csp_header()` is the only CSP emitter; `security_headers` never emits
+  one; nothing writes CSP into `.htaccess`). What made it look enforced:
+  (a) the "Actual emitted header" panel printed a bare policy string with **no
+  header name**, so report-only and enforcing are visually identical; (b) the
+  panel only rendered when the emitted string differed from the built one, so it
+  blinked in and out; (c) the settings screen is one form with a single Save and
+  **no dirty tracking**, so a toggled-but-unsaved Report-Only switch disagrees
+  with the server-derived panel directly beneath it; (d) `frame-ancestors 'self'`
+  was emitted in report-only, where browsers ignore it and log a console error
+  per page load — the error spam that anchored the whole diagnosis.
+  **The real cause of the Add to Cart failure** was
+  `SPFW_Module_WooCommerce::disable_scripts_styles()`: its dequeue list included
+  `wc-add-to-cart` plus `jquery-blockui` and `js-cookie`, dropped on every page
+  where `is_woocommerce() || is_cart() || is_checkout() || is_account_page()` is
+  false. That is false for page-builder landing pages (the site runs Avada/Fusion),
+  the front page, and posts using `[products]` — all of which render Add to Cart
+  buttons. Confirmed on a live non-store page with JS combining off:
+  `wc_add_to_cart_params` 0, `cart-fragments` 0, `blockUI` 0, `js.cookie` 0,
+  `woocommerce` 11. The list was also internally inconsistent — it dropped
+  `wc-add-to-cart` while leaving `wc-add-to-cart-variation` enqueued, so variable
+  products ran a script with its dependency and data object both removed.
+  **Decisions:** (1) The Add to Cart chain is now **never** dequeued by this
+  toggle (`KEEP_SCRIPTS`), rather than trying to detect Add to Cart markup
+  perfectly. No route conditional or content sniff can see a product grid a page
+  builder renders through its own shortcode, so any heuristic that decides to
+  drop the handler will eventually drop it on a page that needs it — and the
+  failure is silent, with no console error. The handler is a few KB; the
+  stylesheets and the cart-fragments request are where the savings are.
+  (2) Content sniffing (`content_has_woo_markup()`, a pure static so it is
+  unit-testable) and a `spfw_is_woo_page` filter were added anyway — they fix a
+  second, quieter bug where a page with `[products]` kept its markup but lost
+  WooCommerce's stylesheets and rendered unstyled.
+  (3) `frame-ancestors`/`sandbox` are stripped from report-only headers via
+  `REPORT_ONLY_IGNORED` + `remove_directives()`, and restored automatically when
+  the policy enforces; `X-Frame-Options: SAMEORIGIN` covers clickjacking in the
+  interim. Both `add_csp_header()` and `get_emitted_policy_preview()` apply the
+  strip so the preview matches the wire byte for byte.
+  (4) `csp_header_name()` is the single source for the header name, consumed by
+  the header itself and by `get_settings()` (new `csp_emitted_header` and
+  `csp_excludes_logged_in` fields) so the UI can never disagree with the wire.
+  (5) `App.jsx` gained `savedSettings` + `commitSettings()` (every full-payload
+  response advances both copies) and a `persistedFingerprint()` comparison over
+  the six persisted groups only — the computed read-only fields (violation logs,
+  scan results, probe state) change on their own schedule and would report the
+  form as permanently unsaved. Unsaved state drives a footer banner, a
+  `beforeunload` guard, and a line in the CSP panel.
+  **Deviations:** (i) The plan proposed dequeuing `wc-add-to-cart-variation`
+  alongside `wc-add-to-cart`; keeping the whole chain instead is strictly safer
+  and makes the two lists trivially disjoint (asserted in the tests).
+  (ii) The emitted-header panel was moved out of the builder-only branch to sit
+  above "Violation reports", so Advanced/custom-mode users see the enforcing
+  badge too — it was previously unreachable in custom mode.
+  (iii) `tools/make-pot.php` takes `<root> <outfile>` as arguments; running it
+  bare fatals. Noted here because the 2.7.0 entry does not say so.
+  **Deferred (not this release):** `csp_exclude_logged_in` is decided at page
+  generation and then cached with the response (`/shop/` returns
+  `x-litespeed-cache-control: public,max-age=604800`), so the wrong visitor
+  population can receive or miss the header; nothing purges when
+  `csp_collect_until` expires on its own; and `connect-src` is an explicit
+  allowlist missing `api.stripe.com`, `m.stripe.network` and `c.paypal.com`
+  while `frame-src` carries the payment origins — that gap will break checkout
+  on the day Report-Only is switched off, because the "Allow" flow only ever
+  adds an origin to the directive that reported it.
+  **Verified:** see the commit message for the test/lint/build results.
+
+- 2026-09-08 (OpenLiteSpeed-compatible hardening payloads, → 2.10.0): the
+  `.htaccess` payloads written by `SPFW_Htaccess` used only Apache authz
+  directives (`<FilesMatch>`, `<Files>`, `Require all denied`,
+  `Order allow,deny`, `Deny from all`). On OpenLiteSpeed these directives are
+  ignored in `.htaccess` even when "Auto Load from .htaccess" is enabled; only
+  `RewriteEngine`/`RewriteRule`/`RewriteCond` are honored. The root block, the
+  blanket deny-PHP files, and the whitelist-aware deny-PHP files now emit
+  `RewriteRule` denials first and keep the existing authz blocks as Apache
+  fallbacks. The whitelist payload previously used a no-op `[L]` rule that
+  relied on `<FilesMatch>` to perform the actual denial; it now uses an
+  allow-then-deny chain (`RewriteCond` whitelist → `RewriteRule … [L]` →
+  `RewriteRule … [F,L]`) so non-whitelisted PHP files are refused on OLS too.
+  Subdirectory installs are handled by reusing `get_uri_base()` in the root
+  `RewriteRule` patterns.
+  **Decisions:** (1) Keep the authz directives; they remain effective on Apache
+  and are harmless on OLS, and removing them would change behavior for the
+  large Apache user base. (2) Add a one-time 2.10.0 reconciliation migration
+  that calls `SPFW_Htaccess::reconcile()` so authored files are rewritten to
+  the new payload automatically. (3) No new settings or toggles — this is a
+  backward-compatible hardening improvement, not a user-facing choice.
+  **Verified:** 77 PHPUnit tests / 172 assertions pass (6 new payload tests
+  plus subdirectory-install coverage); `vendor/bin/phpcs` reports only the
+  pre-existing baseline findings on the touched files (class-spfw-htaccess.php
+  4E/0W, tests/Htaccess_Enforcement_Test.php 3E/1W, class-spfw-settings.php
+  alignment warnings unchanged from HEAD); `npm run lint:js` reports the same
+  pre-existing prettier/JSX-a11y errors in `src/components/HardeningSettings.jsx`
+  with zero new errors on the changed string lines; `npm run build` succeeds;
+  `.pot` regenerated to 475 entries with the two updated UI strings.
+
 - 2026-09-07 (`.htaccess` enforcement honesty + root-block drift, → 2.7.0):
   two reports on the ott-dev LiteSpeed vhost. (a) Directory Hardening showed a
   green "Active" badge while `readme.html`/`license.txt` returned HTTP 200 and
@@ -454,12 +932,12 @@ follow-ups deferred. Keep entries dated and terse.
   executed** — this is a code-only change; it needs explicit go-ahead + host
   access (see Next action).
 
-- 2026-09-07 (upgrade-compatibility probe, → 2.6.0): plugin installs/updates
-  were reported failing with "Could not move the old version to the
-  upgrade-temp-backup directory" (EventKoi) and "Filesystem error. A directory
-  could not be read" (Novamira) while file-protection toggles were on, and the
-  hardening `.htaccess` rules were blamed. **They were not the cause.** Both
-  messages come from pure PHP `WP_Filesystem` calls inside
+- 2026-09-07 (upgrade-compatibility probe, → 2.6.0, removed in 2.9.0): plugin
+  installs/updates were reported failing with "Could not move the old version to
+  the upgrade-temp-backup directory" (EventKoi) and "Filesystem error. A
+  directory could not be read" (Novamira) while file-protection toggles were on,
+  and the hardening `.htaccess` rules were blamed. **They were not the cause.**
+  Both messages come from pure PHP `WP_Filesystem` calls inside
   `WP_Upgrader::move_to_temp_backup_dir()` and `WP_Upgrader::run()`;
   `.htaccess` governs HTTP requests only and cannot make `rename()` or
   `opendir()` fail. SPFW attaches no hooks to the upgrader.
@@ -484,6 +962,8 @@ follow-ups deferred. Keep entries dated and terse.
   unit-testable without an install; (5) added a cleanup endpoint beyond the
   original plan scope, because forensics proved debris is the actual cause and
   a diagnostic with no remedy would be incomplete.
+  **Removed in 2.9.0:** the probe, cleanup action, and their REST endpoints
+  were removed from the plugin after the feature became unnecessary.
   **Verified:** 34 PHPUnit tests / 141 assertions pass (12 new);
   `vendor/bin/phpcs` reports byte-identical findings to the HEAD baseline
   (6 errors / 41 warnings) despite ~500 added PHP lines; `npm run lint:css`
@@ -1598,6 +2078,465 @@ schedule value. React UI (`DatabaseSettings.jsx`) renders inside the
 Option Cleaner tab with scan counts, per-target checkboxes, optimize
 button with result summary, and schedule dropdown.
 **Verified:** `php -l` clean on all modified PHP files.
+
+### Step 13 — LiteSpeed Cache compatibility: whitelist authz fix, blob: CSP, allow-canaries ✅
+Field report (maddogproducts.com, 2026-09-08): after enabling the plugins and
+uploads directory hardening, LiteSpeed Cache broke in two independent ways. Both
+are plugin defects, not server misconfiguration.
+
+**Defect 1 — the PHP whitelist does not work on any server that honors
+`<FilesMatch>`.** `SPFW_Htaccess::payload_deny_php_for_target()` emits the
+whitelist allow chain (`RewriteCond` → `RewriteRule … [L]`) and then appends the
+blanket `<FilesMatch>…Require all denied` block unconditionally. mod_rewrite's
+`[L]` does not exempt a file from authz, so on Apache and LiteSpeed Enterprise a
+whitelisted file is still 403'd; it only appears to work on OpenLiteSpeed, which
+ignores `<FilesMatch>`. Fix: when the whitelist is non-empty, emit a per-file
+`<Files "basename">Require all granted</Files>` (plus the pre-2.4
+`Order allow,deny` / `Allow from all` fallback) *after* the deny block — Apache
+merges `<Files>`/`<FilesMatch>` in source order, so the later section wins.
+`<Files>` matches basename only, but the existing `RewriteCond %{REQUEST_URI}`
+chain still `[F,L]`s any other path, so the pair stays path-precise. Deliberately
+not `<If>`: it requires `AllowOverride All`, the same 500 risk that keeps
+`Options -Indexes` out of the payload.
+
+**Defect 2 — `DEFAULT_CSP` omits `blob:` from `script-src`.** LiteSpeed's "Load
+JS Delayed" re-executes inline scripts through `URL.createObjectURL(new Blob(…))`.
+`blob:` is a distinct scheme that `https:` does not cover, so every delayed script
+is refused, which is the real cause of the `jQuery is not defined` /
+`wp is not defined` / `setDefaults` cascade in the field report. `worker-src`
+already carries `blob:`; `script-src` must too.
+
+**Defect 3 — the enforcement probe cannot see either failure.**
+`probe_htaccess_enforcement()` only probes that denies deny. A site 403'ing a file
+the admin explicitly whitelisted reports as fully healthy.
+
+Deliverables:
+- `includes/class-spfw-htaccess.php`: whitelist authz exemptions after the deny
+  block (Defect 1).
+- `includes/class-spfw-settings.php`: 2.11.0 `reconcile_htaccess_on_upgrade()`
+  migration so authored files pick up the new payload without a manual Restore;
+  one-time append of `blob:` to a stored `csp_directives['script-src']` so
+  installs already in Builder mode are not left broken.
+- `includes/modules/class-spfw-module-hardening.php`: `blob:` in `DEFAULT_CSP`
+  (`default_csp_directives()` derives from it, so the builder follows);
+  `KNOWN_DIRECT_ACCESS_PHP` map + `whitelist_suggestions()`; allow-mode canaries
+  in `probe_htaccess_enforcement()` and a `whitelist_blocked` state in the pure
+  `shape_enforcement_result()` (allow rows never move the `htaccess_honored`
+  vhost verdict — an inert .htaccess would let them through too).
+- `includes/class-spfw-rest-settings.php`: expose `php_whitelist_suggestions`.
+- `src/components/PhpWhitelistCard.jsx`: LiteSpeed Guest Mode in the pre-fill
+  list; a detected-but-not-whitelisted warning with one-click add. Detection is
+  surfaced, never auto-applied — a whitelist that grows unseen is the wrong
+  default for a hardening plugin.
+- `src/components/HardeningSettings.jsx`: `allowed` / `whitelist_blocked` pills
+  and a distinct headline; per-row React key made unique (whitelist rows share
+  the `whitelist` target key).
+- Tests: whitelist `<Files>` allow must follow the `<FilesMatch>` deny (the
+  assertion whose absence let Defect 1 ship); `blob:` present in the emitted
+  `script-src`; `whitelist_blocked` shaping.
+
+Acceptance: `npm run build` clean, PHPUnit green, `php -l` clean, `.pot`
+regenerated, version synchronized to 2.11.0.
+
+### Step 14 — OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes ✅
+Follow-up to Step 13, from the same site. The 2.11.0 fix was correct but did not
+help that server, because **OpenLiteSpeed parses .htaccess rewrite rules once —
+on first access to the directory after startup — and caches them until a
+graceful restart.** Verified against several independent sources; there is no
+`autoReload` setting, no mtime check, and no per-directory invalidation in
+1.8.x. A forum thread tagged "Implemented" exists but could not be read (the
+build environment's egress proxy blocks `forum.openlitespeed.org` and
+`docs.openlitespeed.org`), and every other source says 1.8.3/1.8.4 shipped
+without it — treat as unconfirmed.
+
+Two consequences that shape this step:
+- On OLS the `<Files>`/`<FilesMatch>`/`Require` half of the payload is ignored
+  outright, so Step 13's authz grant fixes Apache and LiteSpeed Enterprise and
+  does nothing there. On OLS only the RewriteCond/RewriteRule chain matters —
+  and that is precisely what is cached.
+- The restart itself cannot be avoided, and the plugin must never try: PHP runs
+  unprivileged, restarting mid-request kills the request, and a WordPress
+  plugin that can restart the web server is a liability. The reload-on-mtime
+  cron some admins run belongs in ops config, not here.
+
+So the goal is not to dodge the restart but to need it **once**, and to stop the
+UI reporting green while the server is out of step. The old sequence was: enable
+hardening → write → restart → front end breaks (guest.vary.php now 403s) →
+notice → whitelist → write → restart. Two restarts, broken site in between.
+
+Deliverables:
+- `includes/class-spfw-htaccess.php`: `effective_whitelist()` = the admin's
+  `php_whitelist` plus `auto_allowed_paths()` — the entries of
+  `KNOWN_DIRECT_ACCESS_PHP` that actually exist on disk. The first payload
+  written is therefore already correct on a LiteSpeed site: one restart, no
+  broken window. Gated on file existence (a site without LiteSpeed gets a
+  blanket deny) and on a new toggle.
+- `includes/class-spfw-settings.php`: `hardening.auto_allow_known_php`
+  (default true) so an admin who wants a total deny keeps that option; 2.12.0
+  reconcile migration so existing installs pick the allowance up.
+- `includes/class-spfw-htaccess.php`: `write_own_file()` and
+  `write_marker_block()` return early when the content already matches byte for
+  byte, refreshing only the stored hash. Every needless rewrite costs an OLS
+  restart, and the caller's whitelist-change check is order-sensitive, so
+  reordering the list used to trigger one.
+- `includes/modules/class-spfw-module-hardening.php`:
+  `current_htaccess_hashes()` fingerprints the files at probe time (stored as
+  `payload_hashes` on the enforcement result) and `htaccess_changed_since_probe()`
+  compares it to disk. Returns false when no probe has run or the stored result
+  predates the fingerprint — an unknown is not a warning.
+  `whitelist_suggestions()` now returns empty while auto-allow is on, since the
+  payload already permits those files and warning would send the admin to fix a
+  problem they do not have.
+- UI: an "Auto-allow known plugin endpoints" toggle that also lists the paths
+  being auto-allowed (visible policy, not a hidden hole); a "changed since last
+  verified" banner naming the OLS restart and its command; and the
+  whitelisted-but-blocked error now leads with the cached-rules explanation.
+- `tests/bootstrap.php`: a minimal `WP_Filesystem` stub. The write path was
+  previously untestable — `filesystem()` would try to require
+  `wp-admin/includes/file.php` and fatal — which is why every payload test pins
+  a high stored version to keep migrations from writing.
+
+Also fixed a latent order-dependency the new tests exposed: two subdirectory-
+install tests set `$spfw_test_home_url` and never restore it, so every test
+defined after them ran against a `/blog` install. Now reset in `setUp()`.
+
+Acceptance: PHPUnit 99/218, Jest 26/26, `npm run build` clean, `php -l` clean,
+PHPCS and `lint:js` at baseline, `.pot` regenerated, version 2.12.0.
+
+### Step 15 — Dashicons dequeue-not-deregister (logged-out stylesheet loss) ✅
+Field report from the same site: with the plugin active, an anonymous visitor
+got a WooCommerce product page whose add-on option fields rendered as bare
+unstyled selects — the Font `<select>` the swatch UI replaces was still visible
+— and the required fields could not be completed, so no order could be placed.
+The same page rendered correctly when logged in. Reported as a hardening
+problem; the `.htaccess` files are not involved.
+
+`SPFW_Module_Core::maybe_deregister_dashicons()` called `wp_deregister_style()`
+behind a `! is_user_logged_in()` gate. Deregistering removes the handle from
+the registry, and `WP_Dependencies::all_deps()` then silently skips every
+enqueued item whose dependencies are not all registered, plus anything
+depending on those — so the toggle removed whichever add-on / variation-swatch
+stylesheet declared `dashicons` as a dependency, for customers only. It is the
+only place in the plugin that removes a front-end asset for logged-out visitors
+and not for logged-in ones, which is what makes the attribution decisive.
+
+Deliverables:
+- `includes/modules/class-spfw-module-core.php`: `maybe_dequeue_dashicons()`
+  uses `wp_dequeue_style()`. Same saving when nothing needs the handle; when a
+  queued stylesheet declares it as a dependency WordPress resolves and prints
+  it, which is the correct outcome. `maybe_deregister_dashicons()` is retained
+  as a delegating alias so a site that unhooked it by name still works.
+- `tests/bootstrap.php`: recording stubs for `add_action`, `wp_dequeue_style`,
+  `wp_deregister_style`, `is_user_logged_in`, plus `remove_action` /
+  `remove_filter` / `is_admin` no-ops, so `SPFW_Module_Core` can be loaded and
+  `register()` called under test.
+- `tests/Dashicons_Dequeue_Test.php`: dequeue-not-deregister when logged out,
+  no removal when logged in, the legacy alias gets the fixed behavior, and
+  `register()` attaches the new callback (so the behavioral tests cannot pass
+  while the hook still points at the old one).
+- UI copy and `readme.txt` say what the toggle now does.
+
+Acceptance: PHPUnit 106 tests / 228 assertions (4 new; verified failing against
+the old `wp_deregister_style()` call and passing after), Jest 26/26,
+`npm run build` clean, `php -l` clean, PHPCS 88E/161W and `lint:js` 266 both
+unchanged at their baselines, `.pot` regenerated (485 entries, one string
+reworded), version synchronized to 2.12.2 across the plugin header,
+`SPFW_VERSION`, `readme.txt` and `package.json`.
+
+### Step 16 — `wp-embed` dequeue-not-deregister ✅
+The follow-up Step 15 flagged and deferred. `deregister_embed_script()` called
+`wp_deregister_script( 'wp-embed' )` on `wp_footer` priority 1 — ahead of
+`wp_print_footer_scripts()` at 20, so a footer script declaring `wp-embed` as a
+dependency was in range of the same silent drop.
+
+Nothing was reported broken by it, and nothing could have been mistaken for the
+2.12.2 bug: the removal is unconditional, so it hits logged-in and logged-out
+visitors alike and cannot produce a logged-out-only failure. It is fixed
+because it is the identical defect and dequeuing costs nothing, not because a
+symptom forced it.
+
+Deliverables:
+- `includes/modules/class-spfw-module-core.php`: `dequeue_embed_script()` uses
+  `wp_dequeue_script()`, with `deregister_embed_script()` retained as a
+  delegating alias, mirroring the dashicons pair.
+- `tests/bootstrap.php`: `wp_dequeue_script` / `wp_deregister_script` recording
+  stubs alongside the style pair.
+- `tests/Dashicons_Dequeue_Test.php` → `tests/Asset_Dequeue_Test.php`, renamed
+  because it now pins the general contract for both handles rather than one.
+
+Acceptance: PHPUnit 107 tests / 232 assertions (1 new, verified failing against
+the old `wp_deregister_script()` call), Jest 26/26, `npm run build` clean,
+`php -l` clean, PHPCS and `lint:js` at their baselines, `.pot` regenerated,
+version synchronized to 2.12.3.
+
+### Step 17 — CSP report-only collection is blind to the violations that matter ✅
+
+**Field report (2026-09-14, maddogproducts.com).** A logged-out visitor opens the
+Xoo Easy Login modal and selects "Lost your password?". reCAPTCHA Enterprise
+never produces a token, the form answers *"Anti-spam verification token is
+missing"*, and no password reset can be sent. The site had been run in CSP
+Report-Only with a collection window and the violation log read clean. On other
+sites the same shape: report-only collects nothing, enforcing breaks
+JS-dependent features.
+
+The collection tool is not lying about what it received. It is that almost
+nothing can reach it, and that the default policy breaks exactly the widgets
+that never generate a report. Eight findings, ordered by how much of the
+symptom each explains.
+
+#### F1 — The admin never receives the policy they are testing
+
+`hardening.csp_exclude_logged_in` defaults to `true`, and `add_csp_header()`
+returns before emitting anything for a logged-in user. So every page the admin
+loads while "testing report-only" carries **no CSP header at all** — their
+browser has nothing to violate and posts nothing. A 24-hour window can run to
+completion while the one person actually driving the site contributes zero
+reports. STATE.md already flagged this asymmetry under 2.12.2 ("an enforcing CSP
+is applied to customers and never to the admin testing it"); this is that note
+cashing out as a bug.
+
+On its own this explains "the collection tool is not picking up scripts".
+
+#### F2 — The only traffic that *can* report is served from the page cache
+
+`add_csp_header()` hooks `send_headers`, which fires only when PHP renders the
+response. On the target stack (OpenLiteSpeed + LiteSpeed Cache, often
+QUIC.cloud in front) logged-out page views are cache hits, so whether a visitor
+gets `Content-Security-Policy-Report-Only` and `report-uri` depends entirely on
+what the stored cache entry captured when it was generated. Opening a window
+purges (`set_csp_collection()` → `litespeed_purge_all`), but any page not
+regenerated during the window reports nothing, and `collection_sampled()`'s
+coin-flip is baked into the entry rather than evaluated per visitor — as its own
+docblock says.
+
+**Unverified and decisive:** whether LSCache/QUIC.cloud stores and replays a
+PHP-set CSP header at all. If it does not, no cache hit can ever carry
+`report-uri` and the collector is structurally inert on the stack this plugin
+targets. Field check required before any of the work below is scoped (see
+Verification).
+
+#### F3 — The violations that break the site are interaction-gated
+
+reCAPTCHA loads when the login/lost-password modal opens; its token call fires
+only when the widget executes; Stripe and PayPal `connect-src` only at the
+payment step. Passive browsing of home / a post / a page — which is what a
+report-only window collects in practice — never reaches any of them. The
+codebase already states this for payment bundles (`csp-bundles.js` header
+comment, and the builder's own "nothing reports this until a customer reaches
+the payment step" warning). The same reasoning covers every third-party widget,
+and nothing generalizes it.
+
+An empty log is therefore not evidence. Today the UI presents it as if it were.
+
+#### F4 — The shipped default policy breaks reCAPTCHA by construction
+
+Default `csp_directives` (`SPFW_Settings`, ~line 107):
+
+- `connect-src` → `'self'` only.
+- **no `frame-src` at all**, so it falls back to `default-src 'self'`.
+
+Against the reported failure:
+
+- the `https://www.google.com/recaptcha/...` iframe is blocked by the
+  `default-src` fallback;
+- reCAPTCHA Enterprise's token call to `https://www.google.com/recaptcha/
+  enterprise/...` is blocked by `connect-src 'self'` — which *is* the
+  "Anti-spam verification token is missing" failure;
+- `script-src` keeps `https:` in the defaults, so `api.js` itself survives on
+  stock settings. It stops surviving under F6.
+
+Also: `SPFW_Module_Hardening::DEFAULT_CSP` (the string used when the directive
+map is empty) and the default directive map disagree — the constant carries
+`script-src … blob:` and `worker-src 'self' blob:`, the map omits `blob:` from
+`script-src`. Two things both called "the default" that differ is its own
+hazard.
+
+#### F5 — The prefill lists omit reCAPTCHA
+
+`TRUSTED_TRACKER_ORIGINS` lists `https://www.google.com` under `frame-src` but
+gives it nothing under `script-src` or `connect-src`, and never mentions
+`https://www.gstatic.com`. `THIRD_PARTY_BUNDLES` covers Stripe and PayPal only.
+An admin who clicks "add trusted trackers" and enforces still has reCAPTCHA
+broken — and the gap check (`connectSrcGaps`) only ever examines `connect-src`,
+so it cannot report a missing `frame-src` or `script-src` either.
+
+#### F6 — `csp_tighten_script_src` is unsafe as built
+
+Three independent defects, any one of which blocks scripts:
+
+a. **Hashes are computed over the wrong bytes.** `scan_script_hashes()` does
+   `$body = trim( $body )` before `hash( 'sha256', $body, true )`. CSP hashes
+   the element's exact text content; stripping the leading newline and indent
+   changes the digest, so no hash ever matches and *every* inline script is
+   blocked the moment tightening is enabled.
+
+b. **`'strict-dynamic'` voids the host allowlist.** `inject_script_hashes()`
+   appends it unconditionally and deliberately drops every host and scheme
+   source. Supporting browsers then ignore `https:` and `'self'` in
+   `script-src`, so any `<script src>` written into the HTML — reCAPTCHA's
+   `api.js`, a theme-placed GTM snippet — is blocked unless a *hashed* script
+   loaded it. The docblock notes the semantics; nothing in the UI warns that
+   turning the toggle on discards the allowlist the admin just built.
+
+c. **The scan sees three pages, server-side.** `get_scan_urls()` returns home +
+   newest post + newest page, fetched over `wp_remote_get`. Per-template inline
+   scripts (account, cart, checkout, product) are never hashed, and any inline
+   script carrying a nonce, cart fragment or timestamp hashes differently on
+   every request, so its stored hash is stale on arrival.
+
+The JSON-LD/type skip in the same loop is dead code: it looks up the
+already-trimmed `$body` in the untrimmed `$matches[1]` via `array_search()`,
+which always fails, and then type-matches against `''`.
+
+#### F7 — The policy tested is not the policy enforced
+
+While a window is open, `ensure_connect_src_allows()` injects the report origin
+into `connect-src`; when the window closes that source disappears.
+`REPORT_ONLY_IGNORED` strips `frame-ancestors`/`sandbox` from the tested header
+and restores them on enforce. So "report-only was clean" is evidence about a
+policy that differs from the one that ships — and nothing diffs the two or gates
+the switch. Turning off Report-Only is a plain toggle with no confirmation.
+
+#### F8 — `wp-login.php` is outside the policy entirely
+
+`send_headers` does not fire on `wp-login.php`, so the real lost-password page
+never carries CSP and can never contribute a report — while the front-end modal
+version of the same form (Xoo Easy Login, the one in the report) does. Not a
+defect to fix, but it means testing the core login flow proves nothing about the
+modal, and the admin has no way to know that.
+
+#### Also noted
+
+`document_uri` is stored on every violation entry and never rendered, so the
+admin cannot tell which page produced a violation. Free diagnostic value already
+paid for.
+
+Ruled out while investigating: `restapi.require_auth` does **not** block the
+report endpoint — `route_in_list()` hard-whitelists the plugin's own
+`spfw/v1` namespace regardless of configuration.
+
+---
+
+### What shipped (2.13.0)
+
+All three phases are implemented. The findings above are kept verbatim as the
+record of why; this is what each one became.
+
+**Phase 1 — the policy no longer breaks things (F4, F5, F6)**
+
+- `SPFW_Rest_Settings::extract_script_hashes()` is a new pure static that hashes
+  a script's **exact** text content. The old inline loop hashed `trim( $body )`,
+  so no hash ever matched. Extracted specifically so the behavior could be
+  pinned against a known digest rather than only read — and the two tests that
+  pin it were verified failing against the old `trim()` before being kept.
+  The scan also now covers the WooCommerce shop, cart, checkout, account and a
+  product page (`get_script_scan_urls()`), skips non-executable script types
+  through a check that actually runs (the old one looked a trimmed body up in
+  an untrimmed match array and always failed), and caps the hash list at 64 so a
+  per-post inline script cannot grow the header until a proxy rejects it.
+- `'strict-dynamic'` is its own setting, `csp_strict_dynamic`, default off.
+  `inject_script_hashes()` takes it as a parameter: without it, hashes are added
+  and the host allowlist is left alone; with it, the sources it would void are
+  dropped so the emitted header says what it means. Bundling the two is what
+  made "tighten script-src" silently discard the allowlist the admin had just
+  built from the violation log.
+- `DEFAULT_CSP` and the default `csp_directives` map are now the same policy,
+  asserted equal by test, and both carry `frame-src 'self' https:` and
+  `connect-src 'self' https:`. The high-value holes stay closed —
+  `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'`,
+  `default-src 'self'` — and a test pins that too, so widening two directives
+  cannot quietly become widening the policy.
+- Saved policies are **not** rewritten. A migration that edits an admin's
+  security policy without asking is the wrong move even when the policy is
+  wrong. Instead `policyRisks()` detects both holes and the builder offers a
+  one-click fix with the consequence spelled out.
+- A reCAPTCHA bundle joins Stripe and PayPal, and `connectSrcGaps()` is now a
+  view over a general `bundleGaps()` that checks **every** directive a provider
+  declares. The connect-src-only check could not see the reported failure at
+  all. `covered()` understands scheme sources and wildcard hosts, so a policy
+  carrying `https:` is not nagged about origins it already allows.
+
+**Phase 2 — a window that collects (F1, F2, F3)**
+
+- `admin_self_test_active()`: while a window is open, an administrator is sent
+  the policy despite `csp_exclude_logged_in`. Narrow by construction — window
+  open, setting on, `manage_options` — so it cannot leak into normal operation,
+  and a window closes itself. Their page views are also never sampled away: a
+  sample rate bounds real traffic, and one admin clicking through the site is
+  not a volume problem, it is the only traffic guaranteed to reach the pages
+  that matter.
+- Responses carrying `report-uri` are marked uncacheable (`csp_collect_nocache`,
+  default on). Without it a window sees only what the cache regenerated, and the
+  sampling coin-flip is decided once per cache entry rather than per visitor.
+- Coverage tracking: `record_collection_coverage()` notes which page types a
+  window actually reached, keyed to the window's deadline so a new window starts
+  clean. At most one write per page type per window. The card renders it as a
+  checklist, and says plainly that coverage cannot see interactions — opening a
+  captcha-protected form or reaching the payment step requests scripts that
+  merely viewing the page does not.
+- The card states whether the admin reading it is inside the test population.
+
+**Phase 3 — the switch is gated (F7)**
+
+- Leaving Report-Only opens a confirmation showing violations recorded, page
+  types covered, whether the admin's own browsing was included, and which
+  directives browsers ignore in Report-Only and are about to start applying.
+- `maybe_open_enforcement_window()` opens a 2-hour window on the
+  report-only → enforcing transition, so a policy that breaks something records
+  what it broke. Never shortens a window the admin already has open, and does
+  nothing on any other save.
+- Violation rows now render `document_uri`, which was stored all along and never
+  shown.
+
+**Not done, and why**
+
+F8 stands: `send_headers` does not fire on `wp-login.php`, so core's login and
+lost-password pages carry no CSP. Changing that means emitting the header from a
+different hook with different semantics for a page the plugin otherwise does not
+touch, which is a larger decision than this step. It is worth knowing that
+testing core login proves nothing about a front-end login modal — which is the
+form that actually failed in the field.
+
+The F2 field check is still outstanding and is the one thing that could change
+the shape of this work: whether LiteSpeed Cache/QUIC.cloud replays a PHP-set CSP
+header on a cache hit at all. `csp_collect_nocache` makes the answer not matter
+*during a window*, which is what the collector needs. It still matters outside
+one: if the header is not replayed, then an enforcing policy is simply absent on
+cache hits, and the protection is thinner than the UI implies. Check before
+assuming otherwise.
+
+### Verification still owed on real hardware
+
+- With a window open, `curl -I` a logged-out URL that is a known cache hit and
+  confirm `Content-Security-Policy-Report-Only` and `report-uri` are present —
+  and separately, with no window open, whether the enforcing header survives a
+  cache hit at all (the open question above).
+- Reproduce the original failure with the DevTools console unfiltered. CSP
+  blocks surface as "Refused to …" entries that the screenshot's Errors filter
+  may have hidden, and the visible 401 on `recaptcha/enterprise/pat` is a server
+  response rather than a CSP block — so it may be a second, independent problem
+  (site-key or domain mismatch) that this release does not touch.
+- After upgrading, confirm the lost-password flow completes for a logged-out
+  visitor with the policy enforcing.
+
+Acceptance: PHPUnit 136 tests / 282 assertions (29 new, in
+`tests/Csp_Collection_Test.php`; the two inline-script hash tests verified
+failing against the old `trim()` behavior, and the hook-ordering test verified
+failing against `send_headers`), Jest 36/36 (10 new), `npm run build`
+clean, `php -l` clean, PHPCS 88 errors (at baseline) / 149 warnings (12 below
+baseline — an array realignment in `get_csp_report_stats()` cleared pre-existing
+alignment warnings), `lint:js` 265 problems (1 below the 266 baseline), `.pot`
+regenerated to 523 entries, version synchronized to 2.13.0 across the plugin
+header, `SPFW_VERSION`, `readme.txt` and `package.json`.
+
+Three bugs caught during the work, all now fixed and pinned:
+`current_page_type()` returned the **integer** 404 because PHP coerces a
+numeric-string array key; coverage was first recorded from `send_headers`, which
+WP::main() runs BEFORE `query_posts()` and `handle_404()`, so no template
+conditional was answerable and every page would have been filed as 'other' — a
+checklist silently measuring nothing, now deferred to `template_redirect` and
+pinned by a test; and a JS test asserted `*.stripe.com` covers
+`m.stripe.network` — it does not, different domain, and the code was right.
 
 ## Open questions / blockers
 

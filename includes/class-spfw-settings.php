@@ -104,15 +104,25 @@ class SPFW_Settings {
 				'csp_report_only'         => true,
 				'csp_exclude_logged_in'   => true,
 				'csp_mode'                => 'builder',
+				// Must stay identical to what SPFW_Module_Hardening::DEFAULT_CSP
+				// parses to, including key order — Csp_Header_Emission_Test
+				// asserts it. Two things both called "the default" that differ
+				// is how `blob:` ended up in one and not the other.
+				//
+				// `frame-src` and `connect-src https:` are here because their
+				// absence broke reCAPTCHA (and every other third-party iframe
+				// or SDK) the moment an admin stopped report-only. See the
+				// DEFAULT_CSP docblock.
 				'csp_directives'          => array(
 					'default-src'     => array( "'self'" ),
-					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:', 'data:' ),
-					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
 					'img-src'         => array( "'self'", 'data:', 'https:' ),
+					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
+					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:', 'data:', 'blob:' ),
 					'font-src'        => array( "'self'", 'data:', 'https:' ),
-					'connect-src'     => array( "'self'" ),
+					'connect-src'     => array( "'self'", 'https:' ),
 					'media-src'       => array( "'self'" ),
 					'worker-src'      => array( "'self'", 'blob:' ),
+					'frame-src'       => array( "'self'", 'https:' ),
 					'object-src'      => array( "'none'" ),
 					'base-uri'        => array( "'self'" ),
 					'frame-ancestors' => array( "'self'" ),
@@ -125,6 +135,14 @@ class SPFW_Settings {
 				'csp_script_hashes'       => array(),
 				'csp_hash_last_scan'      => 0,
 				'csp_tighten_script_src'  => false,
+				// 'strict-dynamic' is a SEPARATE opt-in from hashing, because
+				// it does something hashing does not: browsers that support it
+				// ignore every host and scheme source in script-src. Bundling
+				// the two meant that turning on "tighten script-src" silently
+				// discarded the allowlist the admin had just spent the
+				// violation log building, and blocked every <script src> in the
+				// HTML that a hashed script had not itself loaded.
+				'csp_strict_dynamic'      => false,
 				// Violation collection is a time-boxed diagnostic window, not a
 				// permanent behavior: `report-uri` is only emitted (and the
 				// public report endpoint only open) while now < csp_collect_until.
@@ -136,11 +154,35 @@ class SPFW_Settings {
 				'csp_collect_until'       => 0,
 				'csp_collect_sample'      => 100,
 				'csp_rate_limit'          => 10,
+				// While a window is open, send the policy to logged-in
+				// administrators too, overriding csp_exclude_logged_in for the
+				// duration. Without this the admin testing report-only receives
+				// no CSP header at all, so their own click-through of the login
+				// modal and checkout — the only interaction-gated paths anyone
+				// is going to exercise deliberately — reports nothing, and the
+				// window closes on an empty log that reads as "clean".
+				'csp_collect_admin'       => true,
+				// While a window is open, mark responses that carry report-uri
+				// uncacheable. The header is set from PHP on send_headers, which
+				// does not run for a full-page cache hit, so without this the
+				// reports a window collects are limited to whatever the cache
+				// happened to regenerate — and the sampling coin-flip is stored
+				// in the cache entry rather than evaluated per visitor.
+				'csp_collect_nocache'     => true,
 				// PHP execution whitelist: wp-content-relative paths that are
 				// allowed to execute PHP even when directory hardening is on
 				// (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Used by the
 				// .htaccess RewriteRule generator and the file monitor.
 				'php_whitelist'           => array(),
+				// Automatically allow the PHP files that well-known plugins
+				// serve directly over HTTP (see
+				// SPFW_Module_Hardening::KNOWN_DIRECT_ACCESS_PHP), when the
+				// file is actually installed. On by default: without it,
+				// enabling hardening on a LiteSpeed site breaks the front end
+				// until the admin notices the 403 and whitelists the file by
+				// hand — which on OpenLiteSpeed costs a second server restart.
+				// Set false for a total deny that ignores the known list.
+				'auto_allow_known_php'    => true,
 				// File integrity monitor: periodic scan of wp-content for new,
 				// modified, or removed PHP files. Sends a consolidated email
 				// alert when changes are detected outside the whitelist.
@@ -251,6 +293,30 @@ class SPFW_Settings {
 			$stored = is_array( $stored ) ? $stored : array();
 		}
 
+		// Migration to 2.11.0: DEFAULT_CSP gained `blob:` in script-src for
+		// LiteSpeed's delayed-JS blob URLs. An install already in Builder mode
+		// has its own stored csp_directives, which the new default cannot reach
+		// — so append the source there too, or upgrading would leave the site's
+		// delayed scripts blocked with no indication why. Only touches a
+		// script-src that exists and is not 'none' (a deliberate lockdown).
+		if ( version_compare( $stored_ver, '2.11.0', '<' )
+			&& isset( $stored['hardening']['csp_directives']['script-src'] )
+			&& is_array( $stored['hardening']['csp_directives']['script-src'] ) ) {
+			$script_src = $stored['hardening']['csp_directives']['script-src'];
+
+			if ( ! in_array( 'blob:', $script_src, true )
+				&& ! in_array( "'none'", $script_src, true ) ) {
+				$updated = $stored;
+				$updated['hardening']['csp_directives']['script-src'][] = 'blob:';
+
+				$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+				update_option( self::OPTION_KEY, $clean );
+
+				$stored = get_option( self::OPTION_KEY, array() );
+				$stored = is_array( $stored ) ? $stored : array();
+			}
+		}
+
 		// Populate the static cache BEFORE the 1.14.0 migration fires.
 		// run_payload_migration() calls SPFW_Settings::group('hardening'),
 		// which re-enters get(). If the cache is still null at that point,
@@ -274,6 +340,34 @@ class SPFW_Settings {
 		// is seeded, per the ordering note above, so reconcile()'s nested reads
 		// return immediately instead of recursing.
 		if ( version_compare( $stored_ver, '2.7.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.10.0: the hardening payloads gained OpenLiteSpeed-
+		// compatible mod_rewrite rules alongside the existing Apache authz
+		// directives. Reconcile authored files so existing installs receive the
+		// new rules without manual Restore. Runs after the cache is seeded for
+		// the same recursion-avoidance reason as the 2.7.0 migration.
+		if ( version_compare( $stored_ver, '2.10.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.11.0: the whitelist-aware deny-PHP payload gained
+		// <Files> authz exemptions, without which a whitelisted file was still
+		// 403'd by the <FilesMatch> deny on every server that honors it.
+		// Reconcile so authored files pick up the fix without a manual Restore.
+		if ( version_compare( $stored_ver, '2.11.0', '<' ) ) {
+			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.12.0: the deny-PHP payload now auto-allows the known
+		// direct-access plugin endpoints that are installed. Reconcile so a
+		// site already running hardening picks the allowance up instead of
+		// waiting for the next settings save. Writes nothing when the payload
+		// is unchanged (no LiteSpeed installed, or already whitelisted by
+		// hand), which matters on OpenLiteSpeed where any rewrite leaves the
+		// running server out of step with disk until a graceful restart.
+		if ( version_compare( $stored_ver, '2.12.0', '<' ) ) {
 			self::reconcile_htaccess_on_upgrade();
 		}
 
@@ -565,6 +659,7 @@ class SPFW_Settings {
 
 		$clean['hardening']['csp_hash_last_scan']     = isset( $hardening['csp_hash_last_scan'] ) ? absint( $hardening['csp_hash_last_scan'] ) : 0;
 		$clean['hardening']['csp_tighten_script_src'] = self::to_bool( $hardening, 'csp_tighten_script_src', $defaults['hardening']['csp_tighten_script_src'] );
+		$clean['hardening']['csp_strict_dynamic']     = self::to_bool( $hardening, 'csp_strict_dynamic', $defaults['hardening']['csp_strict_dynamic'] );
 
 		// Violation collection window. Hard-capped so a stored (or imported)
 		// value can never leave collection open indefinitely — the whole point
@@ -581,11 +676,16 @@ class SPFW_Settings {
 		$rate_limit                            = isset( $hardening['csp_rate_limit'] ) ? absint( $hardening['csp_rate_limit'] ) : $defaults['hardening']['csp_rate_limit'];
 		$clean['hardening']['csp_rate_limit'] = min( 60, max( 5, $rate_limit ) );
 
+		$clean['hardening']['csp_collect_admin']        = self::to_bool( $hardening, 'csp_collect_admin', $defaults['hardening']['csp_collect_admin'] );
+		$clean['hardening']['csp_collect_nocache'] = self::to_bool( $hardening, 'csp_collect_nocache', $defaults['hardening']['csp_collect_nocache'] );
+
 		// PHP execution whitelist: paths within wp-content allowed to run PHP
 		// even when directory hardening is active.
 		$clean['hardening']['php_whitelist'] = self::sanitize_php_whitelist(
 			isset( $hardening['php_whitelist'] ) ? $hardening['php_whitelist'] : $defaults['hardening']['php_whitelist']
 		);
+
+		$clean['hardening']['auto_allow_known_php'] = self::to_bool( $hardening, 'auto_allow_known_php', $defaults['hardening']['auto_allow_known_php'] );
 
 		// File integrity monitor settings.
 		$clean['hardening']['file_monitor_enabled'] = self::to_bool( $hardening, 'file_monitor_enabled', $defaults['hardening']['file_monitor_enabled'] );
@@ -667,6 +767,22 @@ class SPFW_Settings {
 	 *
 	 * @var string[]
 	 */
+	/**
+	 * Maximum source tokens stored per CSP directive.
+	 *
+	 * A cap is needed so an imported or hand-edited policy cannot grow without
+	 * bound, but 15 turned out to be below what a real commerce site needs: an
+	 * ordinary WooCommerce install running Analytics, Tag Manager, Clarity and
+	 * a payment provider reaches 15 `connect-src` origins on its own, at which
+	 * point every further origin was silently dropped on save — including the
+	 * payment origins whose absence breaks checkout. 30 leaves headroom for
+	 * that install, and the builder now warns as a directive approaches it
+	 * rather than truncating in silence.
+	 *
+	 * @var int
+	 */
+	const CSP_MAX_TOKENS = 30;
+
 	const CSP_DIRECTIVES = array(
 		'default-src',
 		'script-src',
@@ -736,7 +852,7 @@ class SPFW_Settings {
 			// cleared directive as [] is what lets the deletion stick instead of
 			// the default value resurrecting on the next merge. Emit-time
 			// serialization skips empty directives.
-			$clean[ $directive ] = array_slice( array_values( array_unique( $valid ) ), 0, 15 );
+			$clean[ $directive ] = array_slice( array_values( array_unique( $valid ) ), 0, self::CSP_MAX_TOKENS );
 		}
 
 		return $clean;
@@ -788,6 +904,14 @@ class SPFW_Settings {
 
 			// Must end with a PHP-executable extension that the .htaccess blocks.
 			if ( ! preg_match( '/\.(php[0-9]*|phtml|phps|phar|inc)$/i', $item ) ) {
+				continue;
+			}
+
+			// The path is interpolated into .htaccess directives (a RewriteCond
+			// pattern and a <Files "..."> section), so restrict it to characters
+			// that cannot terminate a quoted argument or otherwise change the
+			// meaning of the generated file.
+			if ( ! preg_match( '#^[A-Za-z0-9._/-]+$#', $item ) ) {
 				continue;
 			}
 

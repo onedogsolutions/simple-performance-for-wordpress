@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
+import {
+	persistedFingerprint,
+	pendingEdits,
+	applyEdits,
+} from '../lib/settings-merge';
+
 import SettingsTabs from './SettingsTabs';
 import CoreSettings from './CoreSettings';
 import RestApiSettings from './RestApiSettings';
@@ -45,6 +51,13 @@ export default function App() {
 		: BASE_TABS;
 
 	const [ settings, setSettings ] = useState( initialData.settings );
+	// The last state the server confirmed. Every toggle edits `settings` only,
+	// so comparing the two tells us whether what the admin is looking at is
+	// what the site is actually running — the CSP card in particular reads as
+	// enforcing-vs-report-only, where guessing wrong is expensive.
+	const [ savedSettings, setSavedSettings ] = useState(
+		initialData.settings
+	);
 	const [ isSaving, setIsSaving ] = useState( false );
 	const [ toast, setToast ] = useState( { message: '', type: null } );
 	const [ activeTab, setActiveTab ] = useState( 'core' );
@@ -52,11 +65,36 @@ export default function App() {
 	const [ showPresetConfirm, setShowPresetConfirm ] = useState( null );
 	const [ fileScanResults, setFileScanResults ] = useState( null );
 	const [ isScanning, setIsScanning ] = useState( false );
-	const [ upgradeCheck, setUpgradeCheck ] = useState( null );
-	const [ isCheckingUpgrade, setIsCheckingUpgrade ] = useState( false );
-	const [ isCleaningUpgrade, setIsCleaningUpgrade ] = useState( false );
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const fileInputRef = useRef( null );
+
+	// Authoritative replace: the payload IS the new truth and there is nothing
+	// pending worth keeping — the initial load, an explicit Save, an import, or
+	// a preset the admin confirmed knowing it overwrites their settings.
+	const commitSettings = ( data ) => {
+		setSettings( data );
+		setSavedSettings( data );
+	};
+
+	// Side-effect endpoints (scans, probes, opening a collection window) also
+	// return the full settings payload, but the admin may have unsaved edits in
+	// the form when they press one of those buttons. Replacing state wholesale
+	// discarded them silently — you could toggle Report-Only, click "Start
+	// collecting", and lose the toggle with no indication it had happened. So
+	// the server's copy becomes the new saved baseline and the pending edits
+	// are layered back on top, leaving the form dirty and the edits intact.
+	const mergeServerSettings = ( data ) => {
+		const edits = pendingEdits( settings, savedSettings );
+
+		setSavedSettings( data );
+		setSettings(
+			Object.keys( edits ).length > 0 ? applyEdits( data, edits ) : data
+		);
+	};
+
+	const isDirty =
+		persistedFingerprint( settings ) !==
+		persistedFingerprint( savedSettings );
 
 	useEffect( () => {
 		if ( initialData.nonce ) {
@@ -64,7 +102,7 @@ export default function App() {
 		}
 
 		apiFetch( { path: '/spfw/v1/settings' } )
-			.then( ( data ) => setSettings( data ) )
+			.then( ( data ) => commitSettings( data ) )
 			.catch( ( err ) => {
 				// eslint-disable-next-line no-console
 				console.error( 'Failed to load settings', err );
@@ -75,6 +113,23 @@ export default function App() {
 			.catch( () => {} );
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
+
+	// The settings page is one big form with a single Save; without this an
+	// admin can toggle Report-Only, navigate away, and never learn the site is
+	// still enforcing.
+	useEffect( () => {
+		if ( ! isDirty ) {
+			return undefined;
+		}
+
+		const warn = ( e ) => {
+			e.preventDefault();
+			e.returnValue = '';
+		};
+
+		window.addEventListener( 'beforeunload', warn );
+		return () => window.removeEventListener( 'beforeunload', warn );
+	}, [ isDirty ] );
 
 	const showToast = ( message, type ) => {
 		setToast( { message, type } );
@@ -98,7 +153,7 @@ export default function App() {
 			data: { target },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				mergeServerSettings( data );
 				showToast(
 					__(
 						'Hardening file restored.',
@@ -172,7 +227,7 @@ export default function App() {
 			data: { action, hours },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				mergeServerSettings( data );
 				showToast(
 					'stop' === action
 						? __(
@@ -214,7 +269,7 @@ export default function App() {
 				} )
 			)
 			.then( ( data ) => {
-				setSettings( data );
+				mergeServerSettings( data );
 				const found =
 					data.scan_result &&
 					Array.isArray( data.scan_result.families ) &&
@@ -248,7 +303,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				mergeServerSettings( data );
 				setFileScanResults( data.scan_result || null );
 				setIsScanning( false );
 
@@ -289,118 +344,6 @@ export default function App() {
 			} );
 	};
 
-	// Replays the filesystem operations the WordPress upgrader performs, so a
-	// failed plugin install/update can be attributed to its real cause instead
-	// of to the directory-hardening rules (which only govern HTTP requests).
-	const handleUpgradeCheck = () => {
-		setIsCheckingUpgrade( true );
-
-		apiFetch( {
-			path: '/spfw/v1/settings/upgrade-check',
-			method: 'POST',
-		} )
-			.then( ( data ) => {
-				setSettings( data );
-
-				const check = data.upgrade_check || null;
-				setUpgradeCheck( check );
-				setIsCheckingUpgrade( false );
-
-				const stale = ( check && check.stale_total ) || 0;
-
-				if ( ! check ) {
-					showToast(
-						__(
-							'Upgrade check returned no result.',
-							'simple-performance-for-wordpress'
-						),
-						'error'
-					);
-				} else if ( check.pass && stale > 0 ) {
-					showToast(
-						sprintf(
-							/* translators: %d: number of leftover items */
-							__(
-								'Directories are healthy, but %d leftover item(s) remain from an interrupted update.',
-								'simple-performance-for-wordpress'
-							),
-							stale
-						),
-						'info'
-					);
-				} else if ( check.pass ) {
-					showToast(
-						__(
-							'Upgrade check passed. Every directory the upgrader needs is writable, movable and readable.',
-							'simple-performance-for-wordpress'
-						),
-						'success'
-					);
-				} else {
-					showToast(
-						__(
-							'Upgrade check found a problem. Plugin installs and updates will fail until it is fixed.',
-							'simple-performance-for-wordpress'
-						),
-						'error'
-					);
-				}
-			} )
-			.catch( ( err ) => {
-				setIsCheckingUpgrade( false );
-				showToast(
-					err.message ||
-						__(
-							'Upgrade check failed.',
-							'simple-performance-for-wordpress'
-						),
-					'error'
-				);
-			} );
-	};
-
-	// Removes the orphaned debris the check reported, then re-runs the check so
-	// the repaired state is shown without a second click.
-	const handleUpgradeCleanup = () => {
-		setIsCleaningUpgrade( true );
-
-		apiFetch( {
-			path: '/spfw/v1/settings/upgrade-cleanup',
-			method: 'POST',
-		} )
-			.then( ( data ) => {
-				setSettings( data );
-				setUpgradeCheck( data.upgrade_check || null );
-				setIsCleaningUpgrade( false );
-
-				const removed =
-					( data.cleanup_result && data.cleanup_result.removed ) || 0;
-
-				showToast(
-					sprintf(
-						/* translators: %d: number of leftover items removed */
-						__(
-							'Removed %d leftover item(s) and re-checked.',
-							'simple-performance-for-wordpress'
-						),
-						removed
-					),
-					'success'
-				);
-			} )
-			.catch( ( err ) => {
-				setIsCleaningUpgrade( false );
-				showToast(
-					err.message ||
-						__(
-							'Could not clear the leftovers.',
-							'simple-performance-for-wordpress'
-						),
-					'error'
-				);
-			} );
-	};
-
 	// Probes whether the web server actually applies the .htaccess rules this
 	// plugin wrote. A file can be present and intact yet inert on a vhost that
 	// does not honor .htaccess (for example OpenLiteSpeed with "Auto Load from
@@ -414,7 +357,7 @@ export default function App() {
 			method: 'POST',
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				mergeServerSettings( data );
 				setIsVerifyingHtaccess( false );
 
 				const honored = data.htaccess_honored || 'unknown';
@@ -468,7 +411,7 @@ export default function App() {
 			data: settings,
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				setIsSaving( false );
 				showToast(
 					__( 'Settings saved.', 'simple-performance-for-wordpress' ),
@@ -540,7 +483,7 @@ export default function App() {
 					data: payload,
 				} )
 					.then( ( data ) => {
-						setSettings( data );
+						commitSettings( data );
 						showToast(
 							__(
 								'Settings imported.',
@@ -583,7 +526,7 @@ export default function App() {
 			data: { preset: name },
 		} )
 			.then( ( data ) => {
-				setSettings( data );
+				commitSettings( data );
 				showToast(
 					__(
 						'Preset applied.',
@@ -808,11 +751,6 @@ export default function App() {
 								fileScanResults={ fileScanResults }
 								onScanFiles={ handleScanFiles }
 								isScanning={ isScanning }
-								upgradeCheck={ upgradeCheck }
-								onUpgradeCheck={ handleUpgradeCheck }
-								onUpgradeCleanup={ handleUpgradeCleanup }
-								isCheckingUpgrade={ isCheckingUpgrade }
-								isCleaningUpgrade={ isCleaningUpgrade }
 								hardeningEnforcement={
 									settings.hardening_enforcement
 								}
@@ -828,6 +766,12 @@ export default function App() {
 								}
 								enforcementTime={
 									settings.htaccess_enforcement_time
+								}
+								whitelistBlocked={
+									settings.htaccess_whitelist_blocked
+								}
+								changedSinceProbe={
+									settings.htaccess_changed_since_probe
 								}
 								onVerifyHtaccess={ handleVerifyHtaccess }
 								isVerifyingHtaccess={ isVerifyingHtaccess }
@@ -867,7 +811,19 @@ export default function App() {
 					} }
 				</SettingsTabs>
 
-				<div className="flex justify-end gap-x-3 border-t border-gray-900/10 pt-6">
+				<div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-gray-900/10 pt-6">
+					{ isDirty && (
+						<p className="mr-auto flex items-center gap-x-2 text-sm font-medium text-amber-700">
+							<span
+								aria-hidden="true"
+								className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500"
+							/>
+							{ __(
+								'Unsaved changes — the site is still running your last saved settings.',
+								'simple-performance-for-wordpress'
+							) }
+						</p>
+					) }
 					<button
 						type="submit"
 						disabled={ isSaving }
