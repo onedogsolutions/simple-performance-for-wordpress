@@ -50,12 +50,31 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * without it every delayed script is refused and the page loses jQuery.
 	 * It costs little here: this policy already allows 'unsafe-inline' and
 	 * https:, so an attacker who could mint a blob URL already has script
-	 * execution. It matters only under csp_tighten_script_src, where
+	 * execution. It matters only under csp_strict_dynamic, where
 	 * inject_script_hashes() drops bare schemes anyway.
+	 *
+	 * `connect-src` carries `https:` and `frame-src` is present at all because
+	 * of what their absence did in the field (2026-09-14, maddogproducts.com):
+	 * with `connect-src 'self'` and no `frame-src`, an enforcing default policy
+	 * blocks the reCAPTCHA iframe (no frame-src means the `default-src 'self'`
+	 * fallback applies) and blocks reCAPTCHA Enterprise's token call, so a
+	 * logged-out visitor cannot complete a password reset — the form reports
+	 * only "Anti-spam verification token is missing". The same two directives
+	 * break every embedded video, map, and payment iframe on the internet.
+	 *
+	 * A default that breaks the site is not a safer default: admins turn the
+	 * whole feature back off, which is strictly worse than a policy that still
+	 * closes the high-value holes above while letting third-party HTTPS
+	 * endpoints work. Narrowing these two is exactly what the policy builder
+	 * and the violation collector are for, and an admin who narrows them has
+	 * chosen to.
+	 *
+	 * Must stay in sync with the `csp_directives` default in SPFW_Settings —
+	 * Csp_Header_Emission_Test asserts the two parse to the same map.
 	 *
 	 * @var string
 	 */
-	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data: blob:; font-src 'self' data: https:; connect-src 'self'; media-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
+	const DEFAULT_CSP = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https: data: blob:; font-src 'self' data: https:; connect-src 'self' https:; media-src 'self'; worker-src 'self' blob:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';";
 
 	/**
 	 * Directives a browser ignores when the policy arrives in the report-only
@@ -1143,7 +1162,19 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		$h = SPFW_Settings::group( 'hardening' );
 
-		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() ) {
+		// While a collection window is open, an administrator receives the
+		// policy even though csp_exclude_logged_in would normally withhold it.
+		// Without this the person running the test is the one visitor the test
+		// cannot see: they browse the site, their browser is sent no CSP header
+		// at all, nothing is violated, nothing is reported, and the window
+		// closes on an empty log that reads as proof the policy is safe. The
+		// interaction-gated paths that actually break — a login modal, a
+		// checkout step — are precisely the ones only a human deliberately
+		// exercises, so excluding that human from the policy removes the only
+		// realistic way they get tested.
+		$self_test = self::admin_self_test_active( $h );
+
+		if ( ! empty( $h['csp_exclude_logged_in'] ) && is_user_logged_in() && ! $self_test ) {
 			// This response deliberately carries no CSP. Left cacheable, that
 			// headerless copy is stored by the page cache and then served to
 			// logged-out visitors for the rest of its TTL — so the policy
@@ -1174,7 +1205,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// 'strict-dynamic'. Hashes are stable across cache hits (unlike nonces),
 		// so this is correct under full-page caching.
 		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
-			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
 		}
 
 		// Violation collection is a time-boxed diagnostic window, not a
@@ -1204,11 +1235,41 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
 		}
 
-		$report_url = self::collection_open( $h ) && self::collection_sampled( $h )
+		// The admin's own page views are never sampled away: a sample rate is
+		// there to bound the report volume from real traffic, and one
+		// administrator clicking through the site is not a volume problem. It
+		// is, however, the only traffic guaranteed to reach the pages that
+		// matter, so discarding 90% of it would defeat the window.
+		$report_url = self::collection_open( $h ) && ( $self_test || self::collection_sampled( $h ) )
 			? self::csp_report_url()
 			: '';
 
 		if ( '' !== $report_url ) {
+			// This response asks the browser to report violations, so it must
+			// not be stored and replayed. The header is set here, in PHP, on
+			// send_headers — which does not run at all for a full-page cache
+			// hit. Left cacheable, what a window collects is limited to
+			// whatever the cache happened to regenerate while it was open, and
+			// the sampling coin-flip above is decided once per cache entry
+			// rather than per visitor (so a single unlucky flip silences an
+			// entire page for the whole window). On a LiteSpeed/QUIC.cloud site
+			// — the stack this plugin targets — that is most of the front end.
+			//
+			// It costs real performance, which is why the window is time-boxed,
+			// the admin opens it deliberately, and the UI says so.
+			if ( ! empty( $h['csp_collect_nocache'] ) ) {
+				self::prevent_page_caching( 'CSP violation-collection window open' );
+			}
+
+			// Coverage is recorded later in the same request, not here.
+			// `send_headers` fires from WP::main() BEFORE query_posts() and
+			// handle_404(), so no template conditional is answerable yet —
+			// is_404(), is_singular() and WooCommerce's is_cart()/is_checkout()
+			// would all read false and every page would be filed as 'other'.
+			// Deferring to template_redirect, which runs once the query has
+			// actually happened, is what makes the checklist mean anything.
+			add_action( 'template_redirect', array( $this, 'record_coverage_for_request' ), 1 );
+
 			// When a CDN/proxy rewrites the report URL's origin so it differs
 			// from the page's own origin ('self'), the browser would block the
 			// report POST under connect-src. Inject the report origin into the
@@ -1248,7 +1309,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
-			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'] );
+			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
 		}
 
 		// Mirror add_csp_header()'s report-only strip, or the admin would be
@@ -1390,6 +1451,231 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
 
 		return $until > time();
+	}
+
+	/**
+	 * Whether this request should receive the policy despite being logged in,
+	 * because an administrator is self-testing inside an open window.
+	 *
+	 * Deliberately narrow: it requires the window to be open, the setting to
+	 * be on, and the user to hold `manage_options`. It cannot leak into normal
+	 * operation, because outside a window it is always false — and a window
+	 * closes itself.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return bool
+	 */
+	public static function admin_self_test_active( array $h ) {
+		if ( empty( $h['csp_collect_admin'] ) || ! self::collection_open( $h ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'is_user_logged_in' ) || ! is_user_logged_in() ) {
+			return false;
+		}
+
+		return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Transient holding which page types a collection window has actually
+	 * reached.
+	 *
+	 * An empty violation log has two completely different meanings — "the
+	 * policy is clean" and "nothing exercised the pages where it is not" — and
+	 * nothing in the UI could tell them apart. Reports alone cannot close that
+	 * gap: a page that loads cleanly produces no report, so silence is
+	 * indistinguishable from absence. Recording which page types were served a
+	 * reporting policy is the missing half.
+	 *
+	 * @var string
+	 */
+	const CSP_COVERAGE_KEY = 'spfw_csp_coverage';
+
+	/**
+	 * Page types the coverage checklist tracks, in the order the UI lists them.
+	 *
+	 * The WooCommerce entries are filtered out on sites without it — see
+	 * applicable_page_types().
+	 *
+	 * @var string[]
+	 */
+	const COLLECTION_PAGE_TYPES = array(
+		'home',
+		'page',
+		'post',
+		'archive',
+		'search',
+		'404',
+		'shop',
+		'product',
+		'cart',
+		'checkout',
+		'account',
+	);
+
+	/**
+	 * WooCommerce-only entries of COLLECTION_PAGE_TYPES.
+	 *
+	 * @var string[]
+	 */
+	const WOO_PAGE_TYPES = array( 'shop', 'product', 'cart', 'checkout', 'account' );
+
+	/**
+	 * The page types worth asking this site's admin to cover.
+	 *
+	 * @return string[]
+	 */
+	public static function applicable_page_types() {
+		if ( class_exists( 'WooCommerce' ) ) {
+			return self::COLLECTION_PAGE_TYPES;
+		}
+
+		return array_values( array_diff( self::COLLECTION_PAGE_TYPES, self::WOO_PAGE_TYPES ) );
+	}
+
+	/**
+	 * Classify the current request for the coverage checklist.
+	 *
+	 * Order matters: cart, checkout and account are ordinary pages as far as
+	 * `is_singular( 'page' )` is concerned, so the specific tests come first.
+	 *
+	 * @return string One of COLLECTION_PAGE_TYPES, or 'other'.
+	 */
+	public static function current_page_type() {
+		// A list of pairs rather than a type => callback map: PHP coerces a
+		// numeric-string array key, so '404' would become the integer 404 and
+		// this method would return an int where every caller expects a string.
+		$tests = array(
+			array( '404', 'is_404' ),
+			array( 'search', 'is_search' ),
+			array( 'cart', 'is_cart' ),
+			array( 'checkout', 'is_checkout' ),
+			array( 'account', 'is_account_page' ),
+			array( 'product', 'is_product' ),
+			array( 'shop', 'is_shop' ),
+		);
+
+		foreach ( $tests as $test ) {
+			list( $type, $fn ) = $test;
+
+			if ( function_exists( $fn ) && call_user_func( $fn ) ) {
+				return $type;
+			}
+		}
+
+		if ( function_exists( 'is_front_page' ) && is_front_page() ) {
+			return 'home';
+		}
+
+		if ( function_exists( 'is_home' ) && is_home() ) {
+			return 'home';
+		}
+
+		if ( function_exists( 'is_singular' ) ) {
+			if ( is_singular( 'page' ) ) {
+				return 'page';
+			}
+
+			if ( is_singular() ) {
+				return 'post';
+			}
+		}
+
+		if ( function_exists( 'is_archive' ) && is_archive() ) {
+			return 'archive';
+		}
+
+		return 'other';
+	}
+
+	/**
+	 * Record coverage for the request that is currently being served.
+	 *
+	 * Runs on `template_redirect` rather than `send_headers` — see the note at
+	 * the call site — and only for requests that were actually sent a reporting
+	 * policy, so the checklist reports what was tested rather than what was
+	 * merely visited.
+	 */
+	public function record_coverage_for_request() {
+		self::record_collection_coverage( SPFW_Settings::group( 'hardening' ) );
+	}
+
+	/**
+	 * Note that this page type was served a reporting policy during the current
+	 * window.
+	 *
+	 * Writes at most once per page type per window: a type already recorded
+	 * costs one cached transient read and nothing else, so this stays off the
+	 * hot path even with the page cache bypassed. Coverage is keyed to the
+	 * window's deadline, so opening a new window starts from nothing rather
+	 * than inheriting last week's checkmarks.
+	 *
+	 * @param array $h Hardening settings group.
+	 */
+	public static function record_collection_coverage( array $h ) {
+		$window = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+
+		if ( $window <= 0 ) {
+			return;
+		}
+
+		$type = self::current_page_type();
+
+		if ( 'other' === $type ) {
+			return;
+		}
+
+		$store = self::read_coverage( $window );
+
+		if ( isset( $store['types'][ $type ] ) ) {
+			return;
+		}
+
+		$store['types'][ $type ] = time();
+
+		set_transient( self::CSP_COVERAGE_KEY, $store, max( 60, $window - time() ) + DAY_IN_SECONDS );
+	}
+
+	/**
+	 * Read the coverage store, discarding it if it belongs to an earlier window.
+	 *
+	 * @param int $window Current window deadline.
+	 * @return array{window:int,types:array<string,int>}
+	 */
+	private static function read_coverage( $window ) {
+		$raw = get_transient( self::CSP_COVERAGE_KEY );
+
+		if ( ! is_array( $raw ) || ! isset( $raw['window'] ) || (int) $raw['window'] !== (int) $window ) {
+			return array(
+				'window' => (int) $window,
+				'types'  => array(),
+			);
+		}
+
+		return array(
+			'window' => (int) $raw['window'],
+			'types'  => isset( $raw['types'] ) && is_array( $raw['types'] ) ? $raw['types'] : array(),
+		);
+	}
+
+	/**
+	 * Coverage for the current window, as { type => bool }, for the admin UI.
+	 *
+	 * @return array<string,bool>
+	 */
+	public static function collection_coverage() {
+		$h      = SPFW_Settings::group( 'hardening' );
+		$window = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
+		$store  = self::read_coverage( $window );
+
+		$out = array();
+
+		foreach ( self::applicable_page_types() as $type ) {
+			$out[ $type ] = isset( $store['types'][ $type ] );
+		}
+
+		return $out;
 	}
 
 	/**
@@ -1579,59 +1865,69 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Replace 'unsafe-inline' in script-src with the collected sha256 hashes
-	 * plus 'strict-dynamic'. This is the Phase E tightening step: hashes are
-	 * stable across cache hits (unlike nonces), so they are correct under
-	 * full-page caching.
+	 * Replace 'unsafe-inline' in script-src with the collected sha256 hashes,
+	 * and — only when the admin has separately opted in — add 'strict-dynamic'.
 	 *
-	 * Note: 'strict-dynamic' changes how host allowlists are interpreted —
-	 * once present, https: and host sources in script-src are IGNORED by
-	 * supporting browsers. This is intentional: trust propagates from the
-	 * hashed scripts to any scripts they load.
+	 * Hashes are stable across cache hits (unlike nonces), so they are correct
+	 * under full-page caching. That is the whole of what hashing buys, and it
+	 * is safe: a policy that lists hashes alongside its existing host sources
+	 * still loads every script it loaded before.
 	 *
-	 * @param string   $policy  The CSP policy string.
-	 * @param string[] $hashes  Base64-encoded sha256 digests.
+	 * 'strict-dynamic' is a different and much larger change, which is why it
+	 * is now its own setting rather than an unannounced rider on this one. Once
+	 * present, supporting browsers IGNORE https: and every host source in
+	 * script-src — trust propagates only from the hashed scripts to whatever
+	 * they themselves load. So any <script src> written directly into the HTML
+	 * by a theme or a third party (reCAPTCHA's api.js, a hand-placed GTM
+	 * snippet) is refused unless a hashed script loaded it.
+	 *
+	 * Bundling the two meant "tighten script-src" silently discarded the host
+	 * allowlist the admin had just built from the violation log, and broke
+	 * exactly the third-party widgets the allowlist existed to permit.
+	 *
+	 * @param string   $policy         The CSP policy string.
+	 * @param string[] $hashes         Base64-encoded sha256 digests.
+	 * @param bool     $strict_dynamic Whether to add 'strict-dynamic' and drop
+	 *                                 the host/scheme sources it would void.
 	 * @return string
 	 */
-	private static function inject_script_hashes( $policy, array $hashes ) {
+	private static function inject_script_hashes( $policy, array $hashes, $strict_dynamic = false ) {
 		$directives = self::parse_policy_to_directives( $policy );
 
 		if ( ! isset( $directives['script-src'] ) || ! is_array( $directives['script-src'] ) ) {
 			return $policy;
 		}
 
-		$script_src = $directives['script-src'];
-
-		// Remove 'unsafe-inline' — the hashes replace it.
+		// Remove 'unsafe-inline' — the hashes replace it. (A browser that
+		// understands hashes ignores 'unsafe-inline' in the same directive
+		// anyway; dropping it keeps the emitted header honest about that.
+		// See the note above on why 'strict-dynamic' is not bundled in here.
 		$script_src = array_filter(
-			$script_src,
+			$directives['script-src'],
 			static function ( $token ) {
 				return "'unsafe-inline'" !== $token;
 			}
 		);
 
-		// Remove host/scheme sources that 'strict-dynamic' would ignore anyway.
-		// Keep 'self', 'none', and nonce/hash sources.
-		$script_src = array_filter(
-			$script_src,
-			static function ( $token ) {
-				// Keep keyword sources and existing hashes/nonces.
-				if ( 0 === strpos( $token, "'" ) ) {
-					return true;
+		if ( $strict_dynamic ) {
+			// Drop the host and scheme sources 'strict-dynamic' would make the
+			// browser ignore, so the emitted policy says what it means. Keep
+			// 'self', 'none', and existing nonce/hash sources.
+			$script_src = array_filter(
+				$script_src,
+				static function ( $token ) {
+					return 0 === strpos( $token, "'" );
 				}
-				// Drop bare scheme (https:) and host sources.
-				return false;
-			}
-		);
+			);
+		}
 
-		// Add the collected hashes.
 		foreach ( $hashes as $hash ) {
 			$script_src[] = "'sha256-" . $hash . "'";
 		}
 
-		// Add 'strict-dynamic' so trust propagates to scripts loaded by the
-		// hashed scripts (common in analytics and tag managers).
-		$script_src[] = "'strict-dynamic'";
+		if ( $strict_dynamic ) {
+			$script_src[] = "'strict-dynamic'";
+		}
 
 		$directives['script-src'] = array_values( array_unique( $script_src ) );
 

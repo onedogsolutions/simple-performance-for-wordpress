@@ -377,8 +377,11 @@ class SPFW_Rest_Settings {
 	 */
 	public function update_settings( $request ) {
 		$params = $request->get_json_params();
+		$before = SPFW_Settings::group( 'hardening' );
 
 		SPFW_Settings::update( is_array( $params ) ? $params : array() );
+
+		$this->maybe_open_enforcement_window( $before, SPFW_Settings::group( 'hardening' ) );
 
 		// Many toggles alter cached front-end HTML (head links, favicon,
 		// Google Maps, WooCommerce assets), so purge LiteSpeed Cache. Harmless
@@ -386,6 +389,54 @@ class SPFW_Rest_Settings {
 		do_action( 'litespeed_purge_all' );
 
 		return $this->get_settings();
+	}
+
+	/**
+	 * How long a window stays open after the admin switches CSP to enforcing.
+	 *
+	 * Short on purpose. The point is not to run another survey — it is that the
+	 * riskiest minutes in this feature's life are the ones just after a policy
+	 * starts blocking things for real, and until now those minutes were the
+	 * only ones with reporting switched off. A policy that breaks checkout went
+	 * silent exactly when it started costing orders.
+	 *
+	 * @var int
+	 */
+	const CSP_ENFORCE_WINDOW = 2 * HOUR_IN_SECONDS;
+
+	/**
+	 * Open a short collection window when CSP goes from report-only to
+	 * enforcing, so a policy that breaks something records what it broke.
+	 *
+	 * Never shortens or overwrites a window the admin already has open, and
+	 * does nothing unless the transition actually happened on this save.
+	 *
+	 * @param array $before Hardening group before the save.
+	 * @param array $after  Hardening group after the save.
+	 */
+	private function maybe_open_enforcement_window( array $before, array $after ) {
+		$started_enforcing = ! empty( $before['csp_report_only'] ) && empty( $after['csp_report_only'] );
+
+		if ( ! $started_enforcing || empty( $after['csp_enabled'] ) ) {
+			return;
+		}
+
+		if ( SPFW_Module_Hardening::collection_open( $after ) ) {
+			return;
+		}
+
+		$deadline = time() + self::CSP_ENFORCE_WINDOW;
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_collect_until' => $deadline,
+				),
+			)
+		);
+
+		wp_clear_scheduled_hook( SPFW_Module_Hardening::CSP_EXPIRE_CRON );
+		wp_schedule_single_event( $deadline + MINUTE_IN_SECONDS, SPFW_Module_Hardening::CSP_EXPIRE_CRON );
 	}
 
 	/**
@@ -737,18 +788,28 @@ class SPFW_Rest_Settings {
 			: '';
 
 		return array(
-			'collecting'       => SPFW_Module_Hardening::collection_open( $h ),
-			'collect_until'    => isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0,
-			'now'              => $now,
-			'entries'          => count( $store['items'] ),
-			'recorded'         => $recorded,
-			'last_report'      => $last_write,
-			'last_report_age'  => $last_write > 0 ? max( 0, $now - $last_write ) : -1,
-			'dropped'          => (int) $store['meta']['dropped'],
-			'full'             => count( $store['items'] ) >= self::CSP_REPORTS_MAX,
-			'report_uri'       => $report_uri,
-			'sampling'         => isset( $h['csp_collect_sample'] ) ? (int) $h['csp_collect_sample'] : 100,
-			'rate_limit'       => isset( $h['csp_rate_limit'] ) ? (int) $h['csp_rate_limit'] : self::CSP_NEW_PER_MINUTE_DEFAULT,
+			'collecting'      => SPFW_Module_Hardening::collection_open( $h ),
+			'collect_until'   => isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0,
+			'now'             => $now,
+			'entries'         => count( $store['items'] ),
+			'recorded'        => $recorded,
+			'last_report'     => $last_write,
+			'last_report_age' => $last_write > 0 ? max( 0, $now - $last_write ) : -1,
+			'dropped'         => (int) $store['meta']['dropped'],
+			'full'            => count( $store['items'] ) >= self::CSP_REPORTS_MAX,
+			'report_uri'      => $report_uri,
+			'sampling'        => isset( $h['csp_collect_sample'] ) ? (int) $h['csp_collect_sample'] : 100,
+			'rate_limit'      => isset( $h['csp_rate_limit'] ) ? (int) $h['csp_rate_limit'] : self::CSP_NEW_PER_MINUTE_DEFAULT,
+			// Whether the admin reading this screen is inside the population
+			// the policy reaches. Without it, "no reports" is unreadable: it
+			// could mean the policy is clean or that the only person testing it
+			// was never sent a header.
+			'admin_included'  => SPFW_Module_Hardening::admin_self_test_active( $h ),
+			// Which page types this window has actually served a reporting
+			// policy to. An empty log across 2 of 11 page types is a different
+			// statement from an empty log across all 11, and only one of them
+			// is evidence.
+			'coverage'        => SPFW_Module_Hardening::collection_coverage(),
 		);
 	}
 
@@ -1344,6 +1405,119 @@ class SPFW_Rest_Settings {
 	}
 
 	/**
+	 * Script `type` values a browser actually executes. Anything else in a
+	 * `<script>` tag is data the page reads back (JSON-LD for search engines,
+	 * `text/template` for a JS templating library, `application/json` for a
+	 * block editor payload) and is never subject to script-src, so hashing it
+	 * only bloats the header.
+	 *
+	 * An absent or empty `type` means classic JavaScript, which is why '' is
+	 * in the list.
+	 *
+	 * @var string[]
+	 */
+	const EXECUTABLE_SCRIPT_TYPES = array(
+		'',
+		'module',
+		'text/javascript',
+		'application/javascript',
+		'text/ecmascript',
+		'application/ecmascript',
+		'text/jscript',
+	);
+
+	/**
+	 * Ceiling on how many inline-script hashes may be collected.
+	 *
+	 * Every hash is 51 bytes in the header and the header is sent on every
+	 * response. A theme that emits a per-post inline script would otherwise
+	 * grow the policy without bound until a proxy rejects the response for
+	 * oversized headers — a failure that looks nothing like its cause.
+	 *
+	 * @var int
+	 */
+	const CSP_MAX_HASHES = 64;
+
+	/**
+	 * Compute the CSP sha256 hashes of every executable inline script in an
+	 * HTML document.
+	 *
+	 * The hash MUST be taken over the element's text content exactly as it
+	 * appears between the tags. This function used to `trim()` the body first,
+	 * which changes the digest for every script that is indented or starts on
+	 * its own line — i.e. essentially all of them — so no hash ever matched
+	 * and enabling script-src tightening blocked every inline script on the
+	 * site. Nothing surfaced the mismatch: the policy looked plausible, the
+	 * scan reported a healthy count, and the breakage appeared only in a
+	 * visitor's browser.
+	 *
+	 * Extracted as a pure static so that behavior can be pinned by a test
+	 * against a known digest instead of only by reading it.
+	 *
+	 * @param string $html Document markup.
+	 * @return string[] Base64-encoded sha256 digests, de-duplicated, in order.
+	 */
+	public static function extract_script_hashes( $html ) {
+		$hashes = array();
+
+		// `src` is matched with a following `=` so that a `data-src` or an
+		// attribute merely containing the letters stays in scope, while a real
+		// external script (whose content is not what script-src hashes) is
+		// excluded.
+		if ( ! preg_match_all( '/<script\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>(.*?)<\/script>/is', (string) $html, $matches, PREG_SET_ORDER ) ) {
+			return $hashes;
+		}
+
+		foreach ( $matches as $match ) {
+			$attrs = isset( $match[1] ) ? $match[1] : '';
+			$body  = isset( $match[2] ) ? $match[2] : '';
+
+			// External script: its bytes are not what the hash covers.
+			if ( preg_match( '/\bsrc\s*=/i', $attrs ) ) {
+				continue;
+			}
+
+			// Nothing to execute.
+			if ( ! preg_match( '/\S/', $body ) ) {
+				continue;
+			}
+
+			if ( ! in_array( self::script_type( $attrs ), self::EXECUTABLE_SCRIPT_TYPES, true ) ) {
+				continue;
+			}
+
+			$hash            = base64_encode( hash( 'sha256', $body, true ) );
+			$hashes[ $hash ] = true;
+
+			if ( count( $hashes ) >= self::CSP_MAX_HASHES ) {
+				break;
+			}
+		}
+
+		return array_keys( $hashes );
+	}
+
+	/**
+	 * The lower-cased `type` attribute of a `<script>` tag, or '' when absent.
+	 *
+	 * @param string $attrs Raw attribute text between `<script` and `>`.
+	 * @return string
+	 */
+	private static function script_type( $attrs ) {
+		if ( ! preg_match( '/\btype\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', (string) $attrs, $m ) ) {
+			return '';
+		}
+
+		foreach ( array( 1, 2, 3 ) as $group ) {
+			if ( isset( $m[ $group ] ) && '' !== $m[ $group ] ) {
+				return strtolower( trim( $m[ $group ] ) );
+			}
+		}
+
+		return '';
+	}
+
+	/**
 	 * POST callback: scan representative pages for inline scripts and compute
 	 * sha256 hashes for CSP script-src tightening. Reuses the same URL sample
 	 * as the font scanner (homepage + recent post + recent page).
@@ -1351,7 +1525,7 @@ class SPFW_Rest_Settings {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function scan_script_hashes() {
-		$urls = $this->get_scan_urls();
+		$urls   = $this->get_script_scan_urls();
 		$hashes = array();
 		$errors = array();
 
@@ -1387,28 +1561,10 @@ class SPFW_Rest_Settings {
 				continue;
 			}
 
-			// Extract inline script bodies (scripts without a src attribute).
-			if ( preg_match_all( '/<script(?![^>]*\bsrc\b)[^>]*>(.*?)<\/script>/is', $html, $matches ) ) {
-				foreach ( $matches[1] as $body ) {
-					$body = trim( $body );
-
-					// Skip empty or whitespace-only scripts.
-					if ( '' === $body || ! preg_match( '/\S/', $body ) ) {
-						continue;
-					}
-
-					// Skip JSON-LD and other non-executable script types.
-					if ( preg_match( '/<script[^>]*type\s*=\s*["\'](?:application\/ld\+json|application\/json|text\/template)["\']/i', $matches[0][ array_search( $body, $matches[1], true ) ] ?? '', $type_match ) ) {
-						continue;
-					}
-
-					$hash     = base64_encode( hash( 'sha256', $body, true ) );
-					$hashes[] = $hash;
-				}
-			}
+			$hashes = array_merge( $hashes, self::extract_script_hashes( $html ) );
 		}
 
-		$hashes = array_values( array_unique( $hashes ) );
+		$hashes = array_slice( array_values( array_unique( $hashes ) ), 0, self::CSP_MAX_HASHES );
 
 		// Store the hashes.
 		SPFW_Settings::update(
@@ -1509,6 +1665,55 @@ class SPFW_Rest_Settings {
 		$response->set_data( $data );
 
 		return $response;
+	}
+
+	/**
+	 * URLs the inline-script scan visits.
+	 *
+	 * Deliberately wider than the font scanner's sample. Hashes are only safe
+	 * to enforce if they cover every template that emits an inline script, and
+	 * the templates that matter most are exactly the ones the three-URL sample
+	 * missed: cart, checkout and account pages carry the most inline script on
+	 * a commerce site, and are where a blocked script costs an order rather
+	 * than a cosmetic glitch.
+	 *
+	 * Note the limit this does not remove: an inline script whose body varies
+	 * per request (a nonce, a cart fragment, a timestamp) hashes differently
+	 * every time, so its stored hash is stale the moment it is written. That is
+	 * a property of hashing, not of the sample — which is why
+	 * `csp_strict_dynamic` is opt-in and `script-src` keeps its host sources by
+	 * default.
+	 *
+	 * @return string[]
+	 */
+	private function get_script_scan_urls() {
+		$urls = $this->get_scan_urls();
+
+		if ( function_exists( 'wc_get_page_permalink' ) ) {
+			foreach ( array( 'shop', 'cart', 'checkout', 'myaccount' ) as $page ) {
+				$url = wc_get_page_permalink( $page );
+
+				if ( is_string( $url ) && '' !== $url ) {
+					$urls[] = $url;
+				}
+			}
+
+			$product = get_posts(
+				array(
+					'post_type'      => 'product',
+					'post_status'    => 'publish',
+					'posts_per_page' => 1,
+					'orderby'        => 'date',
+					'order'          => 'DESC',
+				)
+			);
+
+			if ( ! empty( $product ) ) {
+				$urls[] = get_permalink( $product[0] );
+			}
+		}
+
+		return array_values( array_unique( array_filter( $urls ) ) );
 	}
 
 	/**

@@ -240,6 +240,77 @@ function current_user_can( $capability ) {
 	return ! empty( $spfw_test_capabilities[ $capability ] );
 }
 
+// ---------------------------------------------------------------------------
+// Template conditionals and cron, for the CSP collection-coverage tests.
+//
+// $spfw_test_page holds the page type the next request should look like;
+// every conditional below answers against it. Kept as one switch rather than
+// a stub per function so a test can never accidentally describe a request that
+// is both a 404 and the cart.
+// ---------------------------------------------------------------------------
+global $spfw_test_page, $spfw_test_cron;
+$spfw_test_page = '';
+$spfw_test_cron = array();
+
+function is_404() {
+	global $spfw_test_page;
+	return '404' === $spfw_test_page;
+}
+
+function is_search() {
+	global $spfw_test_page;
+	return 'search' === $spfw_test_page;
+}
+
+function is_front_page() {
+	global $spfw_test_page;
+	return 'home' === $spfw_test_page;
+}
+
+function is_home() {
+	global $spfw_test_page;
+	return 'home' === $spfw_test_page;
+}
+
+function is_archive() {
+	global $spfw_test_page;
+	return 'archive' === $spfw_test_page;
+}
+
+function is_singular( $type = '' ) {
+	global $spfw_test_page;
+
+	if ( 'page' === $type ) {
+		return 'page' === $spfw_test_page;
+	}
+
+	return in_array( $spfw_test_page, array( 'page', 'post' ), true );
+}
+
+function wp_clear_scheduled_hook( $hook ) {
+	global $spfw_test_cron;
+	unset( $spfw_test_cron[ $hook ] );
+}
+
+function wp_schedule_single_event( $timestamp, $hook ) {
+	global $spfw_test_cron;
+	$spfw_test_cron[ $hook ] = $timestamp;
+	return true;
+}
+
+function wp_next_scheduled( $hook ) {
+	global $spfw_test_cron;
+	return isset( $spfw_test_cron[ $hook ] ) ? $spfw_test_cron[ $hook ] : false;
+}
+
+function is_ssl() {
+	return false;
+}
+
+function rest_url( $path = '' ) {
+	return 'http://example.com/wp-json/' . ltrim( (string) $path, '/' );
+}
+
 function wp_doing_ajax() {
 	return defined( 'DOING_AJAX' ) && DOING_AJAX;
 }

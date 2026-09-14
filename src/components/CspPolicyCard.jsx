@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import {
-	connectSrcGaps,
+	bundleGaps,
+	policyRisks,
 	addOrigins,
 	THIRD_PARTY_BUNDLES,
 } from '../lib/csp-bundles';
@@ -257,11 +258,50 @@ export default function CspPolicyCard( {
 	const directives = hardening.csp_directives || {};
 	const collecting = !! cspReportStats.collecting;
 
-	// Providers whose frames or scripts are already allowed but whose
-	// connect-src origins are not. Nothing will report these until a customer
-	// reaches the payment step, so enforcing on a clean violation log is not
-	// evidence that checkout survives it.
-	const gaps = connectSrcGaps( directives );
+	// Providers the policy already uses somewhere, with origins missing from
+	// the other directives their SDK needs. Nothing reports these until a
+	// visitor reaches the step that requests them — the payment form, the
+	// login modal's captcha — so enforcing on a clean violation log is not
+	// evidence that those flows survive it.
+	const gaps = bundleGaps( directives );
+
+	// Structural holes that no report can surface, because the resource they
+	// block is only requested on interaction. Both of these shipped as the
+	// default policy and broke reCAPTCHA on a live site.
+	const risks = policyRisks( directives );
+
+	// Which page types the current window has actually served a reporting
+	// policy to. Reports alone cannot answer this — a page that loads cleanly
+	// produces no report, so silence from a page nobody visited is
+	// indistinguishable from silence from a page that passed.
+	const coverage = cspReportStats.coverage || {};
+	const coverageTypes = Object.keys( coverage );
+	const coverageTotal = coverageTypes.length;
+	const coverageCovered = coverageTypes.filter(
+		( type ) => coverage[ type ]
+	).length;
+
+	// Directives browsers ignore in a Report-Only policy, so the header under
+	// test never exercised them however long the window ran. Mirrors
+	// SPFW_Module_Hardening::REPORT_ONLY_IGNORED.
+	const enforcedOnly = [ 'frame-ancestors', 'sandbox' ].filter(
+		( name ) => ( directives[ name ] || [] ).length > 0
+	);
+
+	// Human labels for the coverage checklist.
+	const PAGE_TYPE_LABELS = {
+		home: __( 'Home', 'simple-performance-for-wordpress' ),
+		page: __( 'A page', 'simple-performance-for-wordpress' ),
+		post: __( 'A post', 'simple-performance-for-wordpress' ),
+		archive: __( 'An archive', 'simple-performance-for-wordpress' ),
+		search: __( 'Search results', 'simple-performance-for-wordpress' ),
+		404: __( 'A 404', 'simple-performance-for-wordpress' ),
+		shop: __( 'Shop', 'simple-performance-for-wordpress' ),
+		product: __( 'A product', 'simple-performance-for-wordpress' ),
+		cart: __( 'Cart', 'simple-performance-for-wordpress' ),
+		checkout: __( 'Checkout', 'simple-performance-for-wordpress' ),
+		account: __( 'My account', 'simple-performance-for-wordpress' ),
+	};
 
 	// Mirrors SPFW_Settings::CSP_MAX_TOKENS, read from the server so the two
 	// cannot drift. Exceeding it used to truncate silently on save.
@@ -294,6 +334,13 @@ export default function CspPolicyCard( {
 
 	// Bulk-allow confirmation state: null | 'all' | directive-name.
 	const [ bulkConfirm, setBulkConfirm ] = useState( null );
+
+	// Whether the admin is being asked to confirm leaving Report-Only. Turning
+	// that toggle off is the moment the policy starts breaking things for real
+	// visitors, and it was a single unguarded click — on evidence the admin had
+	// no way to judge, because an empty violation log looks identical whether
+	// the policy is clean or nothing ever tested it.
+	const [ enforceConfirm, setEnforceConfirm ] = useState( false );
 
 	// Test-endpoint state: null | 'testing' | 'ok' | 'error'.
 	const [ testState, setTestState ] = useState( null );
@@ -432,21 +479,45 @@ export default function CspPolicyCard( {
 		onChange( 'csp_directives', next );
 	};
 
-	// Close one provider's connect-src gap.
+	// Close one provider's gap across every directive it is missing from.
 	const fixGap = ( missing ) => {
-		clearHostText( 'connect-src' );
+		Object.keys( missing ).forEach( clearHostText );
 		onChange(
 			'csp_directives',
-			addOrigins( directives, 'connect-src', missing )
+			Object.keys( missing ).reduce(
+				( acc, directive ) =>
+					addOrigins( acc, directive, missing[ directive ] ),
+				directives
+			)
+		);
+	};
+
+	// Add the sources a structural risk suggests to the directive it names.
+	const fixRisk = ( risk ) => {
+		clearHostText( risk.directive );
+		onChange(
+			'csp_directives',
+			addOrigins( directives, risk.directive, risk.suggest )
 		);
 	};
 
 	const fixAllGaps = () => {
-		clearHostText( 'connect-src' );
+		gaps.forEach( ( gap ) =>
+			Object.keys( gap.missing ).forEach( clearHostText )
+		);
 		onChange(
 			'csp_directives',
 			gaps.reduce(
-				( acc, gap ) => addOrigins( acc, 'connect-src', gap.missing ),
+				( acc, gap ) =>
+					Object.keys( gap.missing ).reduce(
+						( inner, directive ) =>
+							addOrigins(
+								inner,
+								directive,
+								gap.missing[ directive ]
+							),
+						acc
+					),
 				directives
 			)
 		);
@@ -609,11 +680,127 @@ export default function CspPolicyCard( {
 					>
 						<Toggle
 							checked={ reportOnly }
-							onChange={ ( v ) =>
-								onChange( 'csp_report_only', v )
-							}
+							onChange={ ( v ) => {
+								if ( v ) {
+									setEnforceConfirm( false );
+									onChange( 'csp_report_only', true );
+									return;
+								}
+
+								setEnforceConfirm( true );
+							} }
 						/>
 					</SettingsRow>
+
+					{ enforceConfirm && reportOnly && (
+						<div className="rounded-md bg-gray-50 p-4 ring-1 ring-inset ring-gray-300">
+							<h4 className="text-sm font-semibold text-gray-900">
+								{ __(
+									'Enforce this policy for real visitors?',
+									'simple-performance-for-wordpress'
+								) }
+							</h4>
+
+							<p className="mt-1 text-sm text-gray-700">
+								{ __(
+									'From the next save, anything this policy does not allow is blocked instead of logged. Here is what the testing so far actually covered:',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+
+							<ul className="mt-3 space-y-1 text-sm text-gray-800">
+								<li>
+									{ sprintf(
+										/* translators: %d: number of distinct violations recorded */
+										__(
+											'%d distinct violations recorded.',
+											'simple-performance-for-wordpress'
+										),
+										cspReportStats.entries || 0
+									) }
+								</li>
+								<li>
+									{ coverageTotal > 0
+										? sprintf(
+												/* translators: 1: covered page types, 2: total page types */
+												__(
+													'%1$d of %2$d page types were served a reporting policy.',
+													'simple-performance-for-wordpress'
+												),
+												coverageCovered,
+												coverageTotal
+										  )
+										: __(
+												'No collection window has run, so nothing has been tested.',
+												'simple-performance-for-wordpress'
+										  ) }
+								</li>
+								{ ! cspReportStats.admin_included && (
+									<li className="text-amber-800">
+										{ __(
+											'Your own browsing was not included — only logged-out visitors were sent the policy.',
+											'simple-performance-for-wordpress'
+										) }
+									</li>
+								) }
+								{ enforcedOnly.length > 0 && (
+									<li>
+										{ sprintf(
+											/* translators: %s: space-separated CSP directive names */
+											__(
+												'Not tested, because browsers ignore them in Report-Only: %s. They start applying now.',
+												'simple-performance-for-wordpress'
+											),
+											enforcedOnly.join( ' ' )
+										) }
+									</li>
+								) }
+							</ul>
+
+							{ ( coverageTotal === 0 ||
+								coverageCovered < coverageTotal ) && (
+								<p className="mt-3 text-sm text-amber-800">
+									{ __(
+										'Pages that were never loaded during a window cannot have reported anything, so an empty list is not evidence about them. The captcha inside a login or password-reset modal, and the payment step of checkout, only request anything when someone interacts with them — visiting the page is not enough.',
+										'simple-performance-for-wordpress'
+									) }
+								</p>
+							) }
+
+							<p className="mt-3 text-xs text-gray-600">
+								{ __(
+									'A short collection window opens automatically when you enforce, so anything that does break is recorded rather than silent.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+
+							<div className="mt-4 flex items-center gap-x-4">
+								<button
+									type="button"
+									onClick={ () => {
+										setEnforceConfirm( false );
+										onChange( 'csp_report_only', false );
+									} }
+									className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+								>
+									{ __(
+										'Enforce the policy',
+										'simple-performance-for-wordpress'
+									) }
+								</button>
+								<button
+									type="button"
+									onClick={ () => setEnforceConfirm( false ) }
+									className="text-sm font-medium text-gray-600 hover:text-gray-500"
+								>
+									{ __(
+										'Stay in Report-Only',
+										'simple-performance-for-wordpress'
+									) }
+								</button>
+							</div>
+						</div>
+					) }
 
 					{ gaps.length > 0 && (
 						<div
@@ -632,11 +819,11 @@ export default function CspPolicyCard( {
 							>
 								{ reportOnly
 									? __(
-											'Not ready to enforce — payment connections are missing',
+											'Not ready to enforce — third-party origins are missing',
 											'simple-performance-for-wordpress'
 									  )
 									: __(
-											'Enforcing with missing payment connections',
+											'Enforcing with third-party origins missing',
 											'simple-performance-for-wordpress'
 									  ) }
 							</h4>
@@ -648,7 +835,7 @@ export default function CspPolicyCard( {
 								}` }
 							>
 								{ __(
-									'This policy already allows these providers to load, so the site uses them — but connect-src is missing origins their checkout scripts call. Nothing reports this until a customer reaches the payment step, so an empty violation list above is not evidence that checkout survives enforcing.',
+									'This policy already allows these providers somewhere, so the site uses them — but other directives they need are missing origins. Nothing reports this until a visitor reaches the step that requests them: a payment form, or the captcha inside a login or password-reset modal. An empty violation list above is not evidence that those flows survive enforcing.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
@@ -663,10 +850,24 @@ export default function CspPolicyCard( {
 											<span className="font-semibold">
 												{ gap.bundle.label }
 											</span>
-											{ ': ' }
-											<span className="font-mono text-xs">
-												{ gap.missing.join( ' ' ) }
-											</span>
+											{ Object.keys( gap.missing ).map(
+												( directive ) => (
+													<span
+														key={ directive }
+														className="block"
+													>
+														<span className="font-mono text-xs text-gray-600">
+															{ directive }
+														</span>
+														{ ' ' }
+														<span className="font-mono text-xs">
+															{ gap.missing[
+																directive
+															].join( ' ' ) }
+														</span>
+													</span>
+												)
+											) }
 										</span>
 										<button
 											type="button"
@@ -676,7 +877,7 @@ export default function CspPolicyCard( {
 											className="shrink-0 text-sm font-medium text-indigo-600 hover:text-indigo-500"
 										>
 											{ __(
-												'Add to connect-src',
+												'Add these origins',
 												'simple-performance-for-wordpress'
 											) }
 										</button>
@@ -691,7 +892,7 @@ export default function CspPolicyCard( {
 									className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-500"
 								>
 									{ __(
-										'Add all missing connect-src origins',
+										'Add every missing origin',
 										'simple-performance-for-wordpress'
 									) }
 								</button>
@@ -699,7 +900,61 @@ export default function CspPolicyCard( {
 
 							<p className="mt-3 text-xs text-gray-600">
 								{ __(
-									'These lists come from each provider’s published CSP guidance and are a starting point, not a guarantee — integrations differ and providers add hosts. Confirm with a real test purchase before enforcing.',
+									'These lists come from each provider’s published CSP guidance and are a starting point, not a guarantee — integrations differ and providers add hosts. Confirm with a real test purchase, and a real password reset, before enforcing.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						</div>
+					) }
+
+					{ risks.length > 0 && (
+						<div className="rounded-md bg-amber-50 p-4 ring-1 ring-inset ring-amber-200">
+							<h4 className="text-sm font-semibold text-amber-900">
+								{ __(
+									'This policy blocks third-party content in a way nothing will report',
+									'simple-performance-for-wordpress'
+								) }
+							</h4>
+
+							<ul className="mt-3 space-y-3">
+								{ risks.map( ( risk ) => (
+									<li
+										key={ risk.id }
+										className="flex flex-wrap items-start justify-between gap-2"
+									>
+										<span className="max-w-xl text-sm text-amber-900">
+											{ 'missing-frame-src' === risk.id
+												? __(
+														'No frame-src is set, so embedded content falls back to default-src. Every third-party iframe on the site — a reCAPTCHA challenge, an embedded video, a map, a payment form — is refused, and each one fails as a blank space rather than an error anyone connects to CSP.',
+														'simple-performance-for-wordpress'
+												  )
+												: __(
+														'connect-src allows nothing but this site, so every third-party fetch is refused: the reCAPTCHA token call, analytics beacons, a payment SDK’s API. None of them is requested until a visitor interacts with the page, so Report-Only browsing will not surface any of it.',
+														'simple-performance-for-wordpress'
+												  ) }
+										</span>
+										<button
+											type="button"
+											onClick={ () => fixRisk( risk ) }
+											className="shrink-0 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+										>
+											{ sprintf(
+												/* translators: 1: CSP directive name, 2: source tokens to add */
+												__(
+													'Add %2$s to %1$s',
+													'simple-performance-for-wordpress'
+												),
+												risk.directive,
+												risk.suggest.join( ' ' )
+											) }
+										</button>
+									</li>
+								) ) }
+							</ul>
+
+							<p className="mt-3 text-xs text-amber-800">
+								{ __(
+									'This is the failure that prompted the check: a site enforcing these defaults left logged-out visitors unable to reset a password, because the captcha could neither load its frame nor fetch its token.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
@@ -746,7 +1001,7 @@ export default function CspPolicyCard( {
 							'simple-performance-for-wordpress'
 						) }
 						description={ __(
-							'Replaces \'unsafe-inline\' in script-src with sha256 hashes of your site\'s inline scripts, plus \'strict-dynamic\'. This provides real XSS protection but requires re-scanning after every plugin/theme change. Any inline script that varies per request (timestamps, personalization) will always violate. Use Report-Only mode until the violation log is clean.',
+							"Replaces 'unsafe-inline' in script-src with sha256 hashes of your site's inline scripts. Real XSS protection, but it requires re-scanning after every plugin or theme change, and any inline script that varies per request (timestamps, personalization, cart contents) hashes differently every time and will always violate. Use Report-Only mode until the violation log is clean.",
 							'simple-performance-for-wordpress'
 						) }
 					>
@@ -825,17 +1080,49 @@ export default function CspPolicyCard( {
 
 									<p className="text-xs text-gray-500">
 										{ __(
-											'Scans your homepage, most recent post, and most recent page for inline scripts. Re-scan after any plugin or theme change.',
+											'Scans your homepage, most recent post and page, and — on a WooCommerce site — the shop, cart, checkout, account and a product page. Re-scan after any plugin or theme change.',
 											'simple-performance-for-wordpress'
 										) }
 									</p>
 
-									<p className="text-xs text-amber-600">
-										{ __(
-											'Warning: \'strict-dynamic\' causes browsers to ignore https: and host allowlists in script-src. Trust propagates from hashed scripts only.',
-											'simple-performance-for-wordpress'
+									<div className="border-t border-gray-200 pt-3">
+										<div className="flex items-start justify-between gap-x-4">
+											<div>
+												<span className="text-sm font-medium text-gray-900">
+													{ __(
+														"Also add 'strict-dynamic'",
+														'simple-performance-for-wordpress'
+													) }
+												</span>
+												<p className="mt-1 text-xs text-gray-600">
+													{ __(
+														"Off by default, and a much bigger change than hashing. Browsers that support 'strict-dynamic' ignore https: and every host in script-src — only the hashed scripts, and whatever those scripts load themselves, may run. Any <script src> written straight into your HTML by a theme or a third party (reCAPTCHA, a hand-placed tag manager snippet) is refused. Turn this on only after testing with it in Report-Only mode.",
+														'simple-performance-for-wordpress'
+													) }
+												</p>
+											</div>
+											<Toggle
+												checked={
+													!! hardening.csp_strict_dynamic
+												}
+												onChange={ ( v ) =>
+													onChange(
+														'csp_strict_dynamic',
+														v
+													)
+												}
+											/>
+										</div>
+
+										{ !! hardening.csp_strict_dynamic && (
+											<p className="mt-2 text-xs text-amber-600">
+												{ __(
+													'Your script-src host allowlist is now ignored by supporting browsers. Everything in it must be loaded by a hashed script to keep working.',
+													'simple-performance-for-wordpress'
+												) }
+											</p>
 										) }
-									</p>
+									</div>
 								</div>
 							) }
 						</div>
@@ -1040,10 +1327,12 @@ export default function CspPolicyCard( {
 																}
 																className="flex items-center justify-between gap-x-3 text-xs text-amber-900"
 															>
-																<span className="font-mono truncate">
-																	{
-																		r.blocked_origin
-																	}{ ' ' }
+																<span className="min-w-0 truncate">
+																	<span className="font-mono">
+																		{
+																			r.blocked_origin
+																		}
+																	</span>{ ' ' }
 																	<span className="text-amber-600">
 																		(
 																		{
@@ -1051,6 +1340,23 @@ export default function CspPolicyCard( {
 																		}
 																		)
 																	</span>
+																	{ r.document_uri && (
+																		<span
+																			className="block truncate font-normal text-amber-700"
+																			title={
+																				r.document_uri
+																			}
+																		>
+																			{ sprintf(
+																				/* translators: %s: URL of the page the violation was reported from */
+																				__(
+																					'on %s',
+																					'simple-performance-for-wordpress'
+																				),
+																				r.document_uri
+																			) }
+																		</span>
+																	) }
 																</span>
 																{ isConfirming ? (
 																	<span className="flex shrink-0 items-center gap-x-2">
@@ -1285,7 +1591,7 @@ export default function CspPolicyCard( {
 						<div className="mt-2 rounded-md bg-gray-50 p-4">
 							<p className="text-sm text-gray-600">
 								{ __(
-									'Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. So collection runs in a time-boxed window: open one, browse the site (or let real traffic do it), then work through the list below. The window closes itself.',
+									'Collecting violations asks every visitor’s browser to POST a report to this site, which cannot be cached and costs a full page load each time. Pages carrying a reporting policy are also kept out of the page cache, because the header is set by PHP and a cache hit never runs PHP — without that, a window only sees whatever the cache happened to regenerate. So collection runs in a time-boxed window: open one, browse the site yourself (or let real traffic do it), then work through the list below. The window closes itself.',
 									'simple-performance-for-wordpress'
 								) }
 							</p>
@@ -1466,6 +1772,68 @@ export default function CspPolicyCard( {
 									) }
 								</p>
 							) }
+
+							{ collecting && (
+								<p
+									className={ `mt-2 text-xs ${
+										cspReportStats.admin_included
+											? 'text-green-700'
+											: 'text-amber-700'
+									}` }
+								>
+									{ cspReportStats.admin_included
+										? __(
+												'You are inside the test: while this window is open you are sent the policy too, so your own browsing reports violations. Open the login and password-reset forms, and walk through checkout — those load scripts that nothing else on the site requests.',
+												'simple-performance-for-wordpress'
+										  )
+										: __(
+												'You are not inside the test. The policy is being withheld from logged-in users, so nothing you do in this browser can report a violation — only logged-out visitors can. Turn on “Include my own browsing” below, or test in a private window.',
+												'simple-performance-for-wordpress'
+										  ) }
+								</p>
+							) }
+
+							{ collecting && coverageTotal > 0 && (
+								<div className="mt-3 rounded-md bg-white p-3 ring-1 ring-inset ring-gray-200">
+									<p className="text-xs font-semibold text-gray-600">
+										{ sprintf(
+											/* translators: 1: covered page types, 2: total page types */
+											__(
+												'Pages covered this window: %1$d of %2$d',
+												'simple-performance-for-wordpress'
+											),
+											coverageCovered,
+											coverageTotal
+										) }
+									</p>
+
+									<ul className="mt-2 flex flex-wrap gap-2">
+										{ coverageTypes.map( ( type ) => (
+											<li
+												key={ type }
+												className={ `rounded px-2 py-1 text-xs ${
+													coverage[ type ]
+														? 'bg-green-100 text-green-800'
+														: 'bg-gray-100 text-gray-500'
+												}` }
+											>
+												{ coverage[ type ]
+													? '✓ '
+													: '· ' }
+												{ PAGE_TYPE_LABELS[ type ] ||
+													type }
+											</li>
+										) ) }
+									</ul>
+
+									<p className="mt-2 text-xs text-gray-500">
+										{ __(
+											'A page nobody loaded cannot have reported anything, so an empty list below says nothing about the grey entries. Coverage cannot see interactions either: opening a captcha-protected form or reaching the payment step requests scripts that merely viewing the page does not.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
+							) }
 						
 							{ cspReportStats.report_uri && (
 								<div className="mt-3 rounded-md bg-gray-50 p-3 ring-1 ring-inset ring-gray-200 space-y-2">
@@ -1551,6 +1919,74 @@ export default function CspPolicyCard( {
 								<p className="mt-1 text-xs text-gray-400">
 									{ __( 'Raise this on tracker-heavy sites if reports are being dropped. Save after changing.', 'simple-performance-for-wordpress' ) }
 								</p>
+							</div>
+
+							<div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
+								<div>
+									<label
+										htmlFor="spfw-csp-collect-admin"
+										className="flex items-start gap-x-3 text-xs font-medium text-gray-700"
+									>
+										<input
+											id="spfw-csp-collect-admin"
+											type="checkbox"
+											checked={
+												hardening.csp_collect_admin !==
+												false
+											}
+											onChange={ ( e ) =>
+												onChange(
+													'csp_collect_admin',
+													e.target.checked
+												)
+											}
+											className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+										/>
+										{ __(
+											'Include my own browsing while a window is open',
+											'simple-performance-for-wordpress'
+										) }
+									</label>
+									<p className="mt-1 pl-7 text-xs text-gray-400">
+										{ __(
+											'Sends the policy to administrators for the duration of the window, overriding “Do not apply to logged-in users”. Without it the one person deliberately testing the site is the only visitor the test cannot see, and the window closes on an empty log that reads as proof the policy is safe. Save after changing.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
+
+								<div>
+									<label
+										htmlFor="spfw-csp-bypass-cache"
+										className="flex items-start gap-x-3 text-xs font-medium text-gray-700"
+									>
+										<input
+											id="spfw-csp-bypass-cache"
+											type="checkbox"
+											checked={
+												hardening.csp_collect_nocache !==
+												false
+											}
+											onChange={ ( e ) =>
+												onChange(
+													'csp_collect_nocache',
+													e.target.checked
+												)
+											}
+											className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+										/>
+										{ __(
+											'Bypass the page cache while collecting',
+											'simple-performance-for-wordpress'
+										) }
+									</label>
+									<p className="mt-1 pl-7 text-xs text-gray-400">
+										{ __(
+											'Recommended. The reporting header is set by PHP, which does not run for a cache hit, so leaving this off limits a window to whatever the cache regenerated while it was open. It costs performance for the length of the window — which is why the window is short. Save after changing.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</div>
 							</div>
 						</div>
 

@@ -75,6 +75,24 @@ export const THIRD_PARTY_BUNDLES = [
 			],
 		},
 	},
+	{
+		id: 'recaptcha',
+		label: 'Google reCAPTCHA',
+		// The bundle this list exists because of. A default policy with
+		// `connect-src 'self'` and no `frame-src` blocks the widget's iframe
+		// and its token call, and the only symptom the visitor gets is a form
+		// that refuses to submit — on a password-reset or checkout form, with
+		// no way around it. Nothing reports it either, because the widget only
+		// loads once someone opens the form.
+		directives: {
+			'script-src': [
+				'https://www.google.com',
+				'https://www.gstatic.com',
+			],
+			'frame-src': [ 'https://www.google.com' ],
+			'connect-src': [ 'https://www.google.com' ],
+		},
+	},
 ];
 
 /**
@@ -93,30 +111,155 @@ export const bundleInUse = ( directives, bundle ) =>
 	);
 
 /**
- * connect-src origins missing for every provider the policy already uses.
+ * Whether a directive's token list already permits an origin without naming
+ * it — `https:` covers every https origin, and so does a wildcard host that
+ * the origin falls under.
  *
- * @param {Object} directives Directive map from the builder.
- * @return {Array<{bundle: Bundle, missing: string[]}>} One entry per gap.
+ * @param {string[]} tokens Tokens present on the directive.
+ * @param {string}   origin Origin to test.
+ * @return {boolean} True when the origin needs no separate entry.
  */
-export const connectSrcGaps = ( directives ) => {
-	const present = directives[ 'connect-src' ] || [];
-
-	// A directive set to 'none' is a deliberate choice, not a gap to nag about.
-	if ( present.includes( "'none'" ) ) {
-		return [];
+const covered = ( tokens, origin ) => {
+	if ( tokens.includes( origin ) ) {
+		return true;
 	}
 
-	return THIRD_PARTY_BUNDLES.map( ( bundle ) => {
+	const scheme = origin.split( ':' )[ 0 ];
+
+	if ( tokens.includes( `${ scheme }:` ) ) {
+		return true;
+	}
+
+	const host = origin.replace( /^[a-z][a-z0-9+.-]*:\/\//i, '' );
+
+	return tokens.some( ( token ) => {
+		if ( ! token.includes( '*.' ) ) {
+			return false;
+		}
+
+		const suffix = token
+			.replace( /^[a-z][a-z0-9+.-]*:\/\//i, '' )
+			.replace( /^\*\./, '' );
+
+		return host === suffix || host.endsWith( `.${ suffix }` );
+	} );
+};
+
+/**
+ * Every directive a provider needs and the policy is missing, for each
+ * provider the policy already uses.
+ *
+ * Originally this checked `connect-src` alone, because the first gap anyone
+ * hit was a payment SDK's API host. The same shape applies to every directive
+ * a bundle declares: a reCAPTCHA policy that allows the script but not the
+ * frame fails just as completely, and just as invisibly, as one that allows
+ * the frame but not the API call.
+ *
+ * @param {Object} directives Directive map from the builder.
+ * @return {Array<{bundle: Bundle, missing: Object<string, string[]>, count: number}>}
+ *         One entry per provider with at least one gap.
+ */
+export const bundleGaps = ( directives ) =>
+	THIRD_PARTY_BUNDLES.map( ( bundle ) => {
 		if ( ! bundleInUse( directives, bundle ) ) {
 			return null;
 		}
 
-		const missing = ( bundle.directives[ 'connect-src' ] || [] ).filter(
-			( origin ) => ! present.includes( origin )
-		);
+		const missing = {};
+		let count = 0;
 
-		return missing.length > 0 ? { bundle, missing } : null;
+		Object.keys( bundle.directives ).forEach( ( directive ) => {
+			const present = directives[ directive ] || [];
+
+			// A directive set to 'none' is a deliberate choice, not a gap to
+			// nag about.
+			if ( present.includes( "'none'" ) ) {
+				return;
+			}
+
+			const gap = bundle.directives[ directive ].filter(
+				( origin ) => ! covered( present, origin )
+			);
+
+			if ( gap.length > 0 ) {
+				missing[ directive ] = gap;
+				count += gap.length;
+			}
+		} );
+
+		return count > 0 ? { bundle, missing, count } : null;
 	} ).filter( Boolean );
+
+/**
+ * connect-src-only view of bundleGaps(), kept as its own export because the
+ * connect-src gap is the one that costs money and the UI calls it out
+ * separately.
+ *
+ * @param {Object} directives Directive map from the builder.
+ * @return {Array<{bundle: Bundle, missing: string[]}>} One entry per gap.
+ */
+export const connectSrcGaps = ( directives ) =>
+	bundleGaps( directives )
+		.filter( ( gap ) => gap.missing[ 'connect-src' ] )
+		.map( ( gap ) => ( {
+			bundle: gap.bundle,
+			missing: gap.missing[ 'connect-src' ],
+		} ) );
+
+/**
+ * Structural risks in a policy that no violation report will ever surface,
+ * because the resources they block are only requested when a visitor does
+ * something specific.
+ *
+ * Returns identifiers rather than sentences so the copy stays translatable in
+ * the component that renders it.
+ *
+ * @param {Object} directives Directive map from the builder.
+ * @return {Array<{id: string, directive: string, suggest: string[]}>} Risks found.
+ */
+export const policyRisks = ( directives ) => {
+	const risks = [];
+	const tokensOf = ( name ) => ( directives[ name ] || [] ).filter( Boolean );
+
+	const defaultSrc = tokensOf( 'default-src' );
+	const frameSrc = tokensOf( 'frame-src' );
+	const connectSrc = tokensOf( 'connect-src' );
+
+	// No frame-src means embedded content falls back to default-src. With the
+	// usual `default-src 'self'` that silently blocks every third-party iframe
+	// on the site — reCAPTCHA, YouTube, Stripe, a map — and each one fails as
+	// a blank space rather than an error anyone would connect to CSP.
+	if (
+		frameSrc.length === 0 &&
+		defaultSrc.length > 0 &&
+		! defaultSrc.includes( 'https:' ) &&
+		! defaultSrc.includes( "'none'" )
+	) {
+		risks.push( {
+			id: 'missing-frame-src',
+			directive: 'frame-src',
+			suggest: [ "'self'", 'https:' ],
+		} );
+	}
+
+	// connect-src limited to 'self' blocks every third-party fetch/XHR: the
+	// reCAPTCHA token call, analytics beacons, a payment SDK's API. None of
+	// them is requested until a visitor interacts, so report-only browsing
+	// never surfaces them.
+	if (
+		connectSrc.length > 0 &&
+		! connectSrc.includes( "'none'" ) &&
+		! connectSrc.includes( 'https:' ) &&
+		connectSrc.every( ( token ) => token.startsWith( "'" ) )
+	) {
+		risks.push( {
+			id: 'narrow-connect-src',
+			directive: 'connect-src',
+			suggest: [ 'https:' ],
+		} );
+	}
+
+	return risks;
 };
 
 /**
