@@ -135,7 +135,7 @@ the authoritative record.)
 | 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
 | 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
-| 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | (this commit) |
+| 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
