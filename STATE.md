@@ -454,8 +454,9 @@ follow-ups deferred. Keep entries dated and terse.
   all PRs merged" answers itself and the real question is which *branches* carry
   unmerged commits. Two did. `claude/cors-font-loader-errors-01cd2j` is real
   work and is recorded under Open questions above.
-  `claude/wordpress-speed-hardening-ae1kb6` @ `f18cd1e` (2026-08-01) was
-  **deleted**: one commit adding `SPEED_AND_HARDENING_PLAN.md`, a 658-line
+  `claude/wordpress-speed-hardening-ae1kb6` @ `f18cd1e` (2026-08-01) is
+  **superseded and slated for deletion — still present, see below**: one commit
+  adding `SPEED_AND_HARDENING_PLAN.md`, a 658-line
   roadmap of 19 items across five phases (1.13.0 → 2.0.0). Every one of the 19
   has since shipped — checked by grepping `main` for each feature's marker
   (`disable_block_css`, `streamline_dashboard`, `disable_app_passwords`,
@@ -470,6 +471,13 @@ follow-ups deferred. Keep entries dated and terse.
   asserting "No code from that plan has been implemented yet." The SHA is
   recorded here because a deleted branch's commits stay reachable by SHA — `git
   fetch origin f18cd1e` recovers it if the doc is ever wanted.
+  **The deletion did not happen in this session.** `git push origin --delete`
+  was refused with HTTP 403 (the agent proxy reported no relay failures, so this
+  is the credential: it grants push but not ref deletion). The branch is still
+  on the remote and a repo admin has to remove it — one click in the GitHub
+  branches view, or `git push origin --delete
+  claude/wordpress-speed-hardening-ae1kb6` from a normally-authenticated clone.
+  Until then the audit finding stands but the cleanup does not.
 
 - 2026-09-08 (logged-out visitors lost dependent stylesheets, → 2.12.2, branch
   `claude/funny-lamport-589dr7`): reported as "the file hardening breaks
