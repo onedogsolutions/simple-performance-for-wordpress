@@ -137,7 +137,7 @@ the authoritative record.)
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
 | 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
 | 18 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
-| 19 | Font-loader carry-over: CORS portability, purge scope, scan diagnostics, scan blindness | ✅ Done | (this commit) |
+| 19 | Font-loader carry-over: CORS portability, purge scope, scan diagnostics, scan blindness | ✅ Done | 3e2ef41 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
