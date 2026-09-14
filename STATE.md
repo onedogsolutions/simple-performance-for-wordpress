@@ -166,13 +166,17 @@ never been confirmed against a live LSCache install. They fire via `do_action`,
 so a wrong name is a silent no-op that looks exactly like success. Confirm the
 UCSS file is actually rebuilt, not merely that nothing errored.
 
-**Two pre-existing breaks found while building this, neither caused by it, both
-worth fixing separately.** `composer install` cannot resolve `phpunit/phpunit`
-from the committed `composer.lock` (upstream recreated the 10.5.64 tag), which
-means CI's PHPUnit job fails on `main` today — `composer update phpunit/phpunit`
-and commit the lock. And `npm run lint:js` reports 265 prettier errors across
-seven components this change does not touch; CI does not run it, so it has
-drifted unnoticed.
+**One pre-existing break found while building this, not caused by it:**
+`npm run lint:js` reports 265 prettier errors across seven components this
+change does not touch. CI runs php-lint, phpcs (continue-on-error), phpunit and
+build — not `lint:js` or `test:js` — which is how it drifted unnoticed. Worth
+its own commit; this change leaves it at 264 and every file it adds or replaces
+is lint-clean.
+
+An earlier note here claimed CI's PHPUnit job was also broken. **It is not** —
+see the 2026-09-14 correction in the decisions log. `composer install` and
+`composer test` both succeed against the committed lock; the failure was local
+to the build sandbox.
 
 **Step 18 (server abstraction / nginx) is designed and unbuilt.** Written up
 below; no code exists. Start with `SPFW_Server::detect()` and
@@ -519,22 +523,40 @@ follow-ups deferred. Keep entries dated and terse.
   **Not verified:** nothing was run against a WordPress install. The live QA in
   the plan's §8.2 is entirely outstanding and is recorded under Open questions.
 
-- 2026-09-14 (two pre-existing breaks found while implementing Step 19, neither
-  caused by it): (1) **CI's PHPUnit job is broken on `main`.**
-  `composer install` cannot resolve `phpunit/phpunit` 10.5.64 from the committed
-  `composer.lock` — `fatal: reference is not a tree: 0e8c1d19…`, the upstream tag
-  having been recreated. Locally this was worked around with
-  `composer update phpunit/phpunit`, which succeeded from cache; the resulting
-  lock churn (three unrelated transitive dev-dep bumps) was reverted to keep this
-  change focused, so the break is still there. Fix is a deliberate
-  `composer update phpunit/phpunit` committed on its own. (2) **`npm run lint:js`
-  fails on `main`** with 265 prettier errors across seven components
+- 2026-09-14 (**correction: CI's PHPUnit job is NOT broken** — an earlier entry
+  in this session said it was): while implementing Step 19, `composer install`
+  failed with `fatal: reference is not a tree: 0e8c1d19…` for `phpunit/phpunit`
+  10.5.64, and composer's own hint ("maybe the tag was recreated?") was taken at
+  face value and written up here as a CI break on `main`. **That was wrong.**
+  `git ls-remote --tags` shows `refs/tags/10.5.64^{}` still resolving to exactly
+  `0e8c1d19cea35ad97d4887f363d07c78e30fbf06` — the tag was never recreated and
+  the committed lock is correct. A clean `composer install` against the
+  **unmodified** `composer.lock` succeeds, and `composer test` (what CI runs)
+  passes 161 tests / 352 assertions.
+  **Actual cause, local to the build sandbox:** this environment's egress policy
+  blocks `api.github.com` (403), so every dist download fails with "Could not
+  authenticate against github.com" and composer falls back to git source, which
+  works. The one-off "not a tree" happened because two composer processes were
+  racing the same cache — one `composer install` had been launched in the
+  background and a second was run in the foreground before it finished — so the
+  git fallback read a half-synced object store. Nothing was committed to fix it,
+  because there is nothing to fix; the earlier lock churn (three unrelated
+  transitive dev-dep bumps from `composer update phpunit/phpunit`) was correctly
+  reverted and stays reverted.
+  **Rule for the next session:** composer's "maybe the tag was recreated"
+  is a guess, not a diagnosis. Check `git ls-remote --tags` against the locked
+  reference before touching the lock, and never run two composer processes over
+  one cache.
+
+- 2026-09-14 (`npm run lint:js` has drifted on `main`, not caused by Step 19):
+  it fails with 265 prettier errors across seven components
   (`CoreSettings`, `DatabaseSettings`, `HardeningSettings`, `OptionCleanerSettings`,
-  `PhpWhitelistCard`, `App`, `CspPolicyCard`). CI runs php-lint, phpcs
-  (continue-on-error), phpunit and build — not `lint:js` or `test:js` — which is
-  how it drifted. This change leaves it at 264 (the replayed `FontsSettings.jsx`
-  fixes one); every file it adds or replaces is lint-clean. Both are worth their
-  own commits rather than being folded into a feature change.
+  `PhpWhitelistCard`, `App`, `CspPolicyCard`). Verified by stashing this change
+  and re-running on a clean tree. CI runs php-lint, phpcs (continue-on-error),
+  phpunit and build — not `lint:js` or `test:js` — which is how it went
+  unnoticed. Step 19 leaves it at 264 (the replayed `FontsSettings.jsx` fixes
+  one); every file Step 19 adds or replaces is lint-clean. Worth its own commit
+  rather than being folded into a feature change.
 
 - 2026-09-14 (font-loader carry-over planned, → Step 19, `FONT_LOADER_MERGE_PLAN.md`):
   the branch audit earlier the same day left
@@ -2883,11 +2905,11 @@ module's one error became a warning (the purge loop's dynamic hook name) and
 The H1 regression test was checked by reverting `preload_local_fonts()` to
 `fonts_url()` and confirming it fails — a test that cannot fail proves nothing.
 
-**Two things found while building, both recorded under Decisions:**
+**One thing found while building, recorded under Decisions:**
 `npm run lint:js` is already broken on `main` (265 prettier errors across seven
-files this change does not touch; CI does not run it), and `composer install`
-cannot resolve `phpunit/phpunit` from `composer.lock` because the upstream tag
-was recreated — which breaks CI's PHPUnit job on `main` today.
+files this change does not touch; CI does not run it). A claim that CI's PHPUnit
+job was broken too was **wrong and has been retracted** — see the correction in
+the decisions log.
 
 **Acceptance is NOT fully met.** The static suite is green, but the live QA in
 `FONT_LOADER_MERGE_PLAN.md` §8.2 is untouched: no assertion here was made
@@ -2930,11 +2952,12 @@ checks are carried in Open questions as owed.
   between a persistence bug and a spec-parsing bug. That distinction has never
   been read on a real scan — it is the first thing to look at on the next one.
 
-- **CI's PHPUnit job is broken on `main`, and `lint:js` has drifted.** Neither is
-  caused by Step 19; both are recorded in the decisions log for 2026-09-14 with
-  the fix. `composer install` cannot resolve `phpunit/phpunit` 10.5.64 from the
-  committed lock (upstream tag recreated), and `npm run lint:js` fails with 265
-  prettier errors across seven untouched components. Each wants its own commit.
+- **`npm run lint:js` has drifted on `main`.** Not caused by Step 19; recorded
+  in the decisions log for 2026-09-14. 265 prettier errors across seven
+  components Step 19 does not touch, unnoticed because CI does not run `lint:js`
+  or `test:js`. Wants its own commit. (The companion claim that CI's PHPUnit job
+  was broken was investigated and **retracted** — the lock is correct and
+  `composer test` passes; see the same log entry.)
 
 - **Superseded branch: `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13`.** Its
   six commits were replayed onto `main` as 2.14.0 on 2026-09-14 (Step 19); the
