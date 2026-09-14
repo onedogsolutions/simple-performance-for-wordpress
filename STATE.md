@@ -15,8 +15,8 @@ the authoritative record.)
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
 - **Plugin version target:** 2.12.3
-- **Last updated:** 2026-09-09
-- **Overall status:** ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Last updated:** 2026-09-14
+- **Overall status:** ⬜ Step 17 (server abstraction / nginx — designed, not implemented); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -135,10 +135,22 @@ the authoritative record.)
 | 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
 | 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
+| 17 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
+
+**Step 17 (server abstraction / nginx) is the next thing to build.** It is
+designed and written up below; no code exists. Start with `SPFW_Server::detect()`
+and `supports_user_ini()` — every other deliverable in that step depends on
+knowing which server is running, and the current code never asks. Read the four
+open questions at the bottom of this file before writing anything; (a) and (b)
+change the shape of the implementation rather than its details.
+
+Everything through 2.12.3 is merged to `main` (merge commit `a841940`) and
+2.12.2 is field-verified. The branch `claude/funny-lamport-589dr7` carries the
+work; no PR was opened for it.
 
 **2.12.3 closes the `wp-embed` follow-up** (Step 16) — the same
 deregister-a-shared-handle defect, fixed the same way. Not symptom-driven:
@@ -2273,9 +2285,101 @@ the old `wp_deregister_script()` call), Jest 26/26, `npm run build` clean,
 `php -l` clean, PHPCS and `lint:js` at their baselines, `.pot` regenerated,
 version synchronized to 2.12.3.
 
+### Step 17 — Server abstraction: nginx support and the two staleness clocks ⬜ (design only)
+Design written 2026-09-14, nothing implemented. Prompted by the question the
+2.12.2/2.12.3 work raised: the hardening subsystem assumes a server that reads
+`.htaccess`, and on nginx that assumption is not merely weaker — it is absent.
+
+**The three refresh clocks.** These are independent, and conflating any two of
+them produces the kind of false lead recorded in the Step 15 log entry.
+
+| | Apache | OpenLiteSpeed | nginx |
+|---|---|---|---|
+| Per-directory config | `.htaccess`, re-read per request | `.htaccess`, read once at startup per directory, then cached | none, by design |
+| Rewrite-rule refresh | immediate | graceful restart | `nginx -s reload` (needs root) |
+| Per-directory PHP settings | `.htaccess` (mod_php) or `.user.ini` (FPM) | `.user.ini` | `.user.ini` |
+| `.user.ini` refresh | `user_ini.cache_ttl`, default 300s | same | same |
+| Page-cache purge | plugin's own | LSCache, independent of config reload | FastCGI cache / plugin, independent |
+
+The `.user.ini` row is the interesting one: it is not instant either, but it is
+a **TTL, not a privileged action**. Five minutes and it applies itself. That is
+a better operational story than the OLS restart and it is available on every
+FPM stack, OpenLiteSpeed included.
+
+**Why nginx cannot be served the current way.** nginx has no `.htaccess`
+equivalent and will not get one — per-directory config was rejected
+deliberately, because honoring it costs a `stat()` walk up the tree on every
+request. Config is read at startup or on SIGHUP, and a reload needs root. PHP
+runs unprivileged and must stay that way, so there is no version of "the plugin
+writes a file and the rule takes effect." Today `SPFW_Htaccess::write()` fires
+regardless of server, so an nginx site gets a file nothing reads and a UI
+implying it is protected. The enforcement probe would already report the truth;
+nothing asks it to.
+
+**What is actually available, in descending order of honesty.**
+1. *Generate the vhost snippet, then verify over HTTP.* We already own the hard
+   half: `SYNTHETIC_CANARY` and the enforcement probe are entirely
+   server-agnostic. That probe is the most portable thing in the subsystem and
+   should become the single source of truth for every strategy below.
+2. *`.user.ini` + `auto_prepend_file` — the real nginx analogue for blocking PHP
+   execution.* `auto_prepend_file` is `PHP_INI_PERDIR`, so a `.user.ini` in
+   `wp-content/uploads/` makes every PHP request in that tree run a guard that
+   exits unless the caller is a legitimate entry point. Wordfence's "Extended
+   Protection" is the precedent. Three constraints to design around: it covers
+   PHP execution only and cannot touch static files; a wrong path in
+   `auto_prepend_file` fatals **every** PHP request in that tree, so it needs a
+   self-test before commit and a recovery path (we have one — `wp-content` is
+   writable, so the file can be deleted); and it is FPM-only and inert when
+   `user_ini.filename` has been disabled.
+3. *For static files there is no PHP fallback at all.* `readme.html`,
+   `license.txt`, `*.sql`, `*.bak`, `.env` are served by the web server without
+   PHP ever running. The honest options are the snippet or removing the file —
+   and for `readme.html` / `license.txt` specifically, deleting is strictly
+   better than blocking, and works identically on every server.
+
+Where prevention is unavailable, detection is what remains; the file-integrity
+monitor already occupies that slot and should be surfaced as the fallback
+rather than presented as an unrelated feature.
+
+Deliverables, in the order they unblock each other:
+- `SPFW_Server::detect()` returning apache | litespeed | openlitespeed | nginx |
+  iis | unknown, from `$_SERVER['SERVER_SOFTWARE']`, `php_sapi_name()` (the
+  `litespeed` SAPI) and `function_exists( 'apache_get_modules' )`. Plus
+  `supports_user_ini()`, which must read the live `user_ini.filename` /
+  `user_ini.cache_ttl` rather than assume defaults.
+- A strategy interface behind the existing `SPFW_Htaccess` entry points:
+  htaccess writer (Apache / LiteSpeed), `.user.ini` writer (any FPM stack),
+  snippet generator (nginx, IIS, unknown). The probe stays shared and remains
+  the verdict for all three, so "is it enforced" never depends on which
+  strategy ran.
+- Split the two staleness concepts in the UI. *Config staleness* (rules on disk
+  differ from the rules the server is running) and *cache staleness* (rendered
+  pages differ from current behavior) have different remedies and different
+  owners. We report the first already; the PayPal red herring in the Step 15
+  entry was purely the second wearing the first's clothes.
+- Make "delete it" a first-class alternative to "block it" for the files where
+  that is viable, with the same confirm-and-verify flow as the toggles.
+
+Acceptance (when implemented): an nginx install writes no `.htaccess`, shows the
+snippet plus an honest "not enforced" verdict from the probe, and blocks PHP in
+uploads via `.user.ini` where the stack allows it; an OLS install behaves
+exactly as it does today; the probe's verdict is byte-identical in shape across
+all three.
+
 ## Open questions / blockers
 
-- _(none yet)_
+- **Step 17, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
+  the `.user.ini` strategy over the rewrite rules it already has? A 300-second
+  TTL beats a graceful restart operationally, but it would change behavior on
+  the one server we have actually validated against, so it wants a deliberate
+  decision rather than a default. (b) `auto_prepend_file` fatals the whole tree
+  when its path is wrong — the self-test has to run before the file is trusted,
+  and the probe as written verifies denial, not survival. (c) A `.user.ini` is
+  plain text under the docroot and nginx will serve it on request; it carries no
+  secrets, but the snippet should cover it. (d) No nginx host is available in
+  this build environment, so every claim above is reasoned from documentation
+  rather than observed — the Step 14/15 pattern says treat that as unconfirmed
+  until it runs on real hardware.
 
 ---
 
