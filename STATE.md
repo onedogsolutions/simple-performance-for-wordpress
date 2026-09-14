@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.12.3
+- **Plugin version target:** 2.13.0
 - **Last updated:** 2026-09-14
-- **Overall status:** ⬜ Step 17 (server abstraction / nginx — designed, not implemented); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Overall status:** ⬜ Step 18 (server abstraction / nginx — designed, not implemented); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -135,51 +135,43 @@ the authoritative record.)
 | 14 | OpenLiteSpeed restart cost: auto-allow, staleness reporting, no-op writes | ✅ Done | 685112b |
 | 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
-| 17 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
+| 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
+| 18 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
 
-**Step 17 (server abstraction / nginx) is the next thing to build.** It is
-designed and written up below; no code exists. Start with `SPFW_Server::detect()`
-and `supports_user_ini()` — every other deliverable in that step depends on
-knowing which server is running, and the current code never asks. Read the four
-open questions at the bottom of this file before writing anything; (a) and (b)
-change the shape of the implementation rather than its details.
+**Step 17 shipped as 2.13.0.** It closes the 2026-09-14 maddogproducts.com
+report — a logged-out visitor could not complete a password reset because
+reCAPTCHA never returned a token — and the larger problem behind it: the
+violation log read clean throughout the report-only window because almost
+nothing could reach it.
 
-Everything through 2.12.3 is merged to `main` (merge commit `a841940`) and
-2.12.2 is field-verified. The branch `claude/funny-lamport-589dr7` carries the
-work; no PR was opened for it.
+Two things remain open, both recorded under Step 17 and neither blocking the
+release:
 
-**2.12.3 closes the `wp-embed` follow-up** (Step 16) — the same
-deregister-a-shared-handle defect, fixed the same way. Not symptom-driven:
-nothing was reported broken by it, and its unconditional removal could never
-have caused the logged-out-only failure below.
+1. **The F2 field check.** Does LiteSpeed Cache / QUIC.cloud replay a PHP-set
+   CSP header on a cache hit? `csp_collect_nocache` makes the answer irrelevant
+   *during a collection window*, which is what the collector needed. Outside a
+   window it still matters: if the header is not replayed, an enforcing policy
+   is simply absent on cache hits and the protection is thinner than the UI
+   implies. Check this before assuming otherwise.
+2. **The 401 in the original report.** `recaptcha/enterprise/pat` returned 401,
+   which is a server response rather than a CSP block. It may be a second,
+   independent problem (site-key or domain mismatch) that 2.13.0 does not touch.
+   Reproduce with the DevTools console unfiltered.
 
-**2.12.2 (logged-out dashicons dependency loss) is implemented and validated on
-real hardware (2026-09-09, maddogproducts.com, OpenLiteSpeed 1.9.1)** — after a
-graceful OLS restart and a full cache purge, anonymous visitors get the styled
-add-on fields and can add to cart. Field report that started it: with the plugin active, anonymous visitors got a
-WooCommerce product page whose add-on fields rendered as bare unstyled selects
-— including the `<select>` the swatch UI is supposed to replace — and could not
-complete the required fields, so no order could be placed. Logged in, the same
-page rendered correctly. Root cause and fix are in the dated log entry below.
+F8 is knowingly left as-is: `wp-login.php` carries no CSP because `send_headers`
+does not fire there, so testing core login proves nothing about a front-end
+login modal — which is the form that actually failed.
 
-Worth watching after this ships, because they are the other two behaviors in
-the plugin that apply to logged-out visitors only and neither is exercised by
-the report: `restapi.require_auth` (off by default, and `wc/store` + `wc/v3` are
-in the default whitelist, so guest checkout survives it as shipped — but an
-admin who edits that whitelist can break the Store API for guests with no
-warning), and `hardening.csp_exclude_logged_in` (on by default, so an enforcing
-CSP is applied to customers and never to the admin testing it).
-
-Also unchanged and unrelated to this fix, but noted while reading the hardening
-paths: `SPFW_Plugin::deactivate()` removes the plugins/ and uploads/ .htaccess
-files but not the root `.htaccess` marker block, so root hardening rules outlive
-a deactivation. Not touched here — it is a separate decision about what
-deactivation should mean — but it means "deactivate the plugin" is not a clean
-A/B test of the root rules.
+**Step 18 (server abstraction / nginx) is designed and unbuilt.** Written up
+below; no code exists. Start with `SPFW_Server::detect()` and
+`supports_user_ini()` — every other deliverable in that step depends on knowing
+which server is running, and the current code never asks. Read the four open
+questions at the bottom of this file first; (a) and (b) change the shape of the
+implementation rather than its details.
 
 ### Prior release context (2.12.0/2.11.0, retained)
 
@@ -2285,7 +2277,276 @@ the old `wp_deregister_script()` call), Jest 26/26, `npm run build` clean,
 `php -l` clean, PHPCS and `lint:js` at their baselines, `.pot` regenerated,
 version synchronized to 2.12.3.
 
-### Step 17 — Server abstraction: nginx support and the two staleness clocks ⬜ (design only)
+### Step 17 — CSP report-only collection is blind to the violations that matter ✅
+
+**Field report (2026-09-14, maddogproducts.com).** A logged-out visitor opens the
+Xoo Easy Login modal and selects "Lost your password?". reCAPTCHA Enterprise
+never produces a token, the form answers *"Anti-spam verification token is
+missing"*, and no password reset can be sent. The site had been run in CSP
+Report-Only with a collection window and the violation log read clean. On other
+sites the same shape: report-only collects nothing, enforcing breaks
+JS-dependent features.
+
+The collection tool is not lying about what it received. It is that almost
+nothing can reach it, and that the default policy breaks exactly the widgets
+that never generate a report. Eight findings, ordered by how much of the
+symptom each explains.
+
+#### F1 — The admin never receives the policy they are testing
+
+`hardening.csp_exclude_logged_in` defaults to `true`, and `add_csp_header()`
+returns before emitting anything for a logged-in user. So every page the admin
+loads while "testing report-only" carries **no CSP header at all** — their
+browser has nothing to violate and posts nothing. A 24-hour window can run to
+completion while the one person actually driving the site contributes zero
+reports. STATE.md already flagged this asymmetry under 2.12.2 ("an enforcing CSP
+is applied to customers and never to the admin testing it"); this is that note
+cashing out as a bug.
+
+On its own this explains "the collection tool is not picking up scripts".
+
+#### F2 — The only traffic that *can* report is served from the page cache
+
+`add_csp_header()` hooks `send_headers`, which fires only when PHP renders the
+response. On the target stack (OpenLiteSpeed + LiteSpeed Cache, often
+QUIC.cloud in front) logged-out page views are cache hits, so whether a visitor
+gets `Content-Security-Policy-Report-Only` and `report-uri` depends entirely on
+what the stored cache entry captured when it was generated. Opening a window
+purges (`set_csp_collection()` → `litespeed_purge_all`), but any page not
+regenerated during the window reports nothing, and `collection_sampled()`'s
+coin-flip is baked into the entry rather than evaluated per visitor — as its own
+docblock says.
+
+**Unverified and decisive:** whether LSCache/QUIC.cloud stores and replays a
+PHP-set CSP header at all. If it does not, no cache hit can ever carry
+`report-uri` and the collector is structurally inert on the stack this plugin
+targets. Field check required before any of the work below is scoped (see
+Verification).
+
+#### F3 — The violations that break the site are interaction-gated
+
+reCAPTCHA loads when the login/lost-password modal opens; its token call fires
+only when the widget executes; Stripe and PayPal `connect-src` only at the
+payment step. Passive browsing of home / a post / a page — which is what a
+report-only window collects in practice — never reaches any of them. The
+codebase already states this for payment bundles (`csp-bundles.js` header
+comment, and the builder's own "nothing reports this until a customer reaches
+the payment step" warning). The same reasoning covers every third-party widget,
+and nothing generalizes it.
+
+An empty log is therefore not evidence. Today the UI presents it as if it were.
+
+#### F4 — The shipped default policy breaks reCAPTCHA by construction
+
+Default `csp_directives` (`SPFW_Settings`, ~line 107):
+
+- `connect-src` → `'self'` only.
+- **no `frame-src` at all**, so it falls back to `default-src 'self'`.
+
+Against the reported failure:
+
+- the `https://www.google.com/recaptcha/...` iframe is blocked by the
+  `default-src` fallback;
+- reCAPTCHA Enterprise's token call to `https://www.google.com/recaptcha/
+  enterprise/...` is blocked by `connect-src 'self'` — which *is* the
+  "Anti-spam verification token is missing" failure;
+- `script-src` keeps `https:` in the defaults, so `api.js` itself survives on
+  stock settings. It stops surviving under F6.
+
+Also: `SPFW_Module_Hardening::DEFAULT_CSP` (the string used when the directive
+map is empty) and the default directive map disagree — the constant carries
+`script-src … blob:` and `worker-src 'self' blob:`, the map omits `blob:` from
+`script-src`. Two things both called "the default" that differ is its own
+hazard.
+
+#### F5 — The prefill lists omit reCAPTCHA
+
+`TRUSTED_TRACKER_ORIGINS` lists `https://www.google.com` under `frame-src` but
+gives it nothing under `script-src` or `connect-src`, and never mentions
+`https://www.gstatic.com`. `THIRD_PARTY_BUNDLES` covers Stripe and PayPal only.
+An admin who clicks "add trusted trackers" and enforces still has reCAPTCHA
+broken — and the gap check (`connectSrcGaps`) only ever examines `connect-src`,
+so it cannot report a missing `frame-src` or `script-src` either.
+
+#### F6 — `csp_tighten_script_src` is unsafe as built
+
+Three independent defects, any one of which blocks scripts:
+
+a. **Hashes are computed over the wrong bytes.** `scan_script_hashes()` does
+   `$body = trim( $body )` before `hash( 'sha256', $body, true )`. CSP hashes
+   the element's exact text content; stripping the leading newline and indent
+   changes the digest, so no hash ever matches and *every* inline script is
+   blocked the moment tightening is enabled.
+
+b. **`'strict-dynamic'` voids the host allowlist.** `inject_script_hashes()`
+   appends it unconditionally and deliberately drops every host and scheme
+   source. Supporting browsers then ignore `https:` and `'self'` in
+   `script-src`, so any `<script src>` written into the HTML — reCAPTCHA's
+   `api.js`, a theme-placed GTM snippet — is blocked unless a *hashed* script
+   loaded it. The docblock notes the semantics; nothing in the UI warns that
+   turning the toggle on discards the allowlist the admin just built.
+
+c. **The scan sees three pages, server-side.** `get_scan_urls()` returns home +
+   newest post + newest page, fetched over `wp_remote_get`. Per-template inline
+   scripts (account, cart, checkout, product) are never hashed, and any inline
+   script carrying a nonce, cart fragment or timestamp hashes differently on
+   every request, so its stored hash is stale on arrival.
+
+The JSON-LD/type skip in the same loop is dead code: it looks up the
+already-trimmed `$body` in the untrimmed `$matches[1]` via `array_search()`,
+which always fails, and then type-matches against `''`.
+
+#### F7 — The policy tested is not the policy enforced
+
+While a window is open, `ensure_connect_src_allows()` injects the report origin
+into `connect-src`; when the window closes that source disappears.
+`REPORT_ONLY_IGNORED` strips `frame-ancestors`/`sandbox` from the tested header
+and restores them on enforce. So "report-only was clean" is evidence about a
+policy that differs from the one that ships — and nothing diffs the two or gates
+the switch. Turning off Report-Only is a plain toggle with no confirmation.
+
+#### F8 — `wp-login.php` is outside the policy entirely
+
+`send_headers` does not fire on `wp-login.php`, so the real lost-password page
+never carries CSP and can never contribute a report — while the front-end modal
+version of the same form (Xoo Easy Login, the one in the report) does. Not a
+defect to fix, but it means testing the core login flow proves nothing about the
+modal, and the admin has no way to know that.
+
+#### Also noted
+
+`document_uri` is stored on every violation entry and never rendered, so the
+admin cannot tell which page produced a violation. Free diagnostic value already
+paid for.
+
+Ruled out while investigating: `restapi.require_auth` does **not** block the
+report endpoint — `route_in_list()` hard-whitelists the plugin's own
+`spfw/v1` namespace regardless of configuration.
+
+---
+
+### What shipped (2.13.0)
+
+All three phases are implemented. The findings above are kept verbatim as the
+record of why; this is what each one became.
+
+**Phase 1 — the policy no longer breaks things (F4, F5, F6)**
+
+- `SPFW_Rest_Settings::extract_script_hashes()` is a new pure static that hashes
+  a script's **exact** text content. The old inline loop hashed `trim( $body )`,
+  so no hash ever matched. Extracted specifically so the behavior could be
+  pinned against a known digest rather than only read — and the two tests that
+  pin it were verified failing against the old `trim()` before being kept.
+  The scan also now covers the WooCommerce shop, cart, checkout, account and a
+  product page (`get_script_scan_urls()`), skips non-executable script types
+  through a check that actually runs (the old one looked a trimmed body up in
+  an untrimmed match array and always failed), and caps the hash list at 64 so a
+  per-post inline script cannot grow the header until a proxy rejects it.
+- `'strict-dynamic'` is its own setting, `csp_strict_dynamic`, default off.
+  `inject_script_hashes()` takes it as a parameter: without it, hashes are added
+  and the host allowlist is left alone; with it, the sources it would void are
+  dropped so the emitted header says what it means. Bundling the two is what
+  made "tighten script-src" silently discard the allowlist the admin had just
+  built from the violation log.
+- `DEFAULT_CSP` and the default `csp_directives` map are now the same policy,
+  asserted equal by test, and both carry `frame-src 'self' https:` and
+  `connect-src 'self' https:`. The high-value holes stay closed —
+  `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'`,
+  `default-src 'self'` — and a test pins that too, so widening two directives
+  cannot quietly become widening the policy.
+- Saved policies are **not** rewritten. A migration that edits an admin's
+  security policy without asking is the wrong move even when the policy is
+  wrong. Instead `policyRisks()` detects both holes and the builder offers a
+  one-click fix with the consequence spelled out.
+- A reCAPTCHA bundle joins Stripe and PayPal, and `connectSrcGaps()` is now a
+  view over a general `bundleGaps()` that checks **every** directive a provider
+  declares. The connect-src-only check could not see the reported failure at
+  all. `covered()` understands scheme sources and wildcard hosts, so a policy
+  carrying `https:` is not nagged about origins it already allows.
+
+**Phase 2 — a window that collects (F1, F2, F3)**
+
+- `admin_self_test_active()`: while a window is open, an administrator is sent
+  the policy despite `csp_exclude_logged_in`. Narrow by construction — window
+  open, setting on, `manage_options` — so it cannot leak into normal operation,
+  and a window closes itself. Their page views are also never sampled away: a
+  sample rate bounds real traffic, and one admin clicking through the site is
+  not a volume problem, it is the only traffic guaranteed to reach the pages
+  that matter.
+- Responses carrying `report-uri` are marked uncacheable (`csp_collect_nocache`,
+  default on). Without it a window sees only what the cache regenerated, and the
+  sampling coin-flip is decided once per cache entry rather than per visitor.
+- Coverage tracking: `record_collection_coverage()` notes which page types a
+  window actually reached, keyed to the window's deadline so a new window starts
+  clean. At most one write per page type per window. The card renders it as a
+  checklist, and says plainly that coverage cannot see interactions — opening a
+  captcha-protected form or reaching the payment step requests scripts that
+  merely viewing the page does not.
+- The card states whether the admin reading it is inside the test population.
+
+**Phase 3 — the switch is gated (F7)**
+
+- Leaving Report-Only opens a confirmation showing violations recorded, page
+  types covered, whether the admin's own browsing was included, and which
+  directives browsers ignore in Report-Only and are about to start applying.
+- `maybe_open_enforcement_window()` opens a 2-hour window on the
+  report-only → enforcing transition, so a policy that breaks something records
+  what it broke. Never shortens a window the admin already has open, and does
+  nothing on any other save.
+- Violation rows now render `document_uri`, which was stored all along and never
+  shown.
+
+**Not done, and why**
+
+F8 stands: `send_headers` does not fire on `wp-login.php`, so core's login and
+lost-password pages carry no CSP. Changing that means emitting the header from a
+different hook with different semantics for a page the plugin otherwise does not
+touch, which is a larger decision than this step. It is worth knowing that
+testing core login proves nothing about a front-end login modal — which is the
+form that actually failed in the field.
+
+The F2 field check is still outstanding and is the one thing that could change
+the shape of this work: whether LiteSpeed Cache/QUIC.cloud replays a PHP-set CSP
+header on a cache hit at all. `csp_collect_nocache` makes the answer not matter
+*during a window*, which is what the collector needs. It still matters outside
+one: if the header is not replayed, then an enforcing policy is simply absent on
+cache hits, and the protection is thinner than the UI implies. Check before
+assuming otherwise.
+
+### Verification still owed on real hardware
+
+- With a window open, `curl -I` a logged-out URL that is a known cache hit and
+  confirm `Content-Security-Policy-Report-Only` and `report-uri` are present —
+  and separately, with no window open, whether the enforcing header survives a
+  cache hit at all (the open question above).
+- Reproduce the original failure with the DevTools console unfiltered. CSP
+  blocks surface as "Refused to …" entries that the screenshot's Errors filter
+  may have hidden, and the visible 401 on `recaptcha/enterprise/pat` is a server
+  response rather than a CSP block — so it may be a second, independent problem
+  (site-key or domain mismatch) that this release does not touch.
+- After upgrading, confirm the lost-password flow completes for a logged-out
+  visitor with the policy enforcing.
+
+Acceptance: PHPUnit 136 tests / 282 assertions (29 new, in
+`tests/Csp_Collection_Test.php`; the two inline-script hash tests verified
+failing against the old `trim()` behavior, and the hook-ordering test verified
+failing against `send_headers`), Jest 36/36 (10 new), `npm run build`
+clean, `php -l` clean, PHPCS 88 errors (at baseline) / 149 warnings (12 below
+baseline — an array realignment in `get_csp_report_stats()` cleared pre-existing
+alignment warnings), `lint:js` 265 problems (1 below the 266 baseline), `.pot`
+regenerated to 523 entries, version synchronized to 2.13.0 across the plugin
+header, `SPFW_VERSION`, `readme.txt` and `package.json`.
+
+Three bugs caught during the work, all now fixed and pinned:
+`current_page_type()` returned the **integer** 404 because PHP coerces a
+numeric-string array key; coverage was first recorded from `send_headers`, which
+WP::main() runs BEFORE `query_posts()` and `handle_404()`, so no template
+conditional was answerable and every page would have been filed as 'other' — a
+checklist silently measuring nothing, now deferred to `template_redirect` and
+pinned by a test; and a JS test asserted `*.stripe.com` covers
+`m.stripe.network` — it does not, different domain, and the code was right.
+
+### Step 18 — Server abstraction: nginx support and the two staleness clocks ⬜ (design only)
 Design written 2026-09-14, nothing implemented. Prompted by the question the
 2.12.2/2.12.3 work raised: the hardening subsystem assumes a server that reads
 `.htaccess`, and on nginx that assumption is not merely weaker — it is absent.
@@ -2368,7 +2629,7 @@ all three.
 
 ## Open questions / blockers
 
-- **Step 17, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
+- **Step 18, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
   the `.user.ini` strategy over the rewrite rules it already has? A 300-second
   TTL beats a graceful restart operationally, but it would change behavior on
   the one server we have actually validated against, so it wants a deliberate
@@ -2377,9 +2638,9 @@ all three.
   and the probe as written verifies denial, not survival. (c) A `.user.ini` is
   plain text under the docroot and nginx will serve it on request; it carries no
   secrets, but the snippet should cover it. (d) No nginx host is available in
-  this build environment, so every claim above is reasoned from documentation
-  rather than observed — the Step 14/15 pattern says treat that as unconfirmed
-  until it runs on real hardware.
+  this build environment, so every claim in Step 18 is reasoned from
+  documentation rather than observed — the Step 14/15 pattern says treat that as
+  unconfirmed until it runs on real hardware.
 
 ---
 

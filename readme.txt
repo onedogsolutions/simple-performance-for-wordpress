@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.12.3
+Stable tag: 2.13.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,15 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.13.0 =
+* Fixed: The default Content-Security-Policy blocked reCAPTCHA, and with it any password reset or checkout behind one. The default had no `frame-src` at all — so embedded content fell back to `default-src 'self'` and the captcha's iframe was refused — and `connect-src 'self'`, which refused the token call the widget makes. The visitor was told only that an anti-spam token was missing, with no way around it. The default now carries `frame-src 'self' https:` and `connect-src 'self' https:`, which still closes the holes the policy exists to close (`object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'`) while letting third-party HTTPS endpoints work. Existing policies are not rewritten: the builder now warns when yours has either hole and offers a one-click fix.
+* Fixed: Report-Only mode collected almost nothing, so an empty violation log was routinely mistaken for a clean policy. Three separate reasons, all addressed. The policy was withheld from logged-in users, so the admin testing the site was the only visitor the test could not see; while a collection window is open, administrators are now sent the policy too. The reporting header is set by PHP, which never runs for a full-page cache hit, so a window only saw whatever the cache happened to regenerate; pages carrying a reporting policy are now kept out of the page cache for the length of the window. And a page that loads cleanly produces no report, so silence from a page nobody visited looked identical to silence from a page that passed; the card now tracks which page types a window actually reached.
+* Fixed: Inline-script hashes could never match. The scanner hashed the script's text after trimming it, but a browser hashes the text exactly as it appears between the tags — so every hash was wrong, and turning on script-src tightening blocked every inline script on the site while the scan reported a healthy count. The scan also now covers the shop, cart, checkout, account and product templates rather than three pages, and skips JSON-LD and other non-executable script types (that check was silently dead).
+* Changed: `'strict-dynamic'` is now its own opt-in rather than a rider on script-src tightening. Browsers that support it ignore `https:` and every host in `script-src`, so enabling hashing used to discard the allowlist you had just built from the violation log and refuse any `<script src>` written straight into your HTML. Hashing alone now leaves the allowlist alone.
+* Added: Third-party origin checks that do not wait for a report. The builder knows the origins Stripe, PayPal and reCAPTCHA need across every directive — not just `connect-src` — and flags the ones your policy is missing, because nothing reports those until a visitor reaches the payment step or opens a captcha-protected form.
+* Added: Leaving Report-Only now asks for confirmation, showing how many violations were recorded, how many page types the window covered, whether your own browsing was included, and which directives browsers ignore in Report-Only and are about to start applying. A short collection window opens automatically when you enforce, so a policy that does break something records what it broke instead of going silent at exactly the wrong moment.
+* Added: Violation entries now show which page they were reported from.
 
 = 2.12.3 =
 * Fixed: "Disable embeds" deregistered the `wp-embed` script instead of dequeuing it, so any enqueued script declaring it as a dependency was silently dropped along with it. Same defect as the dashicons fix in 2.12.2, with a much smaller blast radius — few scripts depend on `wp-embed` and nothing was reported broken by it — but the script is now dequeued, which stops it being printed without taking anything else down.

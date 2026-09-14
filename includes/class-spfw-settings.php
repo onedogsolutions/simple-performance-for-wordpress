@@ -104,15 +104,25 @@ class SPFW_Settings {
 				'csp_report_only'         => true,
 				'csp_exclude_logged_in'   => true,
 				'csp_mode'                => 'builder',
+				// Must stay identical to what SPFW_Module_Hardening::DEFAULT_CSP
+				// parses to, including key order — Csp_Header_Emission_Test
+				// asserts it. Two things both called "the default" that differ
+				// is how `blob:` ended up in one and not the other.
+				//
+				// `frame-src` and `connect-src https:` are here because their
+				// absence broke reCAPTCHA (and every other third-party iframe
+				// or SDK) the moment an admin stopped report-only. See the
+				// DEFAULT_CSP docblock.
 				'csp_directives'          => array(
 					'default-src'     => array( "'self'" ),
-					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:', 'data:' ),
-					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
 					'img-src'         => array( "'self'", 'data:', 'https:' ),
+					'style-src'       => array( "'self'", "'unsafe-inline'", 'https:' ),
+					'script-src'      => array( "'self'", "'unsafe-inline'", 'https:', 'data:', 'blob:' ),
 					'font-src'        => array( "'self'", 'data:', 'https:' ),
-					'connect-src'     => array( "'self'" ),
+					'connect-src'     => array( "'self'", 'https:' ),
 					'media-src'       => array( "'self'" ),
 					'worker-src'      => array( "'self'", 'blob:' ),
+					'frame-src'       => array( "'self'", 'https:' ),
 					'object-src'      => array( "'none'" ),
 					'base-uri'        => array( "'self'" ),
 					'frame-ancestors' => array( "'self'" ),
@@ -125,6 +135,14 @@ class SPFW_Settings {
 				'csp_script_hashes'       => array(),
 				'csp_hash_last_scan'      => 0,
 				'csp_tighten_script_src'  => false,
+				// 'strict-dynamic' is a SEPARATE opt-in from hashing, because
+				// it does something hashing does not: browsers that support it
+				// ignore every host and scheme source in script-src. Bundling
+				// the two meant that turning on "tighten script-src" silently
+				// discarded the allowlist the admin had just spent the
+				// violation log building, and blocked every <script src> in the
+				// HTML that a hashed script had not itself loaded.
+				'csp_strict_dynamic'      => false,
 				// Violation collection is a time-boxed diagnostic window, not a
 				// permanent behavior: `report-uri` is only emitted (and the
 				// public report endpoint only open) while now < csp_collect_until.
@@ -136,6 +154,21 @@ class SPFW_Settings {
 				'csp_collect_until'       => 0,
 				'csp_collect_sample'      => 100,
 				'csp_rate_limit'          => 10,
+				// While a window is open, send the policy to logged-in
+				// administrators too, overriding csp_exclude_logged_in for the
+				// duration. Without this the admin testing report-only receives
+				// no CSP header at all, so their own click-through of the login
+				// modal and checkout — the only interaction-gated paths anyone
+				// is going to exercise deliberately — reports nothing, and the
+				// window closes on an empty log that reads as "clean".
+				'csp_collect_admin'       => true,
+				// While a window is open, mark responses that carry report-uri
+				// uncacheable. The header is set from PHP on send_headers, which
+				// does not run for a full-page cache hit, so without this the
+				// reports a window collects are limited to whatever the cache
+				// happened to regenerate — and the sampling coin-flip is stored
+				// in the cache entry rather than evaluated per visitor.
+				'csp_collect_nocache'     => true,
 				// PHP execution whitelist: wp-content-relative paths that are
 				// allowed to execute PHP even when directory hardening is on
 				// (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Used by the
@@ -626,6 +659,7 @@ class SPFW_Settings {
 
 		$clean['hardening']['csp_hash_last_scan']     = isset( $hardening['csp_hash_last_scan'] ) ? absint( $hardening['csp_hash_last_scan'] ) : 0;
 		$clean['hardening']['csp_tighten_script_src'] = self::to_bool( $hardening, 'csp_tighten_script_src', $defaults['hardening']['csp_tighten_script_src'] );
+		$clean['hardening']['csp_strict_dynamic']     = self::to_bool( $hardening, 'csp_strict_dynamic', $defaults['hardening']['csp_strict_dynamic'] );
 
 		// Violation collection window. Hard-capped so a stored (or imported)
 		// value can never leave collection open indefinitely — the whole point
@@ -641,6 +675,9 @@ class SPFW_Settings {
 		// or to an absurdly high value (defeating the flood-protection).
 		$rate_limit                            = isset( $hardening['csp_rate_limit'] ) ? absint( $hardening['csp_rate_limit'] ) : $defaults['hardening']['csp_rate_limit'];
 		$clean['hardening']['csp_rate_limit'] = min( 60, max( 5, $rate_limit ) );
+
+		$clean['hardening']['csp_collect_admin']        = self::to_bool( $hardening, 'csp_collect_admin', $defaults['hardening']['csp_collect_admin'] );
+		$clean['hardening']['csp_collect_nocache'] = self::to_bool( $hardening, 'csp_collect_nocache', $defaults['hardening']['csp_collect_nocache'] );
 
 		// PHP execution whitelist: paths within wp-content allowed to run PHP
 		// even when directory hardening is active.
