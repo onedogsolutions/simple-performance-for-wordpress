@@ -245,6 +245,7 @@ class SPFW_Rest_Settings {
 		$settings['csp_default']              = SPFW_Module_Hardening::DEFAULT_CSP;
 		$settings['csp_default_directives']   = SPFW_Module_Hardening::default_csp_directives();
 		$settings['csp_reports']              = self::get_csp_reports();
+		$settings['fonts_runtime']            = ( new SPFW_Module_Fonts() )->runtime_info();
 		$settings['csp_report_stats']         = self::get_csp_report_stats();
 		// Admin email for the file monitor placeholder (not stored in settings).
 		$settings['admin_email']              = get_option( 'admin_email', '' );

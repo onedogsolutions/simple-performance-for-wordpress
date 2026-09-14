@@ -2,7 +2,9 @@
 
 **Target branch:** `claude/serene-meitner-bybf11` · **Version target:** 2.14.0
 **Source:** `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13` (6 commits, 2026-07-27)
-**Status:** ⬜ Plan only — no code written
+**Status:** ✅ Implemented 2026-09-14 as 2.14.0 — see STATE.md Step 19 for what
+shipped and the three deviations. §8.2 live QA is still outstanding and is the
+gate on calling this done in the field.
 **Author date:** 2026-09-14
 
 ---

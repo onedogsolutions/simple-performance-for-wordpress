@@ -192,12 +192,21 @@ class SPFW_Settings {
 				'file_monitor_last_scan'  => 0,
 			),
 			'fonts'       => array(
-				'localize_google' => false,
-				'discovered'      => array(),
-				'last_scan'       => 0,
-				'manual_families' => array(),
-				'extra_scan_urls' => array(),
-				'needs_rescan'    => false,
+				'localize_google'  => false,
+				'discovered'       => array(),
+				'last_scan'        => 0,
+				'manual_families'  => array(),
+				'extra_scan_urls'  => array(),
+				'needs_rescan'     => false,
+				// Outcome + per-stage counts of the most recent scan, kept so
+				// the Fonts tab can show them after a page reload rather than
+				// only in the scan's own response.
+				'last_scan_report' => array(),
+				// Base the on-disk fonts.css was last rendered against. A
+				// mismatch against the current base means the site moved domain
+				// and the file must be regenerated — see
+				// SPFW_Module_Fonts::serve_local_fonts().
+				'rendered_for'     => '',
 			),
 			'woocommerce' => array(
 				'disable_cart_fragments' => false,
@@ -315,6 +324,26 @@ class SPFW_Settings {
 				$stored = get_option( self::OPTION_KEY, array() );
 				$stored = is_array( $stored ) ? $stored : array();
 			}
+		}
+
+		// Migration to 2.14.0: prior versions froze an absolute, fully-qualified
+		// font URL into the stored @font-face CSS at scan time. Cloning a site to
+		// another domain (production → staging) therefore left every font URL
+		// pointing at the original host, and browsers discard cross-origin fonts
+		// served without Access-Control-Allow-Origin. Fold those URLs back to the
+		// portable token so the next front-end request regenerates fonts.css for
+		// whichever domain the site is actually on — no re-scan required.
+		//
+		// The gate is 2.14.0, not the 1.13.0 this fix originally carried on its
+		// own branch. That branch forked before 2.x and was replayed here; left
+		// at 1.13.0 the comparison is false for every install that will ever run
+		// this code, so the migration would never fire — passing a fresh-install
+		// test while healing nothing in the field.
+		if ( version_compare( $stored_ver, '2.14.0', '<' )
+			&& ! empty( $stored['fonts']['discovered']['css'] ) ) {
+			self::run_font_portability_migration( $stored );
+			$stored = get_option( self::OPTION_KEY, array() );
+			$stored = is_array( $stored ) ? $stored : array();
 		}
 
 		// Populate the static cache BEFORE the 1.14.0 migration fires.
@@ -703,16 +732,22 @@ class SPFW_Settings {
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
-		$clean['fonts']['localize_google'] = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
-		$clean['fonts']['discovered']      = isset( $fonts['discovered'] ) && is_array( $fonts['discovered'] ) ? $fonts['discovered'] : array();
-		$clean['fonts']['last_scan']       = isset( $fonts['last_scan'] ) ? absint( $fonts['last_scan'] ) : 0;
-		$clean['fonts']['manual_families'] = self::sanitize_font_families(
+		$clean['fonts']['localize_google']  = self::to_bool( $fonts, 'localize_google', $defaults['fonts']['localize_google'] );
+		$clean['fonts']['discovered']       = isset( $fonts['discovered'] ) && is_array( $fonts['discovered'] ) ? $fonts['discovered'] : array();
+		$clean['fonts']['last_scan']        = isset( $fonts['last_scan'] ) ? absint( $fonts['last_scan'] ) : 0;
+		$clean['fonts']['manual_families']  = self::sanitize_font_families(
 			isset( $fonts['manual_families'] ) ? $fonts['manual_families'] : $defaults['fonts']['manual_families']
 		);
-		$clean['fonts']['extra_scan_urls'] = self::sanitize_scan_urls(
+		$clean['fonts']['extra_scan_urls']  = self::sanitize_scan_urls(
 			isset( $fonts['extra_scan_urls'] ) ? $fonts['extra_scan_urls'] : $defaults['fonts']['extra_scan_urls']
 		);
-		$clean['fonts']['needs_rescan']    = self::to_bool( $fonts, 'needs_rescan', $defaults['fonts']['needs_rescan'] );
+		$clean['fonts']['needs_rescan']     = self::to_bool( $fonts, 'needs_rescan', $defaults['fonts']['needs_rescan'] );
+		$clean['fonts']['last_scan_report'] = self::sanitize_scan_report(
+			isset( $fonts['last_scan_report'] ) ? $fonts['last_scan_report'] : $defaults['fonts']['last_scan_report']
+		);
+		$clean['fonts']['rendered_for']     = isset( $fonts['rendered_for'] )
+			? sanitize_text_field( $fonts['rendered_for'] )
+			: $defaults['fonts']['rendered_for'];
 
 		$woo = isset( $input['woocommerce'] ) && is_array( $input['woocommerce'] ) ? $input['woocommerce'] : array();
 
@@ -1060,6 +1095,90 @@ class SPFW_Settings {
 	}
 
 	/**
+	 * Sanitize the persisted font-scan report.
+	 *
+	 * This is the one settings value whose content is partly derived from
+	 * remote HTTP responses — the URLs a scan fetched, and the messages it got
+	 * back when a fetch failed. It is also stored inside the `fonts` group,
+	 * which the admin app round-trips on every Save, so it re-enters through
+	 * sanitize() as untrusted input on each write. Walk the known keys and
+	 * coerce each to its type rather than passing the array through whole:
+	 * counts to integers, URLs through esc_url_raw(), free text through
+	 * sanitize_text_field(), and anything unrecognized dropped.
+	 *
+	 * @param mixed $raw Stored or submitted report.
+	 * @return array
+	 */
+	private static function sanitize_scan_report( $raw ) {
+		if ( ! is_array( $raw ) || empty( $raw ) ) {
+			return array();
+		}
+
+		$diag_in = isset( $raw['diagnostics'] ) && is_array( $raw['diagnostics'] ) ? $raw['diagnostics'] : array();
+
+		$diag = array();
+
+		foreach ( array( 'captured', 'from_html', 'from_linked', 'inline_faces', 'faces', 'downloads_ok', 'downloads_ko' ) as $count_key ) {
+			if ( isset( $diag_in[ $count_key ] ) ) {
+				$diag[ $count_key ] = absint( $diag_in[ $count_key ] );
+			}
+		}
+
+		if ( isset( $diag_in['targets'] ) && is_array( $diag_in['targets'] ) ) {
+			$diag['targets'] = array();
+
+			foreach ( array_slice( $diag_in['targets'], 0, 20 ) as $target ) {
+				if ( ! is_array( $target ) ) {
+					continue;
+				}
+
+				$diag['targets'][] = array(
+					'url'   => isset( $target['url'] ) ? esc_url_raw( (string) $target['url'] ) : '',
+					'ok'    => ! empty( $target['ok'] ),
+					'bytes' => isset( $target['bytes'] ) ? absint( $target['bytes'] ) : 0,
+				);
+			}
+		}
+
+		if ( isset( $diag_in['css_urls'] ) && is_array( $diag_in['css_urls'] ) ) {
+			$diag['css_urls'] = array();
+
+			foreach ( array_slice( $diag_in['css_urls'], 0, 50 ) as $entry ) {
+				if ( ! is_array( $entry ) ) {
+					continue;
+				}
+
+				$diag['css_urls'][] = array(
+					'url'   => isset( $entry['url'] ) ? esc_url_raw( (string) $entry['url'] ) : '',
+					'ok'    => ! empty( $entry['ok'] ),
+					'faces' => isset( $entry['faces'] ) ? absint( $entry['faces'] ) : 0,
+				);
+			}
+		}
+
+		// What the admin typed (family specs, not URLs) versus the Google CSS
+		// URLs actually built from them. The pair is the whole point of the
+		// scan-report change, so both are kept.
+		if ( isset( $diag_in['manual_declared'] ) && is_array( $diag_in['manual_declared'] ) ) {
+			$diag['manual_declared'] = array_values(
+				array_map( 'sanitize_text_field', array_slice( $diag_in['manual_declared'], 0, 50 ) )
+			);
+		}
+
+		if ( isset( $diag_in['manual'] ) && is_array( $diag_in['manual'] ) ) {
+			$diag['manual'] = array_values(
+				array_filter( array_map( 'esc_url_raw', array_slice( $diag_in['manual'], 0, 50 ) ) )
+			);
+		}
+
+		return array(
+			'message'     => isset( $raw['message'] ) ? sanitize_text_field( $raw['message'] ) : '',
+			'diagnostics' => $diag,
+			'time'        => isset( $raw['time'] ) ? absint( $raw['time'] ) : 0,
+		);
+	}
+
+	/**
 	 * Sanitize a list of image sizes to disable. Whitelisted against known
 	 * WordPress intermediate sizes so arbitrary strings can't be injected.
 	 *
@@ -1211,6 +1330,39 @@ class SPFW_Settings {
 		}
 
 		$updated['fonts']['needs_rescan'] = true;
+
+		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
+		update_option( self::OPTION_KEY, $clean );
+	}
+
+	/**
+	 * Migration to 2.14.0: rewrite absolute font URLs in the stored @font-face
+	 * CSS to the portable `%%SPFW_FONTS_URL%%` token (see the version_compare()
+	 * call site for why), and clear `rendered_for` so the next front-end request
+	 * regenerates fonts.css against the current domain.
+	 *
+	 * The `discovered['hash']` is recomputed from the tokenized CSS. That is
+	 * deliberate: the hash is the stylesheet's cache-busting version string, and
+	 * changing it once here is what evicts a browser- or LiteSpeed-cached copy
+	 * still holding the old absolute URLs. From this point on the hash describes
+	 * the font set alone, so it stays stable across a domain move — which is the
+	 * property that actually matters, and the one the tests pin.
+	 *
+	 * The token literal is duplicated from SPFW_Module_Fonts::FONTS_URL_TOKEN —
+	 * settings load before the module files, so the constant is not available
+	 * here.
+	 *
+	 * @param array $stored Currently stored settings.
+	 */
+	private static function run_font_portability_migration( array $stored ) {
+		$updated = $stored;
+
+		$css = (string) $updated['fonts']['discovered']['css'];
+		$css = (string) preg_replace( '#https?://[^\s"\'()]+/ods-fonts/#i', '%%SPFW_FONTS_URL%%/', $css );
+
+		$updated['fonts']['discovered']['css']  = $css;
+		$updated['fonts']['discovered']['hash'] = sha1( $css );
+		$updated['fonts']['rendered_for']       = '';
 
 		$clean = self::sanitize( self::merge_recursive( self::defaults(), $updated ) );
 		update_option( self::OPTION_KEY, $clean );

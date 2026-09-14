@@ -14,6 +14,7 @@ import { act } from 'react';
 
 import CspPolicyCard from '../CspPolicyCard';
 import WooCommerceSettings from '../WooCommerceSettings';
+import FontsSettings from '../FontsSettings';
 
 const noop = () => {};
 
@@ -115,6 +116,114 @@ describe( 'CspPolicyCard', () => {
 
 		expect( () =>
 			renderOnce( <CspPolicyCard { ...props } /> )
+		).not.toThrow();
+	} );
+} );
+
+describe( 'FontsSettings', () => {
+	const fontsProps = ( overrides = {} ) => ( {
+		settings: {
+			fonts: {
+				localize_google: true,
+				discovered: {
+					families: [ 'Open Sans:400', 'Open Sans:700' ],
+					files: [ 'aaa.woff2', 'bbb.woff2' ],
+				},
+				last_scan: 1700000000,
+				manual_families: [],
+				extra_scan_urls: [],
+				last_scan_report: {},
+			},
+			...overrides,
+		},
+		onChange: noop,
+		onScan: noop,
+	} );
+
+	it( 'renders with fonts discovered', () => {
+		expect( () =>
+			renderOnce( <FontsSettings { ...fontsProps() } /> )
+		).not.toThrow();
+	} );
+
+	it( 'renders the zero state', () => {
+		expect( () =>
+			renderOnce(
+				<FontsSettings
+					settings={ { fonts: { localize_google: false } } }
+					onChange={ noop }
+					onScan={ noop }
+				/>
+			)
+		).not.toThrow();
+	} );
+
+	// The cross-origin warning is the branch of the new diagnostics UI that
+	// only appears on a misconfigured site, so it is the one least likely to
+	// be exercised by hand before shipping.
+	it( 'renders the cross-origin warning when uploads are on another host', () => {
+		expect( () =>
+			renderOnce(
+				<FontsSettings
+					{ ...fontsProps( {
+						fonts_runtime: {
+							base: 'https://cdn.example/wp-content/uploads/ods-fonts',
+							base_url:
+								'https://cdn.example/wp-content/uploads/ods-fonts',
+							site_host: 'site.example',
+							uploads_host: 'cdn.example',
+							same_origin: false,
+							css_file_exists: true,
+							cors_file_exists: true,
+							rendered_for:
+								'https://cdn.example/wp-content/uploads/ods-fonts',
+						},
+					} ) }
+				/>
+			)
+		).not.toThrow();
+	} );
+
+	// A failed scan persists its diagnostics; this is the shape the Scan
+	// details panel falls back to after a page reload.
+	it( 'renders a persisted scan report', () => {
+		expect( () =>
+			renderOnce(
+				<FontsSettings
+					{ ...fontsProps() }
+					settings={ {
+						fonts: {
+							localize_google: true,
+							discovered: {},
+							manual_families: [],
+							extra_scan_urls: [],
+							last_scan_report: {
+								message: 'No Google Fonts detected.',
+								time: 1700000000,
+								diagnostics: {
+									captured: 0,
+									from_html: 0,
+									from_linked: 0,
+									inline_faces: 0,
+									faces: 0,
+									downloads_ok: 0,
+									downloads_ko: 0,
+									manual_declared: [],
+									manual: [],
+									targets: [
+										{
+											url: 'https://site.example/',
+											ok: true,
+											bytes: 2048,
+										},
+									],
+									css_urls: [],
+								},
+							},
+						},
+					} }
+				/>
+			)
 		).not.toThrow();
 	} );
 } );

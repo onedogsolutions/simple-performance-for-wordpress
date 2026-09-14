@@ -28,6 +28,13 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 		? discovered.files.length
 		: 0;
 	const scanResult = settings.scan_result || null;
+	// Prefer this scan's own response, but fall back to the persisted report so
+	// the numbers are still here after a page reload.
+	const report = scanResult || fonts.last_scan_report || null;
+	const diag = ( report && report.diagnostics ) || null;
+	const runtime = settings.fonts_runtime || {};
+	const isCrossOrigin =
+		runtime.same_origin === false && !! runtime.uploads_host;
 	const hasScanned = !! fonts.last_scan;
 	const [ isScanning, setIsScanning ] = useState( false );
 
@@ -72,6 +79,28 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					<p className="mt-1 text-sm text-amber-700">
 						{ __(
 							'These fonts were localized by an older version of this plugin that could drop font weights (e.g. a font family would render bold everywhere, even where a lighter weight was specified). Click "Scan fonts now" below to regenerate them correctly.',
+							'simple-performance-for-wordpress'
+						) }
+					</p>
+				</div>
+			) }
+
+			{ isCrossOrigin && (
+				<div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+					<p className="text-sm font-medium text-amber-800">
+						{ sprintf(
+							/* translators: 1: uploads host, 2: site host. */
+							__(
+								'Fonts are served from %1$s but this site runs on %2$s.',
+								'simple-performance-for-wordpress'
+							),
+							runtime.uploads_host,
+							runtime.site_host
+						) }
+					</p>
+					<p className="mt-1 text-sm text-amber-700">
+						{ __(
+							'Fonts loaded from another host are fetched in CORS mode, so the browser discards them unless that host sends an Access-Control-Allow-Origin header — the console shows "blocked by CORS policy" alongside a misleading "ERR_FAILED 200 (OK)". This plugin adds the header to its own font directory, but it cannot do so for a host it does not serve. If this is a staging or cloned site, the WordPress uploads URL is probably still pointing at the original domain.',
 							'simple-performance-for-wordpress'
 						) }
 					</p>
@@ -130,10 +159,183 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 						{ lastScanLabel }
 					</p>
 
-					{ scanResult && scanResult.message && (
-						<p className="text-xs text-gray-600">
-							{ scanResult.message }
+					{ runtime.base && (
+						<p className="text-xs text-gray-500 break-all sm:text-right">
+							{ __(
+								'Serving fonts from:',
+								'simple-performance-for-wordpress'
+							) }{ ' ' }
+							<code className="font-mono">{ runtime.base }</code>
 						</p>
+					) }
+
+					{ report && report.message && (
+						<p className="text-xs text-gray-600 sm:text-right">
+							{ report.message }
+						</p>
+					) }
+
+					{ diag && (
+						<details className="w-full mt-1 text-left">
+							<summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 sm:text-right">
+								{ __(
+									'Scan details',
+									'simple-performance-for-wordpress'
+								) }
+							</summary>
+							<div className="mt-2 rounded-md bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Pages fetched',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<ul className="mt-1 space-y-0.5 font-mono break-all">
+										{ ( diag.targets || [] ).map( ( t ) => (
+											<li key={ t.url }>
+												{ t.ok ? '✓' : '✗' } { t.url }
+												{ t.ok
+													? ` (${ t.bytes } bytes)`
+													: '' }
+											</li>
+										) ) }
+									</ul>
+								</div>
+
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Google stylesheets found',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<ul className="mt-1 space-y-0.5">
+										<li>
+											{ __(
+												'From the page render (enqueued):',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.captured }
+										</li>
+										<li>
+											{ __(
+												'From page HTML:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.from_html }
+										</li>
+										<li>
+											{ __(
+												'From linked stylesheets:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.from_linked }
+										</li>
+										<li>
+											{ __(
+												'Inlined @font-face blocks:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ diag.inline_faces }
+										</li>
+										<li>
+											{ __(
+												'Manual declarations stored:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{
+												( diag.manual_declared || [] )
+													.length
+											}
+											{ ( diag.manual_declared || [] )
+												.length > 0 &&
+												` — ${ (
+													diag.manual_declared || []
+												).join( ', ' ) }` }
+										</li>
+										<li>
+											{ __(
+												'Manual declarations used:',
+												'simple-performance-for-wordpress'
+											) }{ ' ' }
+											{ ( diag.manual || [] ).length }
+										</li>
+									</ul>
+									{ ( diag.manual_declared || [] ).length ===
+										0 && (
+										<p className="mt-1 text-amber-700">
+											{ __(
+												'No manual declarations were stored when this scan ran. Type them into “Manual font weights” below, click Save Settings, then scan again.',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+									) }
+									{ ( diag.manual_declared || [] ).length >
+										0 &&
+										( diag.manual || [] ).length === 0 && (
+											<p className="mt-1 text-amber-700">
+												{ __(
+													'Manual declarations were stored but none could be turned into a Google Fonts request — check the “Family:weights” spelling against Google’s catalog.',
+													'simple-performance-for-wordpress'
+												) }
+											</p>
+										) }
+								</div>
+
+								{ ( diag.css_urls || [] ).length > 0 && (
+									<div>
+										<p className="font-semibold text-gray-900">
+											{ __(
+												'Stylesheets fetched from Google',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+										<ul className="mt-1 space-y-0.5 font-mono break-all">
+											{ diag.css_urls.map( ( c ) => (
+												<li key={ c.url }>
+													{ c.ok ? '✓' : '✗' }{ ' ' }
+													{ c.url } — { c.faces }{ ' ' }
+													{ __(
+														'faces',
+														'simple-performance-for-wordpress'
+													) }
+												</li>
+											) ) }
+										</ul>
+									</div>
+								) }
+
+								<div>
+									<p className="font-semibold text-gray-900">
+										{ __(
+											'Font files',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<p className="mt-1">
+										{ sprintf(
+											/* translators: 1: total faces, 2: downloaded, 3: failed. */
+											__(
+												'%1$d @font-face blocks · %2$d files downloaded · %3$d failed',
+												'simple-performance-for-wordpress'
+											),
+											diag.faces || 0,
+											diag.downloads_ok || 0,
+											diag.downloads_ko || 0
+										) }
+									</p>
+									{ diag.downloads_ko > 0 && (
+										<p className="mt-1 text-amber-700">
+											{ __(
+												'Some files could not be downloaded — check that your server can reach fonts.gstatic.com.',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+									) }
+								</div>
+							</div>
+						</details>
 					) }
 
 					{ families.length > 0 ? (
@@ -217,9 +419,7 @@ export default function FontsSettings( { settings, onChange, onScan } ) {
 					rows={ 3 }
 					placeholder={ '/shop/\n/landing/' }
 					value={ localExtraUrls }
-					onChange={ ( e ) =>
-						setLocalExtraUrls( e.target.value )
-					}
+					onChange={ ( e ) => setLocalExtraUrls( e.target.value ) }
 					onBlur={ () =>
 						onChange(
 							'extra_scan_urls',
