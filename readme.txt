@@ -3,8 +3,8 @@ Contributors: One Dog Solutions
 Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
-Requires PHP: 8.0
-Stable tag: 2.15.0
+Requires PHP: 8.1
+Stable tag: 2.15.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.15.1 =
+* Changed: the minimum supported PHP version is now 8.1, up from 8.0. No functional change from 2.15.0 — the plugin's own code already ran on 8.0, but its committed dependency lock has required 8.1 since PHPUnit 10 landed, so "Requires PHP: 8.0" was a claim nothing verified. WordPress will not offer this update to a site still on PHP 8.0; such a site keeps 2.15.0, which works. PHP 8.0 reached end of security support in November 2023.
 
 = 2.15.0 =
 * Fixed: on nginx the plugin wrote `.htaccess` files nothing reads, behind a UI that said the directory was protected. nginx has no per-directory configuration file and never will — honoring one would cost a filesystem walk on every request — so the file was inert and the badge was a false claim. The plugin now detects the web server (Apache, LiteSpeed, OpenLiteSpeed, nginx, IIS) and writes only what that server actually honors.
