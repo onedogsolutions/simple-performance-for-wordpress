@@ -107,6 +107,40 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
 
 	/**
+	 * Hardening settings that change what a rendered page CONTAINS or what
+	 * headers travel with it, as opposed to what the server refuses.
+	 *
+	 * Changing one of these makes already-cached pages wrong — they were stored
+	 * with the old headers and will keep being served that way for the rest of
+	 * the cache's TTL. That is cache staleness, and its remedy is a purge.
+	 * It is a different clock from config staleness (rules on disk versus rules
+	 * the server is running), whose remedy is a reload, a restart, or simply
+	 * waiting out an ini TTL depending on the server. Reading a cache-stale
+	 * symptom as a config-stale cause is exactly the false lead recorded
+	 * against Step 15.
+	 *
+	 * @var string[]
+	 */
+	const OUTPUT_AFFECTING_KEYS = array(
+		'security_headers',
+		'csp_enabled',
+		'csp_report_only',
+		'csp_exclude_logged_in',
+		'csp_mode',
+		'csp_policy',
+		'csp_directives',
+		'csp_script_hashes',
+		'csp_tighten_script_src',
+		'csp_strict_dynamic',
+		'csp_collect_until',
+		'hsts_enabled',
+		'hsts_max_age',
+		'hsts_include_subdomains',
+		'hsts_preload',
+		'permissions_policy',
+	);
+
+	/**
 	 * One-off cron hook that closes a lapsed violation-collection window.
 	 *
 	 * The window closing is not just a stored timestamp going stale: while it
@@ -185,6 +219,21 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			'label' => 'wp-content/uploads/ (synthetic .php path)',
 			'deny'  => array( 403 ),
 			'allow' => array( 404, 200 ),
+		),
+		// The `.user.ini` strategy's canary: a real file this plugin plants in
+		// uploads so the guard has something to refuse. Unlike every other
+		// entry here it declares 'broken' codes, because this is the one
+		// mechanism whose failure mode is not "the rule did nothing" but "PHP
+		// cannot serve this tree at all": a wrong or unreadable
+		// auto_prepend_file path breaks every PHP request under it. A 5xx here
+		// is therefore evidence, not noise, and must not be filed under
+		// 'unknown' with the redirects and the CDN interstitials — it is what
+		// triggers the automatic revert.
+		'uploads_user_ini'  => array(
+			'label'  => 'wp-content/uploads/ (PHP execution guard)',
+			'deny'   => array( 403 ),
+			'allow'  => array( 200 ),
+			'broken' => array( 500, 502, 503 ),
 		),
 		// Inverted: this canary is a file the admin explicitly whitelisted, so
 		// an allow code is the pass and a deny code is the failure. Its label
@@ -357,6 +406,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		add_action( self::CSP_EXPIRE_CRON, array( $this, 'close_expired_collection' ) );
 		add_action( 'admin_init', array( $this, 'close_expired_collection' ) );
 
+		// Deferred verification of a freshly written `.user.ini`. Registered
+		// unconditionally for the same reason the expiry above is: the event
+		// can outlive the toggle that scheduled it, and an unhandled cron hook
+		// would leave a broken auto_prepend_file in place with nothing watching.
+		add_action( SPFW_Strategy_User_Ini::VERIFY_CRON, array( $this, 'run_user_ini_verification' ) );
+
 		// File integrity monitor: schedule the twice-daily scan when enabled.
 		// The cron callback scans wp-content for PHP file changes and sends
 		// an email alert when non-whitelisted files appear or change.
@@ -373,10 +428,28 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * altered.
 	 */
 	public function maybe_show_notice() {
+		if ( get_option( 'spfw_user_ini_reverted' ) ) {
+			delete_option( 'spfw_user_ini_reverted' );
+
+			add_action(
+				'admin_notices',
+				function () {
+					printf(
+						'<div class="notice notice-error"><p>%s</p></div>',
+						esc_html__( 'Simple Performance: the uploads PHP guard (.user.ini) made that directory return server errors, so it was removed automatically. Uploads hardening is still switched on — see the server configuration snippet on the Hardening tab for a way to enforce it that does not depend on PHP.', 'simple-performance-for-wordpress' )
+					);
+				}
+			);
+		}
+
 		$targets = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
 
 		foreach ( $targets as $target ) {
-			if ( in_array( SPFW_Htaccess::status( $target ), array( 'missing', 'altered' ), true ) ) {
+			// Asks whichever strategy owns the target, so a `.user.ini` install
+			// gets the same missing/altered notice a `.htaccess` one does, and
+			// a server that supports neither ('unsupported'/'advisory') gets no
+			// notice about a file it was never going to have.
+			if ( in_array( SPFW_Hardening_Strategies::status( $target ), array( 'missing', 'altered' ), true ) ) {
 				add_action( 'admin_notices', array( $this, 'render_notice' ) );
 
 				return;
@@ -422,9 +495,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$is_on  = ! empty( $new_value['hardening'][ $toggle ] );
 
 			if ( $is_on && ! $was_on ) {
-				SPFW_Htaccess::write( $target );
+				SPFW_Hardening_Strategies::apply( $target );
 			} elseif ( $was_on && ! $is_on ) {
-				SPFW_Htaccess::remove( $target );
+				SPFW_Hardening_Strategies::revert( $target );
 			}
 		}
 
@@ -436,7 +509,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		if ( $old_whitelist !== $new_whitelist ) {
 			foreach ( self::HTACCESS_TARGETS as $target => $toggle ) {
 				if ( ! empty( $new_value['hardening'][ $toggle ] ) ) {
-					SPFW_Htaccess::write( $target );
+					SPFW_Hardening_Strategies::apply( $target );
 				}
 			}
 		}
@@ -455,6 +528,34 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		// Root .htaccess: composed from two toggles.
 		$this->handle_root_htaccess_change( $old_value, $new_value );
+
+		// Cache staleness clock: note when a setting that changes what a
+		// rendered page carries was last touched, so the UI can report pages in
+		// the cache as out of date separately from rules the server has not
+		// picked up yet.
+		$this->record_output_change( $old_value, $new_value );
+	}
+
+	/**
+	 * Stamp the cache staleness clock when an output-affecting setting changed.
+	 *
+	 * @param array $old_value Previous full settings array.
+	 * @param array $new_value New full settings array.
+	 */
+	private function record_output_change( $old_value, $new_value ) {
+		$old_h = isset( $old_value['hardening'] ) && is_array( $old_value['hardening'] ) ? $old_value['hardening'] : array();
+		$new_h = isset( $new_value['hardening'] ) && is_array( $new_value['hardening'] ) ? $new_value['hardening'] : array();
+
+		foreach ( self::OUTPUT_AFFECTING_KEYS as $key ) {
+			$before = isset( $old_h[ $key ] ) ? $old_h[ $key ] : null;
+			$after  = isset( $new_h[ $key ] ) ? $new_h[ $key ] : null;
+
+			if ( $before !== $after ) {
+				SPFW_Settings::update( array( 'hardening' => array( 'output_changed' => time() ) ) );
+
+				return;
+			}
+		}
 	}
 
 	/**
@@ -480,11 +581,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		if ( $new_on && ! $old_on ) {
 			// First enable — write and schedule self-check.
-			SPFW_Htaccess::write( 'root' );
+			SPFW_Hardening_Strategies::apply( 'root' );
 			update_option( 'spfw_root_htaccess_check', true );
 		} elseif ( $old_on && ! $new_on ) {
 			// All disabled — remove our block.
-			SPFW_Htaccess::remove( 'root' );
+			SPFW_Hardening_Strategies::revert( 'root' );
 		} elseif ( $new_on && $old_on ) {
 			// Both were on but the combination changed (e.g. one added).
 			// Rebuild the block with the new composition.
@@ -501,7 +602,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 
 			if ( $changed ) {
-				SPFW_Htaccess::write( 'root' );
+				SPFW_Hardening_Strategies::apply( 'root' );
 				update_option( 'spfw_root_htaccess_check', true );
 			}
 		}
@@ -549,7 +650,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		if ( $code >= 500 ) {
 			// Site is broken — remove our block to restore access.
-			SPFW_Htaccess::remove( 'root' );
+			SPFW_Hardening_Strategies::revert( 'root' );
 
 			// Disable both toggles so it doesn't re-write on next save.
 			SPFW_Settings::update(
@@ -629,7 +730,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return;
 		}
 
-		$rewritten = SPFW_Htaccess::reconcile();
+		$rewritten = SPFW_Hardening_Strategies::reconcile();
 
 		if ( in_array( 'root', $rewritten, true ) ) {
 			add_action(
@@ -677,7 +778,64 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			)
 		);
 
+		$this->maybe_revert_broken_strategy( $result );
+
 		return $result;
+	}
+
+	/**
+	 * Revert a mechanism that is returning 5xx for the tree it was meant to
+	 * protect.
+	 *
+	 * This is the answer to the one objection that makes `auto_prepend_file`
+	 * worth being careful about: a guard PHP cannot load takes down every PHP
+	 * request under it, and the probe as originally written only ever asked
+	 * whether a request was DENIED — a question to which "the whole tree is
+	 * throwing 500s" reads as an inconclusive shrug. A canary that exists makes
+	 * survival answerable, and once it is answerable the only defensible thing
+	 * to do with a negative answer is undo the change, not report it and wait.
+	 *
+	 * Reverting is safe to do unattended because it removes only files this
+	 * plugin authored and hash-verified, and because the state it restores —
+	 * uploads unguarded — is the state the site was in before the toggle.
+	 * The toggle itself is left ON: the intent was never wrong, only this
+	 * server's ability to carry it out, and the UI falls back to reporting the
+	 * snippet.
+	 *
+	 * @param array $result Shaped enforcement report.
+	 */
+	private function maybe_revert_broken_strategy( array $result ) {
+		if ( empty( $result['strategy_broken'] ) ) {
+			return;
+		}
+
+		$strategy = new SPFW_Strategy_User_Ini();
+		$strategy->revert( 'uploads' );
+
+		update_option( 'spfw_user_ini_reverted', time() );
+	}
+
+	/**
+	 * Deferred verification of a freshly written `.user.ini`.
+	 *
+	 * Runs once, `user_ini.cache_ttl` plus a minute after the write. Until then
+	 * PHP is still serving the cached result of its previous scan of that
+	 * directory, so probing earlier cannot distinguish "not picked up yet" from
+	 * "picked up and ignored" — which is precisely why the self-test is a
+	 * scheduled event rather than a line at the end of apply().
+	 */
+	public function run_user_ini_verification() {
+		$owner = SPFW_Hardening_Strategies::for_target( 'uploads' );
+
+		if ( ! $owner || 'user_ini' !== $owner->key() ) {
+			return;
+		}
+
+		if ( ! SPFW_Settings::value( 'hardening', 'uploads_htaccess', false ) ) {
+			return;
+		}
+
+		$this->run_htaccess_enforcement_check();
 	}
 
 	/**
@@ -714,7 +872,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$uploads = wp_upload_dir();
 			$disk    = trailingslashit( $uploads['basedir'] ) . 'index.php';
 
-			if ( file_exists( $disk ) ) {
+			$owner = SPFW_Hardening_Strategies::for_target( 'uploads' );
+
+			if ( $owner && 'user_ini' === $owner->key() && file_exists( SPFW_Strategy_User_Ini::canary_path() ) ) {
+				// The guard runs only when the server hands PHP a script that
+				// exists, so the absent-path canary below would read 404 —
+				// "served, rule inert" — against a guard that is working
+				// perfectly. This canary is a real file, which makes the answer
+				// three-way: 403 refused, 200 not guarding yet, 5xx broken.
+				$targets[] = $this->probe_canary( 'uploads_user_ini', SPFW_Strategy_User_Ini::canary_url() );
+			} elseif ( file_exists( $disk ) ) {
 				$targets[] = $this->probe_canary( 'uploads', trailingslashit( $uploads['baseurl'] ) . 'index.php' );
 			} else {
 				$targets[] = $this->probe_canary(
@@ -826,7 +993,127 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$hashes[ $target ] = file_exists( $path ) ? (string) sha1_file( $path ) : '';
 		}
 
+		// The `.user.ini` strategy's files belong in the same fingerprint: they
+		// are config on disk that a verdict was measured against, and on that
+		// strategy the gap between writing them and the server reading them is
+		// wider than anywhere else — a whole `user_ini.cache_ttl`.
+		foreach ( array(
+			'user_ini'       => SPFW_Strategy_User_Ini::ini_path(),
+			'user_ini_guard' => SPFW_Strategy_User_Ini::guard_path(),
+		) as $key => $path ) {
+			$hashes[ $key ] = ( '' !== $path && file_exists( $path ) ) ? (string) sha1_file( $path ) : '';
+		}
+
 		return $hashes;
+	}
+
+	/**
+	 * Config staleness: whether the rules on disk are the rules the running
+	 * server is applying.
+	 *
+	 * The first of the two clocks. Its remedy depends entirely on the server,
+	 * and the spread is the whole reason this is reported rather than assumed:
+	 * Apache and LiteSpeed Enterprise re-read `.htaccess` per request, so there
+	 * is nothing to do but re-verify; OpenLiteSpeed caches the parsed rewrite
+	 * rules until a graceful restart; nginx needs `nginx -s reload`, which
+	 * needs root and which PHP will never have; and a `.user.ini` needs nobody
+	 * at all — it applies itself once `user_ini.cache_ttl` has elapsed.
+	 *
+	 * That last case is a deadline rather than a task, so it is reported with
+	 * the time it expires instead of an instruction.
+	 *
+	 * @return array{stale:bool,reason:string,remedy:string,applies_at:int,refresh:string}
+	 */
+	public static function config_staleness() {
+		$report = array(
+			'stale'      => false,
+			'reason'     => '',
+			'remedy'     => '',
+			'applies_at' => 0,
+			'refresh'    => SPFW_Server::config_refresh(),
+		);
+
+		$owner = SPFW_Hardening_Strategies::for_target( 'uploads' );
+
+		if ( $owner && 'user_ini' === $owner->key() ) {
+			$applies = SPFW_Strategy_User_Ini::applies_at();
+
+			if ( $applies > time() ) {
+				return array(
+					'stale'      => true,
+					'reason'     => 'awaiting_ttl',
+					'remedy'     => 'wait',
+					'applies_at' => $applies,
+					'refresh'    => 'ttl',
+				);
+			}
+		}
+
+		if ( ! self::htaccess_changed_since_probe() ) {
+			return $report;
+		}
+
+		$report['stale']  = true;
+		$report['reason'] = 'changed_since_probe';
+
+		switch ( $report['refresh'] ) {
+			case 'restart':
+				$report['remedy'] = 'restart';
+				break;
+			case 'reload':
+				$report['remedy'] = 'reload';
+				break;
+			default:
+				$report['remedy'] = 'verify';
+		}
+
+		return $report;
+	}
+
+	/**
+	 * Cache staleness: whether already-rendered pages still describe current
+	 * behavior.
+	 *
+	 * The second clock, and a different animal entirely. Nothing on disk is
+	 * wrong and the server is applying exactly the rules it was given — the
+	 * pages a visitor receives were simply stored earlier, with the previous
+	 * headers baked in, and will keep being served that way until the cache
+	 * turns over. The remedy is a purge, and the owner is whatever cache is in
+	 * front of the site, not this plugin.
+	 *
+	 * Distinguishing the two matters because the symptoms are identical from a
+	 * browser: a change that "did not take". Reading one as the other is the
+	 * false lead recorded against Step 15.
+	 *
+	 * `purge_available` is the honest part. This plugin fires
+	 * `litespeed_purge_all` after every save, which does exactly nothing when
+	 * LiteSpeed Cache is not the cache in front of the site — an nginx
+	 * FastCGI cache or a CDN will not hear it. When no listener exists the
+	 * purge is the admin's to perform, and saying so beats a silent no-op.
+	 *
+	 * @return array{stale:bool,changed:int,purged:int,purge_available:bool,remedy:string}
+	 */
+	public static function cache_staleness() {
+		$h       = SPFW_Settings::group( 'hardening' );
+		$changed = isset( $h['output_changed'] ) ? (int) $h['output_changed'] : 0;
+		$purged  = isset( $h['cache_purged'] ) ? (int) $h['cache_purged'] : 0;
+
+		$available = function_exists( 'has_action' ) ? (bool) has_action( 'litespeed_purge_all' ) : false;
+
+		return array(
+			'stale'           => $changed > 0 && $changed > $purged,
+			'changed'         => $changed,
+			'purged'          => $purged,
+			'purge_available' => $available,
+			'remedy'          => $available ? 'purge' : 'purge_manual',
+		);
+	}
+
+	/**
+	 * Record that the page cache was cleared, closing the cache staleness gap.
+	 */
+	public static function note_cache_purged() {
+		SPFW_Settings::update( array( 'hardening' => array( 'cache_purged' => time() ) ) );
 	}
 
 	/**
@@ -913,7 +1200,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 *                   and 'checked'.
 	 * @return array Report: 'htaccess_honored' (yes|no|unknown),
 	 *               'whitelist_blocked' (bool — a file the admin whitelisted is
-	 *               being refused), 'targets' (rows of
+	 *               being refused), 'strategy_broken' (bool — a mechanism this
+	 *               plugin installed is returning 5xx for the tree it guards),
+	 *               'targets' (rows of
 	 *               {target,label,url,observed_code,expected,state}), and
 	 *               'checked'.
 	 */
@@ -923,6 +1212,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$any_enforced  = false;
 		$any_bypassed  = false;
 		$any_wl_broken = false;
+		$any_broken    = false;
 
 		foreach ( $raw_targets as $row ) {
 			if ( ! is_array( $row ) || ! isset( $row['target'] ) ) {
@@ -938,12 +1228,24 @@ class SPFW_Module_Hardening implements SPFW_Module {
 					'allow' => array( 200 ),
 				);
 
-			$code  = isset( $row['code'] ) ? (int) $row['code'] : 0;
-			$deny  = isset( $canary['deny'] ) ? (array) $canary['deny'] : array( 403 );
-			$allow = isset( $canary['allow'] ) ? (array) $canary['allow'] : array( 200 );
-			$mode  = isset( $canary['mode'] ) ? (string) $canary['mode'] : 'deny';
+			$code   = isset( $row['code'] ) ? (int) $row['code'] : 0;
+			$deny   = isset( $canary['deny'] ) ? (array) $canary['deny'] : array( 403 );
+			$allow  = isset( $canary['allow'] ) ? (array) $canary['allow'] : array( 200 );
+			$broken = isset( $canary['broken'] ) ? (array) $canary['broken'] : array();
+			$mode   = isset( $canary['mode'] ) ? (string) $canary['mode'] : 'deny';
 
-			if ( 'allow' === $mode ) {
+			if ( ! empty( $broken ) && in_array( $code, $broken, true ) ) {
+				// Only canaries that declare 'broken' codes reach this branch,
+				// which is why a 5xx elsewhere is still 'unknown': on a deny
+				// rule a 500 could be anything, but on a mechanism that works
+				// by making PHP load a file first, it is that file failing to
+				// load. It moves neither $any_enforced nor $any_bypassed — the
+				// question it answers is not whether the server honors a rule,
+				// but whether the mechanism is safe to leave in place.
+				$state      = 'broken';
+				$any_broken = true;
+				$expected   = $deny;
+			} elseif ( 'allow' === $mode ) {
 				// An allow-mode canary is a file that must stay reachable, so
 				// the verdict inverts. It deliberately moves neither
 				// $any_enforced nor $any_bypassed: reaching a whitelisted file
@@ -997,9 +1299,149 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		return array(
 			'htaccess_honored'  => $honored,
 			'whitelist_blocked' => $any_wl_broken,
+			// A mechanism this plugin installed is actively breaking the tree
+			// it was meant to protect. Reported separately from the enforcement
+			// verdict because it calls for a different action — reverting,
+			// not reconfiguring — and it is the one verdict acted on
+			// automatically rather than shown and left to the admin.
+			'strategy_broken'   => $any_broken,
 			'targets'           => $targets,
 			'checked'           => isset( $raw['checked'] ) ? (int) $raw['checked'] : 0,
 		);
+	}
+
+	/**
+	 * Core-shipped files that are better deleted than blocked.
+	 *
+	 * Blocking `readme.html` and `license.txt` needs a rule the server honors,
+	 * and no rule a PHP process can write reaches them on nginx: they are
+	 * static, so nothing this plugin installs ever runs for the request.
+	 * Deleting them needs no server cooperation at all, works identically
+	 * everywhere, and removes the information rather than hiding it. WordPress
+	 * uses neither file for anything.
+	 *
+	 * The honest caveat, which the UI repeats: a core update restores both.
+	 * That makes deletion a recurring chore rather than a one-time fix, which
+	 * is why it is offered alongside the rule instead of replacing it.
+	 *
+	 * @return array<int,array{file:string,path:string,url:string,exists:bool}>
+	 */
+	public static function removable_files() {
+		$files = array();
+
+		foreach ( array( 'readme.html', 'license.txt' ) as $file ) {
+			$files[] = array(
+				'file'   => $file,
+				'path'   => ABSPATH . $file,
+				'url'    => home_url( '/' . $file ),
+				'exists' => file_exists( ABSPATH . $file ),
+			);
+		}
+
+		return $files;
+	}
+
+	/**
+	 * Whether a filename is one of the files this plugin will delete.
+	 *
+	 * An allow-list, compared against the basename, because the alternative is
+	 * a REST-exposed delete that takes a path.
+	 *
+	 * @param string $file Candidate filename.
+	 * @return bool
+	 */
+	public static function is_removable_file( $file ) {
+		$file = basename( (string) $file );
+
+		foreach ( self::removable_files() as $candidate ) {
+			if ( $candidate['file'] === $file ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Delete one core-shipped file and confirm over HTTP that it is gone.
+	 *
+	 * The same confirm-and-verify shape the toggles use: the action is taken,
+	 * then the result is measured from outside rather than assumed from a
+	 * successful `unlink()`. A 404 or 403 afterwards is proof; anything else
+	 * (a CDN still holding a copy, a 200 from a cache) is reported as
+	 * unverified rather than counted as success.
+	 *
+	 * @param string $file Filename from removable_files().
+	 * @return array{file:string,deleted:bool,verified:bool,code:int,reason:string}
+	 */
+	public static function remove_file( $file ) {
+		$file   = basename( (string) $file );
+		$result = array(
+			'file'     => $file,
+			'deleted'  => false,
+			'verified' => false,
+			'code'     => 0,
+			'reason'   => '',
+		);
+
+		if ( ! self::is_removable_file( $file ) ) {
+			$result['reason'] = 'not_removable';
+
+			return $result;
+		}
+
+		$path = ABSPATH . $file;
+
+		if ( ! file_exists( $path ) ) {
+			$result['deleted'] = true;
+			$result['reason']  = 'already_absent';
+		} else {
+			global $wp_filesystem;
+
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+
+			if ( ! $wp_filesystem ) {
+				WP_Filesystem();
+			}
+
+			if ( ! $wp_filesystem || ! $wp_filesystem->delete( $path ) ) {
+				$result['reason'] = 'delete_failed';
+
+				return $result;
+			}
+
+			$result['deleted'] = true;
+		}
+
+		$response = wp_remote_get(
+			add_query_arg( 'spfw_nocache', (string) time(), home_url( '/' . $file ) ),
+			array(
+				'timeout'     => 8,
+				'redirection' => 0,
+				'sslverify'   => false,
+				'headers'     => array(
+					'Cache-Control' => 'no-cache, no-store, must-revalidate',
+					'Pragma'        => 'no-cache',
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			$result['reason'] = 'probe_failed';
+
+			return $result;
+		}
+
+		$result['code']     = (int) wp_remote_retrieve_response_code( $response );
+		$result['verified'] = in_array( $result['code'], array( 403, 404, 410 ), true );
+
+		if ( ! $result['verified'] && '' === $result['reason'] ) {
+			$result['reason'] = 'still_served';
+		}
+
+		return $result;
 	}
 
 	/**

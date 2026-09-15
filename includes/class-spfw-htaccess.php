@@ -516,6 +516,16 @@ class SPFW_Htaccess {
 	 * @return bool
 	 */
 	public static function write( $target = 'plugins' ) {
+		// Nothing reads an .htaccess on nginx or IIS, so writing one there
+		// produces a file that does nothing behind a UI that says the directory
+		// is protected. That false assurance is worse than no file: the probe
+		// would have reported the truth, and nobody was asking it. The gate is
+		// here rather than only in the strategy layer so it covers every
+		// caller, including the activation hook and the upgrade migration.
+		if ( ! SPFW_Server::supports_htaccess() ) {
+			return false;
+		}
+
 		$config  = self::config( $target );
 		$payload = self::payload( $target );
 
@@ -742,8 +752,12 @@ class SPFW_Htaccess {
 	/**
 	 * Current hardening status for a target.
 	 *
+	 * Integrity only — whether the file we authored is present and unmodified.
+	 * It has never been a claim that the server applies the rules, and on a
+	 * server that reads no .htaccess at all it reports 'unsupported'.
+	 *
 	 * @param string $target One of 'plugins'|'uploads'|'root'.
-	 * @return string One of ok|missing|altered|disabled.
+	 * @return string One of ok|missing|altered|disabled|unsupported.
 	 */
 	public static function status( $target = 'plugins' ) {
 		$config    = self::config( $target );
@@ -756,6 +770,13 @@ class SPFW_Htaccess {
 			}
 		} elseif ( ! empty( $config['toggle'] ) && empty( $hardening[ $config['toggle'] ] ) ) {
 			return 'disabled';
+		}
+
+		// Enabled, but this server has no .htaccess to enable it with. Reported
+		// as its own state rather than 'missing': the file is not missing, it
+		// is inapplicable, and offering a Restore button for it would be a lie.
+		if ( ! SPFW_Server::supports_htaccess() ) {
+			return 'unsupported';
 		}
 
 		if ( 'marker_block' === $config['mode'] ) {

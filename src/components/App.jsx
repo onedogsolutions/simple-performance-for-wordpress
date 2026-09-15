@@ -66,6 +66,7 @@ export default function App() {
 	const [ fileScanResults, setFileScanResults ] = useState( null );
 	const [ isScanning, setIsScanning ] = useState( false );
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
+	const [ removingFile, setRemovingFile ] = useState( '' );
 	const fileInputRef = useRef( null );
 
 	// Authoritative replace: the payload IS the new truth and there is nothing
@@ -167,6 +168,67 @@ export default function App() {
 					err.message ||
 						__(
 							'Failed to restore the hardening file.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
+	};
+
+	// Deleting readme.html / license.txt is offered alongside blocking them
+	// because on a server this plugin cannot configure it is the only one of
+	// the two that actually works. Same confirm-and-verify shape as the
+	// toggles: the response carries the HTTP code the file answers with after
+	// the delete, so "gone" is measured rather than assumed.
+	const handleRemoveFile = ( file ) => {
+		setRemovingFile( file );
+
+		return apiFetch( {
+			path: '/spfw/v1/settings/remove-file',
+			method: 'POST',
+			data: { file },
+		} )
+			.then( ( data ) => {
+				mergeServerSettings( data );
+				setRemovingFile( '' );
+
+				const removal = data.removal || {};
+
+				if ( removal.verified ) {
+					showToast(
+						sprintf(
+							/* translators: %s: file name */
+							__(
+								'%s deleted and confirmed unreachable.',
+								'simple-performance-for-wordpress'
+							),
+							file
+						),
+						'success'
+					);
+
+					return;
+				}
+
+				showToast(
+					sprintf(
+						/* translators: 1: file name, 2: HTTP status code */
+						__(
+							'%1$s was deleted, but it still answers HTTP %2$s — a cache or CDN is probably still serving a copy.',
+							'simple-performance-for-wordpress'
+						),
+						file,
+						removal.code || '—'
+					),
+					'info'
+				);
+			} )
+			.catch( ( err ) => {
+				setRemovingFile( '' );
+				showToast(
+					err.message ||
+						__(
+							'Failed to delete the file.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -783,6 +845,14 @@ export default function App() {
 								}
 								onVerifyHtaccess={ handleVerifyHtaccess }
 								isVerifyingHtaccess={ isVerifyingHtaccess }
+								server={ settings.server }
+								strategies={ settings.hardening_strategies }
+								snippet={ settings.hardening_snippet }
+								configStaleness={ settings.config_staleness }
+								cacheStaleness={ settings.cache_staleness }
+								removableFiles={ settings.removable_files }
+								onRemoveFile={ handleRemoveFile }
+								removingFile={ removingFile }
 							/>
 						),
 						fonts: (

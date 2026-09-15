@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.14.0
+Stable tag: 2.15.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,17 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.15.0 =
+* Fixed: on nginx the plugin wrote `.htaccess` files nothing reads, behind a UI that said the directory was protected. nginx has no per-directory configuration file and never will — honoring one would cost a filesystem walk on every request — so the file was inert and the badge was a false claim. The plugin now detects the web server (Apache, LiteSpeed, OpenLiteSpeed, nginx, IIS) and writes only what that server actually honors.
+* Added: a "Server & Enforcement Strategy" card on the Hardening tab, reporting what is in front of PHP, whether it reads `.htaccess`, whether it reads `.user.ini` (and under what filename and cache TTL, read from the live PHP configuration rather than assumed), and which mechanism is carrying each rule.
+* Added: on nginx and IIS, a generated server-configuration snippet for the toggles you have enabled — including the note that nginx matches regex `location` blocks in source order, so a deny rule pasted after the PHP handler never runs. The same enforcement probe verifies the result, so the verdict means exactly what it means on every other server.
+* Added: on any FastCGI stack without `.htaccess`, direct PHP execution in `wp-content/uploads` is blocked with a `.user.ini` and an `auto_prepend_file` guard. Unlike a rewrite rule, this needs no root and no server reload: it applies itself once PHP's per-directory cache expires. Scoped to uploads deliberately — that directory has no legitimate PHP entry point, so the mechanism cannot take the front end down with it.
+* Added: the guard is verified rather than trusted. The generated code is parse-checked before it reaches disk, the `.user.ini` is only written once the guard exists and is readable, and a server error from the guarded directory — the signature of a prepend that cannot load — reverts the guard automatically instead of being filed away as inconclusive.
+* Changed: "changed since last verified" is now split into two separate reports, because they have different remedies and different owners. *Config staleness* means the rules on disk are not yet the rules the server is running: immediate on Apache, a graceful restart on OpenLiteSpeed, a root-only reload on nginx, a self-expiring TTL for `.user.ini`. *Cache staleness* means already-rendered pages still carry the previous headers, which is a purge, and the card says so plainly when no purge handler is listening and the automatic purge reaches nothing.
+* Added: "Delete instead of block" for `readme.html` and `license.txt`. A deny rule needs a server that honors one; deleting needs nothing and works identically everywhere. Confirm-and-verify like the toggles — the file is re-requested afterwards and the result reports the code it actually answers with. A WordPress core update restores both files, and the UI says so.
+* Changed: an enabled rule on a server with no mechanism for it now reads "Not available on this server" or "Needs server config" instead of "File missing" with a Restore button for a file that was never going to exist.
+* Fixed: uninstalling now removes the uploads `.user.ini` and its guard (hash-verified, as with every other file this plugin authors), so a deleted plugin can never leave PHP pointed at a guard that is no longer there.
 
 = 2.14.0 =
 * Fixed: font discovery was blind to any font it had already localized. While "Self-host Google Fonts" was on, the plugin dequeued the Google Fonts stylesheets during its own scan, so the scan could not see them — freezing the font set at whatever the first scan caught and leaving admins to toggle the feature off, purge, and rescan just to discover anything new. The scan's loopback request now leaves the original Google stylesheets in place, so rescanning works with self-hosting enabled and picks up families and weights added since the last scan.

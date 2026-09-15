@@ -31,9 +31,36 @@ function spfw_uninstall_filesystem() {
 }
 
 /**
+ * Delete a file this plugin authored, identified by the sha1 it recorded.
+ *
+ * Hash-gated exactly as the plugin's own removal paths are: a file whose
+ * content no longer matches the recorded hash was edited by someone else and
+ * is left alone.
+ *
+ * @param array  $settings Stored settings array (may be anything).
+ * @param string $hash_key Key under the hardening group holding the sha1.
+ * @param string $path     Absolute path of the file.
+ */
+function spfw_uninstall_delete_authored( $settings, $hash_key, $path ) {
+	$hash = ( is_array( $settings ) && isset( $settings['hardening'][ $hash_key ] ) )
+		? $settings['hardening'][ $hash_key ]
+		: '';
+
+	if ( '' === $hash || ! file_exists( $path ) || sha1_file( $path ) !== $hash ) {
+		return;
+	}
+
+	$fs = spfw_uninstall_filesystem();
+
+	if ( $fs ) {
+		$fs->delete( $path );
+	}
+}
+
+/**
  * Remove everything this plugin created for the current site: the
- * authored plugins-directory .htaccess (only if unaltered), the
- * localized fonts directory, and the settings option.
+ * authored plugins-directory .htaccess (only if unaltered), the uploads
+ * `.user.ini` guard, the localized fonts directory, and the settings option.
  */
 function spfw_uninstall_cleanup_site() {
 	$settings    = get_option( 'spfw_settings' );
@@ -65,6 +92,30 @@ function spfw_uninstall_cleanup_site() {
 			$fs->delete( $uploads_htaccess_path );
 		}
 	}
+
+	// The `.user.ini` guard, in the order that never leaves PHP pointed at a
+	// file that is gone: the ini naming the guard first, then the guard. A
+	// dangling auto_prepend_file left behind by an uninstall would break every
+	// PHP request under uploads on a site that no longer has this plugin to
+	// explain why — the worst possible time to find out.
+	$user_ini_name = ini_get( 'user_ini.filename' );
+	$user_ini_name = is_string( $user_ini_name ) && '' !== trim( $user_ini_name ) ? trim( $user_ini_name ) : '.user.ini';
+
+	spfw_uninstall_delete_authored(
+		$settings,
+		'user_ini_hash',
+		trailingslashit( $upload_dir['basedir'] ) . $user_ini_name
+	);
+	spfw_uninstall_delete_authored(
+		$settings,
+		'user_ini_guard_hash',
+		trailingslashit( $upload_dir['basedir'] ) . '.spfw-uploads-guard.php'
+	);
+	spfw_uninstall_delete_authored(
+		$settings,
+		'user_ini_canary_hash',
+		trailingslashit( $upload_dir['basedir'] ) . 'spfw-user-ini-canary.php'
+	);
 
 	$fonts_dir = untrailingslashit( $upload_dir['basedir'] ) . '/ods-fonts';
 

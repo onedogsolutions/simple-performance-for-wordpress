@@ -220,6 +220,64 @@ class SPFW_Rest_Settings {
 				'permission_callback' => array( $this, 'check_permissions' ),
 			)
 		);
+
+		// Delete a core-shipped file outright rather than blocking it. The only
+		// option that needs no server cooperation, and therefore the only one
+		// that works on a server this plugin cannot configure.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/remove-file',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'remove_file' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+				'args'                => array(
+					'file' => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * POST callback: delete one core-shipped file and verify over HTTP that it
+	 * is gone.
+	 *
+	 * The filename is checked against an allow-list inside
+	 * SPFW_Module_Hardening::remove_file(), not merely sanitized here: a
+	 * capability check plus a basename is not enough to make an arbitrary-path
+	 * delete endpoint safe.
+	 *
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response
+	 */
+	public function remove_file( $request ) {
+		$file = sanitize_file_name( (string) $request->get_param( 'file' ) );
+
+		if ( ! SPFW_Module_Hardening::is_removable_file( $file ) ) {
+			return new WP_REST_Response(
+				array(
+					'file'     => $file,
+					'deleted'  => false,
+					'verified' => false,
+					'code'     => 0,
+					'reason'   => 'not_removable',
+				),
+				400
+			);
+		}
+
+		$result = SPFW_Module_Hardening::remove_file( $file );
+
+		$response = $this->get_settings();
+		$data     = $response->get_data();
+
+		$data['removal'] = $result;
+		$response->set_data( $data );
+
+		return $response;
 	}
 
 	/**
@@ -296,8 +354,28 @@ class SPFW_Rest_Settings {
 
 		// True when the .htaccess files changed after the cached verdict above
 		// was measured. On OpenLiteSpeed that also means the running server is
-		// still applying the previous rules until a graceful restart.
+		// still applying the previous rules until a graceful restart. Retained
+		// as the raw signal; config_staleness below is the interpreted form the
+		// UI actually renders.
 		$settings['htaccess_changed_since_probe'] = SPFW_Module_Hardening::htaccess_changed_since_probe();
+
+		// What server is in front of PHP and what it honors. Everything else in
+		// this block is downstream of it: which strategy owns each target, what
+		// the snippet should say, and how long a config change takes to apply.
+		$settings['server']               = SPFW_Server::info();
+		$settings['hardening_strategies'] = SPFW_Hardening_Strategies::summary();
+		$settings['hardening_snippet']    = SPFW_Hardening_Strategies::snippet();
+
+		// The two staleness clocks, reported separately because they have
+		// different remedies and different owners. Config staleness is rules on
+		// disk versus rules the server is running; cache staleness is rendered
+		// pages versus current behavior.
+		$settings['config_staleness'] = SPFW_Module_Hardening::config_staleness();
+		$settings['cache_staleness']  = SPFW_Module_Hardening::cache_staleness();
+
+		// Core-shipped files that can be deleted outright instead of blocked —
+		// the only option that works on a server this plugin cannot configure.
+		$settings['removable_files'] = SPFW_Module_Hardening::removable_files();
 
 		return new WP_REST_Response( $settings, 200 );
 	}
@@ -332,7 +410,7 @@ class SPFW_Rest_Settings {
 
 		return array(
 			'plugins' => isset( $states['plugins'] ) ? $states['plugins'] : 'unknown',
-			'uploads' => self::combine_enforcement( $states, array( 'uploads', 'uploads_synthetic' ) ),
+			'uploads' => self::combine_enforcement( $states, array( 'uploads', 'uploads_synthetic', 'uploads_user_ini' ) ),
 			'root'    => self::combine_enforcement( $states, array( 'sensitive_files', 'xmlrpc' ) ),
 			'honored' => $honored,
 		);
@@ -345,7 +423,7 @@ class SPFW_Rest_Settings {
 	 *
 	 * @param array<string,string> $states Map of canary target => state.
 	 * @param string[]             $keys   Canary targets belonging to one card.
-	 * @return string 'enforced'|'not_enforced'|'unknown'
+	 * @return string 'enforced'|'not_enforced'|'broken'|'unknown'
 	 */
 	private static function combine_enforcement( $states, $keys ) {
 		$any_enforced = false;
@@ -353,6 +431,13 @@ class SPFW_Rest_Settings {
 		foreach ( $keys as $key ) {
 			if ( ! isset( $states[ $key ] ) ) {
 				continue;
+			}
+
+			// A mechanism that is breaking the tree outranks everything else on
+			// the card: it is neither enforcement nor a bypass, it is damage,
+			// and it is the only state with an automatic remedy behind it.
+			if ( 'broken' === $states[ $key ] ) {
+				return 'broken';
 			}
 
 			if ( 'not_enforced' === $states[ $key ] ) {
@@ -388,6 +473,14 @@ class SPFW_Rest_Settings {
 		// Google Maps, WooCommerce assets), so purge LiteSpeed Cache. Harmless
 		// no-op when LSCache is not installed (no listeners on the action).
 		do_action( 'litespeed_purge_all' );
+
+		// Only stamp the cache clock when something was actually listening.
+		// Firing an action into an empty room and recording it as a purge is
+		// how a cache-stale site ends up reporting itself fresh — the exact
+		// confusion the two clocks exist to prevent.
+		if ( has_action( 'litespeed_purge_all' ) ) {
+			SPFW_Module_Hardening::note_cache_purged();
+		}
 
 		return $this->get_settings();
 	}
@@ -1283,6 +1376,16 @@ class SPFW_Rest_Settings {
 		unset( $settings['hardening']['uploads_htaccess_hash'] );
 		unset( $settings['hardening']['root_htaccess_hash'] );
 		unset( $settings['hardening']['htaccess_enforcement'] );
+		// The `.user.ini` strategy's hashes and clocks are as site-specific as
+		// the .htaccess ones: importing them would hand another install the
+		// integrity fingerprint of files it does not have, and a "written at"
+		// timestamp for a write that never happened there.
+		unset( $settings['hardening']['user_ini_hash'] );
+		unset( $settings['hardening']['user_ini_guard_hash'] );
+		unset( $settings['hardening']['user_ini_canary_hash'] );
+		unset( $settings['hardening']['user_ini_written'] );
+		unset( $settings['hardening']['output_changed'] );
+		unset( $settings['hardening']['cache_purged'] );
 		unset( $settings['hardening']['file_monitor_snapshot'] );
 		unset( $settings['hardening']['file_monitor_last_scan'] );
 		unset( $settings['fonts']['discovered'] );
@@ -1336,23 +1439,27 @@ class SPFW_Rest_Settings {
 
 		SPFW_Settings::update( $incoming );
 
-		// Re-derive integrity hashes for any enabled .htaccess targets so
-		// the status detection reflects this site's actual files.
+		// Re-derive integrity hashes for any enabled target so the status
+		// detection reflects this site's actual files. Routed through the
+		// strategy layer because the exporting site and the importing site need
+		// not run the same server: a configuration exported from Apache and
+		// imported onto nginx should install what nginx can use, not the
+		// .htaccess files the toggles were originally realised as.
 		$h = SPFW_Settings::group( 'hardening' );
 
 		if ( ! empty( $h['plugins_htaccess'] ) ) {
-			SPFW_Htaccess::write( 'plugins' );
+			SPFW_Hardening_Strategies::apply( 'plugins' );
 		}
 
 		if ( ! empty( $h['uploads_htaccess'] ) ) {
-			SPFW_Htaccess::write( 'uploads' );
+			SPFW_Hardening_Strategies::apply( 'uploads' );
 		}
 
 		// Root marker block: re-sync for parity when either root toggle is on.
 		// The import stripped any foreign root hash, so rewrite the block to
 		// match this site's toggles and re-arm the safety self-check.
 		if ( ! empty( $h['protect_sensitive_files'] ) || ! empty( $h['block_xmlrpc_file'] ) ) {
-			SPFW_Htaccess::write( 'root' );
+			SPFW_Hardening_Strategies::apply( 'root' );
 			update_option( 'spfw_root_htaccess_check', true );
 		}
 

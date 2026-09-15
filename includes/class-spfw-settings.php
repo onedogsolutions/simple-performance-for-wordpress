@@ -92,6 +92,28 @@ class SPFW_Settings {
 				'block_xmlrpc_file'     => false,
 				'disable_xmlrpc'        => false,
 				'root_htaccess_hash'    => '',
+				// The `.user.ini` strategy's own integrity hashes: the ini that
+				// names the guard, and the generated guard itself. Separate
+				// from the .htaccess hashes above because a site can hold both
+				// (one authored before a server migration, one after) and
+				// turning the toggle off has to clean up whichever is there.
+				'user_ini_hash'           => '',
+				'user_ini_guard_hash'     => '',
+				'user_ini_canary_hash'    => '',
+				// When the `.user.ini` was last written. PHP caches the
+				// per-directory ini scan for `user_ini.cache_ttl` seconds, so
+				// this plus that TTL is when the rule starts being applied —
+				// the config staleness clock for that strategy.
+				'user_ini_written'        => 0,
+				// The two staleness clocks, kept apart on purpose. `output_changed`
+				// is when a setting that changes what a rendered page contains
+				// last changed; `cache_purged` is when the page cache was last
+				// cleared. Cache staleness is the gap between them, and it has a
+				// different remedy and a different owner from config staleness
+				// (rules on disk versus rules the server is running). Conflating
+				// the two is what produced the Step 15 false lead.
+				'output_changed'          => 0,
+				'cache_purged'            => 0,
 				// Runtime enforcement verification: the shaped probe result
 				// (per-canary evidence rows + the server-wide htaccess_honored
 				// verdict) cached here so get_settings() can report whether the
@@ -623,6 +645,15 @@ class SPFW_Settings {
 
 		$root_hash                                = isset( $hardening['root_htaccess_hash'] ) ? sanitize_text_field( $hardening['root_htaccess_hash'] ) : '';
 		$clean['hardening']['root_htaccess_hash'] = preg_match( '/^[a-f0-9]{40}$/', $root_hash ) ? $root_hash : '';
+
+		foreach ( array( 'user_ini_hash', 'user_ini_guard_hash', 'user_ini_canary_hash' ) as $sha_key ) {
+			$sha                            = isset( $hardening[ $sha_key ] ) ? sanitize_text_field( $hardening[ $sha_key ] ) : '';
+			$clean['hardening'][ $sha_key ] = preg_match( '/^[a-f0-9]{40}$/', $sha ) ? $sha : '';
+		}
+
+		foreach ( array( 'user_ini_written', 'output_changed', 'cache_purged' ) as $stamp_key ) {
+			$clean['hardening'][ $stamp_key ] = isset( $hardening[ $stamp_key ] ) ? absint( $hardening[ $stamp_key ] ) : 0;
+		}
 
 		// Enforcement probe cache: internal-only (populated by the verification
 		// probe, never user-supplied through the settings form). Pass the shaped
