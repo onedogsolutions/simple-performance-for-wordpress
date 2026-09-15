@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.15.0
+Stable tag: 2.16.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,14 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.16.0 =
+* Changed: the file integrity monitor is now directory-aware, cutting false-positive email alerts during legitimate bulk and background plugin updates without loosening security monitoring.
+* Added: `wp-content/uploads` is treated as Strict Mode. Legitimate plugins and themes rarely place executable PHP there, so any new, modified, or removed PHP file is emailed immediately, with no delay.
+* Changed: `wp-content/plugins` is treated as Smart Mode. It is expected to churn during updates, so changes there are queued for a 15-minute debounce window instead of being emailed on sight, and are only sent if nothing cleared them in the meantime.
+* Added: the monitor now hooks `upgrader_process_complete`. When WordPress finishes a legitimate plugin update, the sha256 file baseline for that plugin's directory is rebuilt on the spot so the next scan sees no diff, and any queued alert for that plugin is discarded before it can be sent.
+* Changed: queued (plugins) alerts use a separate one-per-hour rate limit from immediate (uploads) alerts, so an uploads alert firing first can no longer suppress a plugins alert coming out of the debounce window moments later.
+* Fixed: disabling the file integrity monitor now also cancels any in-flight debounce, so a queued alert and its one-off dispatch event no longer outlive the toggle that armed them.
 
 = 2.15.0 =
 * Fixed: on nginx the plugin wrote `.htaccess` files nothing reads, behind a UI that said the directory was protected. nginx has no per-directory configuration file and never will — honoring one would cost a filesystem walk on every request — so the file was inert and the badge was a false claim. The plugin now detects the web server (Apache, LiteSpeed, OpenLiteSpeed, nginx, IIS) and writes only what that server actually honors.

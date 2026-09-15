@@ -38,6 +38,7 @@ postcss.config.js
 jest.config.js
 
 *.log
+*.zip
 .phpunit.result.cache
 .DS_Store
 Thumbs.db

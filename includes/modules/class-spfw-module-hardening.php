@@ -165,6 +165,42 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_COOLDOWN = 'spfw_file_monitor_cooldown';
 
 	/**
+	 * Separate rate-limit key for the debounced (Smart Mode) alert dispatch, so
+	 * an immediate uploads alert never suppresses a queued plugins alert that
+	 * fires out of the delay window moments later.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_DISPATCH_COOLDOWN = 'spfw_file_monitor_dispatch_cooldown';
+
+	/**
+	 * One-off cron hook that dispatches queued (Smart Mode) file-change alerts
+	 * once the debounce window has elapsed without a legitimate update clearing
+	 * them.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_DISPATCH_CRON = 'spfw_dispatch_queued_alerts';
+
+	/**
+	 * Transient key holding the pending (queued, not yet emailed) plugin
+	 * file-change alerts. Shaped like scan_wp_content()'s diff: added/modified/
+	 * removed arrays of relative snapshot paths.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_PENDING = 'spfw_pending_file_alerts';
+
+	/**
+	 * Debounce window (seconds) between queueing a plugins/ change and
+	 * emailing it, giving upgrader_process_complete time to fire and clear the
+	 * alert as a legitimate update.
+	 *
+	 * @var int
+	 */
+	const FILE_MONITOR_DEBOUNCE = 900;
+
+	/**
 	 * PHP file extensions the monitor scans for (same set the .htaccess blocks).
 	 *
 	 * @var string[]
@@ -413,13 +449,24 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		add_action( SPFW_Strategy_User_Ini::VERIFY_CRON, array( $this, 'run_user_ini_verification' ) );
 
 		// File integrity monitor: schedule the twice-daily scan when enabled.
-		// The cron callback scans wp-content for PHP file changes and sends
-		// an email alert when non-whitelisted files appear or change.
+		// The cron callback scans wp-content for PHP file changes and routes
+		// them by directory — uploads/ alerts immediately (strict), plugins/
+		// changes are queued for a debounce window (smart) so a legitimate
+		// plugin update can clear them before any email goes out.
 		if ( ! empty( $h['file_monitor_enabled'] ) ) {
 			if ( ! wp_next_scheduled( self::FILE_MONITOR_CRON ) ) {
 				wp_schedule_event( time(), 'twicedaily', self::FILE_MONITOR_CRON );
 			}
 			add_action( self::FILE_MONITOR_CRON, array( $this, 'run_file_monitor_scan' ) );
+
+			// Phase 3: dispatch queued plugins/ alerts once the debounce window
+			// elapses without a legitimate update clearing them.
+			add_action( self::FILE_MONITOR_DISPATCH_CRON, array( $this, 'dispatch_queued_alerts' ) );
+
+			// Phase 2: rebuild the file baseline and clear any queued alert for
+			// a plugin the moment WordPress finishes a legitimate update, so the
+			// next scan sees no diff and no false-positive email is sent.
+			add_action( 'upgrader_process_complete', array( $this, 'handle_upgrader_complete' ), 10, 2 );
 		}
 	}
 
@@ -524,6 +571,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 		} elseif ( $was_monitoring && ! $is_monitoring ) {
 			wp_clear_scheduled_hook( self::FILE_MONITOR_CRON );
+
+			// Drop any in-flight debounce: the queued plugins alert and the
+			// one-off dispatch event must not outlive the toggle that armed them.
+			wp_clear_scheduled_hook( self::FILE_MONITOR_DISPATCH_CRON );
+			delete_transient( self::FILE_MONITOR_PENDING );
 		}
 
 		// Root .htaccess: composed from two toggles.
@@ -2636,9 +2688,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * non-whitelisted additions and modifications. Rate-limits to one alert
 	 * per hour via a transient.
 	 *
-	 * @param array $changes Diff array from scan_wp_content().
+	 * @param array  $changes      Diff array from scan_wp_content().
+	 * @param string $cooldown_key Transient key for the one-per-hour rate limit.
+	 *                             Strict (uploads) and queued (plugins) alerts
+	 *                             use separate keys so one never suppresses the
+	 *                             other.
 	 */
-	public function maybe_send_file_alert( $changes ) {
+	public function maybe_send_file_alert( $changes, $cooldown_key = self::FILE_MONITOR_COOLDOWN ) {
 		$h = SPFW_Settings::group( 'hardening' );
 
 		if ( empty( $h['file_monitor_enabled'] ) ) {
@@ -2652,7 +2708,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		// Rate-limit: one alert per hour.
-		if ( get_transient( self::FILE_MONITOR_COOLDOWN ) ) {
+		if ( get_transient( $cooldown_key ) ) {
 			return;
 		}
 
@@ -2712,16 +2768,263 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		wp_mail( $email, $subject, $body );
 
-		set_transient( self::FILE_MONITOR_COOLDOWN, 1, HOUR_IN_SECONDS );
+		set_transient( $cooldown_key, 1, HOUR_IN_SECONDS );
 	}
 
 	/**
-	 * Cron callback: run the file-integrity scan and send an alert email
-	 * when changes are detected.
+	 * Cron callback: run the file-integrity scan, then route the detected
+	 * changes by directory (strict uploads vs. smart plugins).
 	 */
 	public function run_file_monitor_scan() {
 		$changes = $this->scan_wp_content();
-		$this->maybe_send_file_alert( $changes );
+		$this->route_file_changes( $changes );
+	}
+
+	/**
+	 * Phase 1: split a scan diff by directory and apply the right strictness.
+	 *
+	 * wp-content/uploads is Strict Mode — legitimate plugins/themes rarely drop
+	 * executable PHP there, so any change is emailed immediately with no delay.
+	 * wp-content/plugins is Smart Mode — it is expected to churn during updates,
+	 * so changes are queued for the debounce window instead of emailed at once.
+	 *
+	 * Snapshot paths are prefixed with their scan root ('uploads/' or
+	 * 'plugins/'), which is what the split keys off.
+	 *
+	 * @param array $changes Diff array from scan_wp_content().
+	 */
+	protected function route_file_changes( $changes ) {
+		$strict = array(
+			'added'    => array(),
+			'modified' => array(),
+			'removed'  => array(),
+		);
+		$smart  = $strict;
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			if ( empty( $changes[ $type ] ) || ! is_array( $changes[ $type ] ) ) {
+				continue;
+			}
+
+			foreach ( $changes[ $type ] as $path ) {
+				if ( 0 === strpos( $path, 'uploads/' ) ) {
+					$strict[ $type ][] = $path;
+				} else {
+					$smart[ $type ][] = $path;
+				}
+			}
+		}
+
+		// Strict Mode: uploads PHP changes alert immediately (bypass the queue).
+		if ( count( $strict['added'] ) + count( $strict['modified'] ) + count( $strict['removed'] ) > 0 ) {
+			$this->maybe_send_file_alert( $strict );
+		}
+
+		// Smart Mode: plugins changes wait out the debounce window.
+		if ( count( $smart['added'] ) + count( $smart['modified'] ) + count( $smart['removed'] ) > 0 ) {
+			$this->queue_pending_alerts( $smart );
+		}
+	}
+
+	/**
+	 * Phase 3: add plugins-directory changes to the pending queue and arm a
+	 * single one-off dispatch event at the end of the debounce window. The
+	 * alert is NOT emailed here — dispatch_queued_alerts() does that later,
+	 * unless a legitimate update clears the entry first.
+	 *
+	 * @param array $smart Smart-Mode diff (plugins/ changes only).
+	 */
+	protected function queue_pending_alerts( $smart ) {
+		$pending = get_transient( self::FILE_MONITOR_PENDING );
+		$pending = is_array( $pending ) ? $pending : array();
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			$existing = isset( $pending[ $type ] ) && is_array( $pending[ $type ] ) ? $pending[ $type ] : array();
+			$incoming = isset( $smart[ $type ] ) && is_array( $smart[ $type ] ) ? $smart[ $type ] : array();
+
+			$pending[ $type ] = array_values( array_unique( array_merge( $existing, $incoming ) ) );
+		}
+
+		set_transient( self::FILE_MONITOR_PENDING, $pending, DAY_IN_SECONDS );
+
+		if ( ! wp_next_scheduled( self::FILE_MONITOR_DISPATCH_CRON ) ) {
+			wp_schedule_single_event( time() + self::FILE_MONITOR_DEBOUNCE, self::FILE_MONITOR_DISPATCH_CRON );
+		}
+	}
+
+	/**
+	 * Phase 3: one-off cron callback. Emails whatever is still queued after the
+	 * debounce window — entries a legitimate update cleared are already gone,
+	 * so anything left is an unexplained change worth reporting.
+	 */
+	public function dispatch_queued_alerts() {
+		$pending = get_transient( self::FILE_MONITOR_PENDING );
+
+		delete_transient( self::FILE_MONITOR_PENDING );
+
+		if ( ! is_array( $pending ) ) {
+			return;
+		}
+
+		$pending = array(
+			'added'    => isset( $pending['added'] ) && is_array( $pending['added'] ) ? $pending['added'] : array(),
+			'modified' => isset( $pending['modified'] ) && is_array( $pending['modified'] ) ? $pending['modified'] : array(),
+			'removed'  => isset( $pending['removed'] ) && is_array( $pending['removed'] ) ? $pending['removed'] : array(),
+		);
+
+		if ( count( $pending['added'] ) + count( $pending['modified'] ) + count( $pending['removed'] ) === 0 ) {
+			return;
+		}
+
+		$this->maybe_send_file_alert( $pending, self::FILE_MONITOR_DISPATCH_COOLDOWN );
+	}
+
+	/**
+	 * Phase 2: upgrader_process_complete callback. When WordPress finishes a
+	 * legitimate plugin update, rebuild the file baseline for each updated
+	 * plugin (so the next scan sees no diff) and drop any queued alert for that
+	 * plugin's directory (so a scan that ran mid-update emails nothing).
+	 *
+	 * @param \WP_Upgrader $upgrader_object The upgrader instance (unused).
+	 * @param array        $options         Hook options: action, type, plugins.
+	 */
+	public function handle_upgrader_complete( $upgrader_object, $options ) {
+		if ( ! isset( $options['action'], $options['type'] ) ) {
+			return;
+		}
+
+		if ( 'update' !== $options['action'] || 'plugin' !== $options['type'] ) {
+			return;
+		}
+
+		if ( empty( $options['plugins'] ) || ! is_array( $options['plugins'] ) ) {
+			return;
+		}
+
+		foreach ( $options['plugins'] as $plugin_path ) {
+			$plugin_slug = dirname( $plugin_path );
+
+			// A root-level single-file plugin (e.g. hello.php) has no directory
+			// of its own to re-baseline; dirname() yields '.' for those.
+			if ( '' === $plugin_slug || '.' === $plugin_slug || '/' === $plugin_slug ) {
+				continue;
+			}
+
+			$this->rebuild_baseline_for_plugin( $plugin_slug );
+			$this->clear_pending_alerts_for_plugin( $plugin_slug );
+		}
+	}
+
+	/**
+	 * Phase 2: re-hash one plugin directory and splice the fresh hashes into
+	 * the stored snapshot, establishing the new "known good state". Existing
+	 * entries under the plugin's prefix are dropped first so removed files do
+	 * not linger as phantom baselines.
+	 *
+	 * Path shapes mirror scan_wp_content() exactly: the snapshot key is
+	 * 'plugins/{slug}/{relative-path}' with the same sha256 hashing and
+	 * extension filter.
+	 *
+	 * @param string $plugin_slug Plugin directory name under wp-content/plugins.
+	 */
+	protected function rebuild_baseline_for_plugin( $plugin_slug ) {
+		$prefix   = 'plugins/' . $plugin_slug . '/';
+		$base_dir = WP_CONTENT_DIR . '/plugins/' . $plugin_slug;
+
+		$snapshot = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
+		$snapshot = is_array( $snapshot ) ? $snapshot : array();
+
+		// Drop every stored entry for this plugin before re-hashing.
+		foreach ( array_keys( $snapshot ) as $path ) {
+			if ( 0 === strpos( $path, $prefix ) ) {
+				unset( $snapshot[ $path ] );
+			}
+		}
+
+		if ( is_dir( $base_dir ) ) {
+			$extensions  = self::MONITOR_EXTENSIONS;
+			$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', $extensions ) ) . ')$/i';
+
+			$iterator = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $base_dir, RecursiveDirectoryIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::SELF_FIRST
+			);
+
+			foreach ( $iterator as $file ) {
+				if ( ! $file->isFile() ) {
+					continue;
+				}
+
+				if ( ! preg_match( $ext_pattern, $file->getFilename() ) ) {
+					continue;
+				}
+
+				$full_path = $file->getPathname();
+				$relative  = $prefix . ltrim( substr( $full_path, strlen( $base_dir ) ), '/\\' );
+
+				$snapshot[ $relative ] = hash_file( 'sha256', $full_path );
+			}
+		}
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'file_monitor_snapshot' => $snapshot,
+				),
+			)
+		);
+	}
+
+	/**
+	 * Phase 3 (clear-on-update): remove queued alerts belonging to a plugin
+	 * that WordPress just legitimately updated. If nothing remains queued,
+	 * delete the transient and cancel the pending dispatch event.
+	 *
+	 * @param string $plugin_slug Plugin directory name under wp-content/plugins.
+	 */
+	protected function clear_pending_alerts_for_plugin( $plugin_slug ) {
+		$pending = get_transient( self::FILE_MONITOR_PENDING );
+
+		if ( ! is_array( $pending ) ) {
+			return;
+		}
+
+		$prefix  = 'plugins/' . $plugin_slug . '/';
+		$changed = false;
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			if ( empty( $pending[ $type ] ) || ! is_array( $pending[ $type ] ) ) {
+				continue;
+			}
+
+			$before = count( $pending[ $type ] );
+
+			$pending[ $type ] = array_values(
+				array_filter(
+					$pending[ $type ],
+					static function ( $path ) use ( $prefix ) {
+						return 0 !== strpos( $path, $prefix );
+					}
+				)
+			);
+
+			if ( count( $pending[ $type ] ) !== $before ) {
+				$changed = true;
+			}
+		}
+
+		if ( ! $changed ) {
+			return;
+		}
+
+		$remaining = count( $pending['added'] ) + count( $pending['modified'] ) + count( $pending['removed'] );
+
+		if ( 0 === $remaining ) {
+			delete_transient( self::FILE_MONITOR_PENDING );
+			wp_clear_scheduled_hook( self::FILE_MONITOR_DISPATCH_CRON );
+		} else {
+			set_transient( self::FILE_MONITOR_PENDING, $pending, DAY_IN_SECONDS );
+		}
 	}
 
 }

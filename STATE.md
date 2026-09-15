@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/quirky-hawking-33r1gr` (2.15.0 — Step 18, server abstraction / nginx); prior `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `main` (2.16.0 — smart file integrity alerts); prior `claude/quirky-hawking-33r1gr` (2.15.0 — Step 18, server abstraction / nginx); prior `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.15.0
+- **Plugin version target:** 2.16.0
 - **Last updated:** 2026-09-15
-- **Overall status:** ✅ Step 18 (2.15.0 — the hardening subsystem no longer assumes a server that reads `.htaccess`: `SPFW_Server` detects what is in front of PHP, a strategy interface routes each target to the mechanism that server honors, nginx gets a `.user.ini` PHP guard for uploads plus a generated vhost snippet for everything else, config staleness and cache staleness are reported as the two separate clocks they are, and deleting `readme.html`/`license.txt` is a first-class alternative to blocking them; **nginx live QA still owed — no nginx host exists in this build environment**); ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Overall status:** ✅ Smart file integrity alerts (2.16.0 — the file monitor is now directory-aware to cut false-positive emails during legitimate plugin updates: `uploads/` is Strict Mode and emails any PHP change immediately, `plugins/` is Smart Mode and queues changes for a 15-minute debounce window, `upgrader_process_complete` rebuilds the sha256 baseline for an updated plugin and clears its queued alert, and disabling the monitor cancels any in-flight debounce; **live QA still owed — needs a real WP install to observe a scan-during-update race and the cron dispatch**); ✅ Step 18 (2.15.0 — the hardening subsystem no longer assumes a server that reads `.htaccess`: `SPFW_Server` detects what is in front of PHP, a strategy interface routes each target to the mechanism that server honors, nginx gets a `.user.ini` PHP guard for uploads plus a generated vhost snippet for everything else, config staleness and cache staleness are reported as the two separate clocks they are, and deleting `readme.html`/`license.txt` is a first-class alternative to blocking them; **nginx live QA still owed — no nginx host exists in this build environment**); ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -536,6 +536,59 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-15 (smart file integrity alerts implemented, → 2.16.0): the file
+  monitor emitted a false-positive email whenever a twice-daily scan happened to
+  catch a legitimate plugin update mid-write, and it had no way to distinguish
+  that from a real intrusion. All logic lives in
+  `class-spfw-module-hardening.php`.
+
+  **Directory-aware strictness (Phase 1).** `run_file_monitor_scan()` no longer
+  emails the raw diff; it routes through a new `route_file_changes()` that
+  partitions on the snapshot path prefix `scan_wp_content()` already writes.
+  `uploads/` is Strict Mode — emailed immediately via `maybe_send_file_alert()`,
+  bypassing the queue, because legitimate code almost never drops PHP there.
+  Everything else (`plugins/`) is Smart Mode — handed to `queue_pending_alerts()`.
+
+  **Baseline rebuild on legitimate update (Phase 2).** `handle_upgrader_complete()`
+  hooks `upgrader_process_complete` (10, 2), guards on `action=update` +
+  `type=plugin`, and per updated plugin calls `rebuild_baseline_for_plugin()` —
+  the real internal re-hasher. It drops the plugin's existing snapshot entries
+  then re-hashes the directory with the *exact* same extension filter, sha256,
+  and `plugins/{slug}/…` key shape `scan_wp_content()` uses, so the next scan
+  sees zero diff. `dirname()` on a root-level single-file plugin (`hello.php`)
+  yields `.`, which is guarded out. This is the primary false-positive fix: an
+  update that completes before the next scan never registers at all.
+
+  **Debounce queue (Phase 3).** `queue_pending_alerts()` merges into the
+  `spfw_pending_file_alerts` transient and arms one
+  `wp_schedule_single_event()` for `spfw_dispatch_queued_alerts` at +900s
+  (`FILE_MONITOR_DEBOUNCE`), only if not already scheduled.
+  `clear_pending_alerts_for_plugin()` (called from the upgrader hook) filters out
+  that plugin's queued paths and, if the queue empties, deletes the transient and
+  cancels the dispatch event. `dispatch_queued_alerts()` emails whatever survives
+  the window. This only matters for the race where a scan runs *during* an
+  update, before the hook fires.
+
+  **Two rate-limit keys.** `maybe_send_file_alert()` gained an optional
+  `$cooldown_key` (backward compatible). Strict/uploads uses the existing
+  `spfw_file_monitor_cooldown`; the queued dispatch uses a new
+  `spfw_file_monitor_dispatch_cooldown`, so an uploads alert firing first cannot
+  suppress a plugins alert leaving the debounce window moments later.
+
+  **Toggle hygiene.** `handle_settings_change()` now clears the dispatch cron and
+  pending transient when the monitor flips off, so a queued alert never outlives
+  the toggle that armed it. All new hooks register only inside the existing
+  `file_monitor_enabled` block. The REST `scan_files` endpoint still calls
+  `scan_wp_content()` directly and never emails — unchanged.
+
+  **No new translatable strings** (comments only; the existing alert strings are
+  reused), so the `.pot` regen only bumps `Project-Id-Version` and line refs.
+  `php -l` clean; `npm run build` succeeds (webpack 5.108.4). Added `*.zip` to
+  `.distignore` — a stale release ZIP in the root was being nested inside every
+  freshly built one. **Live QA still owed:** needs a real WP install to observe a
+  scan-during-update race, the upgrader baseline rebuild, and the cron dispatch
+  actually firing after 15 minutes.
 
 - 2026-09-15 (server abstraction implemented, → 2.15.0, Step 18): four things
   the design did not anticipate, all found while building it.
