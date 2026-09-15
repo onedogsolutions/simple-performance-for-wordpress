@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Simple Performance for WordPress
  * Description:       Ultra-lightweight performance, REST API, and hardening toolkit for OpenLiteSpeed + LiteSpeed Cache.
- * Version:           2.15.0
+ * Version:           2.15.1
  * Author:            Ryan Waterbury
  * Author URI:        https://onedog.solutions/
  * License:           GPL-3.0-or-later
@@ -10,14 +10,14 @@
  * Text Domain:       simple-performance-for-wordpress
  * Domain Path:       /languages
  * Requires at least: 6.0
- * Requires PHP:      8.0
+ * Requires PHP:      8.1
  *
  * @package Simple_Performance_For_WordPress
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SPFW_VERSION', '2.15.0' );
+define( 'SPFW_VERSION', '2.15.1' );
 define( 'SPFW_FILE', __FILE__ );
 define( 'SPFW_PATH', plugin_dir_path( __FILE__ ) );
 define( 'SPFW_URL', plugin_dir_url( __FILE__ ) );
