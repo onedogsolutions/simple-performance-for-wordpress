@@ -22,6 +22,33 @@ const STATUS_STYLES = {
 		badge: 'bg-amber-50 text-amber-700 ring-amber-600/20',
 		dot: 'bg-amber-600',
 	},
+	// This server reads no .htaccess at all, so the file is not missing — it is
+	// inapplicable. Offering Restore for it would be a lie, and reporting
+	// "File missing" in red would send the admin looking for a file that was
+	// never going to exist.
+	unsupported: {
+		label: __(
+			'Not available on this server',
+			'simple-performance-for-wordpress'
+		),
+		badge: 'bg-gray-50 text-gray-600 ring-gray-500/20',
+		dot: 'bg-gray-400',
+		hint: __(
+			'This web server has no per-directory configuration file, so the plugin writes nothing here. See "Server & Enforcement Strategy" above for the configuration that would enforce this rule.',
+			'simple-performance-for-wordpress'
+		),
+	},
+	// The rule exists on paper and nowhere else: the plugin can describe it but
+	// cannot install it without root.
+	advisory: {
+		label: __( 'Needs server config', 'simple-performance-for-wordpress' ),
+		badge: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+		dot: 'bg-amber-600',
+		hint: __(
+			'Enabled, but nothing this plugin can write will enforce it here. Paste the generated snippet into the server configuration and reload, then verify.',
+			'simple-performance-for-wordpress'
+		),
+	},
 };
 
 // Enforcement verdicts layer onto the 'ok' integrity state. A file can be
@@ -70,6 +97,23 @@ const ENFORCEMENT_STYLES = {
 		badge: 'bg-red-50 text-red-700 ring-red-600/10',
 		dot: 'bg-red-600',
 	},
+	// The mechanism is not merely inert, it is breaking the tree it guards. The
+	// plugin reverts this state automatically the moment it observes it, so a
+	// badge here is the record of something that already happened.
+	broken: {
+		label: __(
+			'Guard broke this directory — reverted',
+			'simple-performance-for-wordpress'
+		),
+		short: __( 'Broken', 'simple-performance-for-wordpress' ),
+		glyph: '!',
+		badge: 'bg-red-50 text-red-700 ring-red-600/10',
+		dot: 'bg-red-600',
+		hint: __(
+			'Requests to this directory returned a server error, which is what a PHP guard that cannot be loaded looks like. The guard was removed automatically; the directory is back to how it was before the toggle.',
+			'simple-performance-for-wordpress'
+		),
+	},
 	unknown: {
 		label: __(
 			'Present (enforcement unverified)',
@@ -116,7 +160,12 @@ function StatusBadge( {
 	}
 
 	const needsRestore = 'missing' === status || 'altered' === status;
-	const showVerify = isIntact && 'enforced' !== resolved && !! onVerify;
+	// 'advisory' is worth verifying — the admin may have pasted the snippet
+	// already, and only the probe can say. 'unsupported' is not: there is
+	// nothing of ours for it to be measuring.
+	const showVerify =
+		( ( isIntact && 'enforced' !== resolved ) || 'advisory' === status ) &&
+		!! onVerify;
 	const verifyButtonLabel = isVerifying
 		? __( 'Verifying…', 'simple-performance-for-wordpress' )
 		: __( 'Verify enforcement', 'simple-performance-for-wordpress' );
@@ -330,6 +379,385 @@ function PermissionsPolicyRow( { hardening, onChange } ) {
 	);
 }
 
+// Proper nouns, so only the fallback needs translating.
+const SERVER_LABELS = {
+	apache: 'Apache',
+	litespeed: 'LiteSpeed',
+	openlitespeed: 'OpenLiteSpeed',
+	nginx: 'nginx',
+	iis: 'Microsoft IIS',
+};
+
+// Which mechanism is carrying each target, in the admin's words rather than
+// the strategy's key.
+const STRATEGY_LABELS = {
+	htaccess: __( '.htaccess file', 'simple-performance-for-wordpress' ),
+	user_ini: __( '.user.ini PHP guard', 'simple-performance-for-wordpress' ),
+	snippet: __(
+		'server config snippet (manual)',
+		'simple-performance-for-wordpress'
+	),
+	none: __( 'none available', 'simple-performance-for-wordpress' ),
+};
+
+const TARGET_LABELS = {
+	plugins: 'wp-content/plugins',
+	uploads: 'wp-content/uploads',
+	root: __( 'site root rules', 'simple-performance-for-wordpress' ),
+};
+
+function serverName( server ) {
+	const kind = ( server && server.kind ) || 'unknown';
+
+	return (
+		SERVER_LABELS[ kind ] ||
+		__( 'Unrecognised server', 'simple-performance-for-wordpress' )
+	);
+}
+
+// Config staleness: the rules on disk are not (yet) the rules the running
+// server applies. Every remedy below is a different server's answer to the
+// same question, which is why the plugin reports it instead of printing one
+// set of instructions and hoping.
+function configStalenessCopy( staleness ) {
+	const remedy = ( staleness && staleness.remedy ) || '';
+
+	if ( 'wait' === remedy ) {
+		const at = staleness.applies_at
+			? new Date( staleness.applies_at * 1000 ).toLocaleTimeString()
+			: '';
+
+		return sprintf(
+			/* translators: %s: local time the .user.ini starts being applied */
+			__(
+				'The uploads guard is written and PHP has not re-read it yet. PHP caches its per-directory scan for user_ini.cache_ttl seconds, so it starts applying itself at about %s. This one is a delay, not a task — nothing to do but wait, then verify.',
+				'simple-performance-for-wordpress'
+			),
+			at || '—'
+		);
+	}
+
+	if ( 'restart' === remedy ) {
+		return __(
+			'OpenLiteSpeed parses .htaccess rewrite rules once per directory and caches them until a graceful restart, so the server is still applying the previous rules. Restart it (WebAdmin → Graceful Restart, or sudo /usr/local/lsws/bin/lswsctrl restart), then verify again.',
+			'simple-performance-for-wordpress'
+		);
+	}
+
+	if ( 'reload' === remedy ) {
+		return __(
+			'nginx reads its configuration at startup or on SIGHUP, and a reload needs root — which PHP does not have and must not be given. Paste the snippet below into this site’s server block, run nginx -t && nginx -s reload, then verify again.',
+			'simple-performance-for-wordpress'
+		);
+	}
+
+	return __(
+		'The rules on disk changed after the last verification, so the verdict below describes files that are no longer what is there. This server re-reads them per request, so there is nothing to restart — just verify again.',
+		'simple-performance-for-wordpress'
+	);
+}
+
+// Cache staleness: nothing on disk is wrong and the server is applying exactly
+// what it was given. The pages visitors receive were simply rendered earlier.
+function cacheStalenessCopy( staleness ) {
+	if ( staleness && staleness.purge_available ) {
+		return __(
+			'Pages already in the cache were rendered with the previous headers and will keep being served that way until the cache turns over. LiteSpeed Cache is installed, so saving again purges it.',
+			'simple-performance-for-wordpress'
+		);
+	}
+
+	return __(
+		'Pages already in the cache were rendered with the previous headers. No page-cache purge handler is listening on this site, so the automatic purge this plugin fires reaches nothing: clear your page cache or CDN by hand. Nothing is wrong with the rules — this is the cache clock, not the config clock.',
+		'simple-performance-for-wordpress'
+	);
+}
+
+function ServerStrategyCard( {
+	server,
+	strategies,
+	snippet,
+	configStaleness,
+	cacheStaleness,
+	onVerify,
+	isVerifying,
+} ) {
+	const [ copied, setCopied ] = useState( false );
+
+	const info = server || {};
+	const rows = strategies || {};
+	const body = ( snippet && snippet.body ) || '';
+
+	const copy = () => {
+		if ( ! window.navigator.clipboard ) {
+			return;
+		}
+
+		window.navigator.clipboard.writeText( body ).then(
+			() => setCopied( true ),
+			() => setCopied( false )
+		);
+	};
+
+	return (
+		<SettingsCard
+			title={ __(
+				'Server & Enforcement Strategy',
+				'simple-performance-for-wordpress'
+			) }
+			description={ __(
+				'What this plugin can and cannot put into force here, and why. A hardening toggle is a statement of intent; whether it becomes a rule the server applies depends entirely on the server in front of PHP. Where no mechanism reaches, this card says so and hands you the configuration instead of showing a green badge over a file nothing reads.',
+				'simple-performance-for-wordpress'
+			) }
+		>
+			<SettingsRow
+				title={ __(
+					'Detected server',
+					'simple-performance-for-wordpress'
+				) }
+				description={
+					info.software ||
+					__(
+						'This server does not advertise itself, so the detection fell back to what PHP itself exposes.',
+						'simple-performance-for-wordpress'
+					)
+				}
+			>
+				<div className="w-full space-y-2 text-sm text-gray-700">
+					<p className="font-medium">{ serverName( info ) }</p>
+					<ul className="space-y-1 text-xs text-gray-500">
+						<li>
+							{ info.supports_htaccess
+								? __(
+										'Reads .htaccess: yes',
+										'simple-performance-for-wordpress'
+								  )
+								: __(
+										'Reads .htaccess: no — nothing written to one would ever be read.',
+										'simple-performance-for-wordpress'
+								  ) }
+						</li>
+						<li>
+							{ info.supports_user_ini
+								? sprintf(
+										/* translators: 1: user_ini.filename value, 2: user_ini.cache_ttl in seconds */
+										__(
+											'Reads %1$s: yes, re-scanned every %2$d seconds (PHP SAPI %3$s)',
+											'simple-performance-for-wordpress'
+										),
+										info.user_ini_filename || '.user.ini',
+										info.user_ini_cache_ttl || 0,
+										info.sapi || '?'
+								  )
+								: sprintf(
+										/* translators: %s: PHP SAPI name */
+										__(
+											'Reads .user.ini: no (PHP SAPI %s) — per-directory PHP settings are unavailable here.',
+											'simple-performance-for-wordpress'
+										),
+										info.sapi || '?'
+								  ) }
+						</li>
+					</ul>
+				</div>
+			</SettingsRow>
+
+			<SettingsRow
+				title={ __(
+					'Active strategy',
+					'simple-performance-for-wordpress'
+				) }
+				description={ __(
+					'Which mechanism is carrying each rule on this server. "Manual" means the plugin can describe the rule but cannot install it — a PHP process without root has no way to change nginx or IIS configuration.',
+					'simple-performance-for-wordpress'
+				) }
+			>
+				<ul className="w-full space-y-2">
+					{ Object.keys( rows ).map( ( target ) => (
+						<li
+							key={ target }
+							className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md p-2.5 text-xs ring-1 ring-inset ring-gray-200"
+						>
+							<code className="font-mono text-gray-800">
+								{ TARGET_LABELS[ target ] || target }
+							</code>
+							<span className="text-gray-600">
+								{ STRATEGY_LABELS[ rows[ target ].strategy ] ||
+									rows[ target ].strategy }
+							</span>
+						</li>
+					) ) }
+				</ul>
+			</SettingsRow>
+
+			{ !! ( configStaleness && configStaleness.stale ) && (
+				<SettingsRow
+					title={ __(
+						'Config staleness',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'The rules on disk are not the rules the running server is applying. This clock is about configuration reaching the server process.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full rounded-md bg-amber-50 p-3 ring-1 ring-inset ring-amber-600/20">
+						<p className="text-xs text-amber-800">
+							{ configStalenessCopy( configStaleness ) }
+						</p>
+					</div>
+				</SettingsRow>
+			) }
+
+			{ !! ( cacheStaleness && cacheStaleness.stale ) && (
+				<SettingsRow
+					title={ __(
+						'Cache staleness',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Rendered pages no longer describe current behavior. A different clock with a different owner: nothing on disk is wrong and the server is applying exactly the rules it was given.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full rounded-md bg-sky-50 p-3 ring-1 ring-inset ring-sky-600/20">
+						<p className="text-xs text-sky-800">
+							{ cacheStalenessCopy( cacheStaleness ) }
+						</p>
+					</div>
+				</SettingsRow>
+			) }
+
+			{ '' !== body && (
+				<SettingsRow
+					title={ __(
+						'Server configuration snippet',
+						'simple-performance-for-wordpress'
+					) }
+					description={ __(
+						'Generated from the toggles you have enabled. Paste it into the server configuration, reload the server, then run "Verify enforcement" — the probe is the same one used for every other strategy, so the verdict means exactly what it means everywhere else.',
+						'simple-performance-for-wordpress'
+					) }
+				>
+					<div className="w-full space-y-2">
+						<textarea
+							readOnly
+							rows={ 12 }
+							value={ body }
+							className="block w-full rounded-md border-0 px-3 py-2 font-mono text-xs text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300"
+						/>
+						<div className="flex items-center gap-x-3">
+							<button
+								type="button"
+								onClick={ copy }
+								className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+							>
+								{ copied
+									? __(
+											'Copied',
+											'simple-performance-for-wordpress'
+									  )
+									: __(
+											'Copy snippet',
+											'simple-performance-for-wordpress'
+									  ) }
+							</button>
+							<button
+								type="button"
+								onClick={ onVerify }
+								disabled={ isVerifying }
+								className="text-sm font-medium text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								{ isVerifying
+									? __(
+											'Verifying…',
+											'simple-performance-for-wordpress'
+									  )
+									: __(
+											'Verify enforcement',
+											'simple-performance-for-wordpress'
+									  ) }
+							</button>
+						</div>
+					</div>
+				</SettingsRow>
+			) }
+		</SettingsCard>
+	);
+}
+
+// "Delete it" as a first-class alternative to "block it", for the two files
+// where deleting is strictly better: WordPress uses neither, and no server
+// cooperation is required, so it is the only option that works identically on
+// every stack. Same confirm-and-verify flow as the toggles.
+function RemovableFilesRow( { files, onRemoveFile, removingFile } ) {
+	const present = ( files || [] ).filter( ( f ) => f.exists );
+
+	if ( ! present.length ) {
+		return null;
+	}
+
+	const confirmRemove = ( file ) => {
+		if (
+			// eslint-disable-next-line no-alert
+			window.confirm(
+				sprintf(
+					/* translators: %s: file name */
+					__(
+						'Delete %s from the site root? WordPress does not use this file. A WordPress core update will restore it.',
+						'simple-performance-for-wordpress'
+					),
+					file
+				)
+			)
+		) {
+			onRemoveFile( file );
+		}
+	};
+
+	return (
+		<SettingsRow
+			title={ __(
+				'Delete instead of block',
+				'simple-performance-for-wordpress'
+			) }
+			description={ __(
+				'A deny rule needs a server that honors one. Deleting needs nothing: it works identically on Apache, LiteSpeed, nginx and IIS, and it removes the information rather than hiding it. WordPress uses neither file. The catch, which is real: a core update puts them back, so this is a recurring chore rather than a one-time fix — which is why it sits beside the rule instead of replacing it.',
+				'simple-performance-for-wordpress'
+			) }
+		>
+			<ul className="w-full space-y-2">
+				{ present.map( ( entry ) => (
+					<li
+						key={ entry.file }
+						className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md p-2.5 ring-1 ring-inset ring-gray-200"
+					>
+						<code className="font-mono text-xs text-gray-800">
+							{ entry.file }
+						</code>
+						<button
+							type="button"
+							onClick={ () => confirmRemove( entry.file ) }
+							disabled={ removingFile === entry.file }
+							className="text-sm font-medium text-red-600 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{ removingFile === entry.file
+								? __(
+										'Deleting…',
+										'simple-performance-for-wordpress'
+								  )
+								: __(
+										'Delete',
+										'simple-performance-for-wordpress'
+								  ) }
+						</button>
+					</li>
+				) ) }
+			</ul>
+		</SettingsRow>
+	);
+}
+
 export default function HardeningSettings( {
 	settings,
 	onChange,
@@ -356,6 +784,14 @@ export default function HardeningSettings( {
 	changedSinceProbe,
 	onVerifyHtaccess,
 	isVerifyingHtaccess,
+	server,
+	strategies,
+	snippet,
+	configStaleness,
+	cacheStaleness,
+	removableFiles,
+	onRemoveFile,
+	removingFile,
 } ) {
 	const hardening = settings.hardening || {};
 	const adminEmail = settings.admin_email || '';
@@ -405,6 +841,16 @@ export default function HardeningSettings( {
 
 	return (
 		<div className="space-y-6">
+			<ServerStrategyCard
+				server={ server }
+				strategies={ strategies }
+				snippet={ snippet }
+				configStaleness={ configStaleness }
+				cacheStaleness={ cacheStaleness }
+				onVerify={ onVerifyHtaccess }
+				isVerifying={ isVerifyingHtaccess }
+			/>
+
 			<SettingsCard
 				title={ __(
 					'Directory Hardening',
@@ -644,6 +1090,12 @@ export default function HardeningSettings( {
 						}
 					/>
 				</SettingsRow>
+
+				<RemovableFilesRow
+					files={ removableFiles }
+					onRemoveFile={ onRemoveFile }
+					removingFile={ removingFile }
+				/>
 
 				{ ( !! hardening.protect_sensitive_files ||
 					!! hardening.block_xmlrpc_file ) && (

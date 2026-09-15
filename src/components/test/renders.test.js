@@ -15,6 +15,7 @@ import { act } from 'react';
 import CspPolicyCard from '../CspPolicyCard';
 import WooCommerceSettings from '../WooCommerceSettings';
 import FontsSettings from '../FontsSettings';
+import HardeningSettings from '../HardeningSettings';
 
 const noop = () => {};
 
@@ -235,6 +236,117 @@ describe( 'WooCommerceSettings', () => {
 				<WooCommerceSettings
 					settings={ { woocommerce: {} } }
 					onChange={ noop }
+				/>
+			)
+		).not.toThrow();
+	} );
+} );
+
+// The Hardening tab now renders whatever the server reports about itself, and
+// an install can legitimately report almost nothing — an old cached settings
+// payload from before the server block existed, a server that does not
+// advertise itself, a stack with no snippet to show. Each of those reaches the
+// component as an undefined prop, and a card that throws on one takes the whole
+// admin screen with it.
+describe( 'HardeningSettings', () => {
+	const hardeningProps = {
+		settings: { hardening: {} },
+		onChange: noop,
+		onRestore: noop,
+		onVerifyHtaccess: noop,
+		onRemoveFile: noop,
+	};
+
+	it( 'renders before any server report has arrived', () => {
+		expect( () =>
+			renderOnce( <HardeningSettings { ...hardeningProps } /> )
+		).not.toThrow();
+	} );
+
+	it( 'renders an nginx install with a snippet and both clocks stale', () => {
+		expect( () =>
+			renderOnce(
+				<HardeningSettings
+					{ ...hardeningProps }
+					settings={ {
+						hardening: {
+							uploads_htaccess: true,
+							protect_sensitive_files: true,
+						},
+					} }
+					uploadsStatus="unsupported"
+					rootStatus="advisory"
+					server={ {
+						kind: 'nginx',
+						software: 'nginx/1.24.0',
+						sapi: 'fpm-fcgi',
+						supports_htaccess: false,
+						supports_user_ini: true,
+						user_ini_filename: '.user.ini',
+						user_ini_cache_ttl: 300,
+						config_refresh: 'reload',
+					} }
+					strategies={ {
+						plugins: { strategy: 'snippet', status: 'advisory' },
+						uploads: { strategy: 'user_ini', status: 'ok' },
+						root: { strategy: 'snippet', status: 'advisory' },
+					} }
+					snippet={ {
+						format: 'nginx',
+						body: 'location ~* /\\.user\\.ini$ {\n    deny all;\n}\n',
+					} }
+					configStaleness={ {
+						stale: true,
+						reason: 'awaiting_ttl',
+						remedy: 'wait',
+						applies_at: 1700000300,
+						refresh: 'ttl',
+					} }
+					cacheStaleness={ {
+						stale: true,
+						changed: 1700000000,
+						purged: 0,
+						purge_available: false,
+						remedy: 'purge_manual',
+					} }
+					removableFiles={ [
+						{ file: 'readme.html', exists: true },
+						{ file: 'license.txt', exists: false },
+					] }
+				/>
+			)
+		).not.toThrow();
+	} );
+
+	it( 'renders an OpenLiteSpeed install, which gets no snippet at all', () => {
+		expect( () =>
+			renderOnce(
+				<HardeningSettings
+					{ ...hardeningProps }
+					settings={ {
+						hardening: { plugins_htaccess: true },
+					} }
+					hardeningStatus="ok"
+					hardeningEnforcement="enforced"
+					server={ {
+						kind: 'openlitespeed',
+						software: 'LiteSpeed',
+						sapi: 'litespeed',
+						supports_htaccess: true,
+						supports_user_ini: true,
+						user_ini_filename: '.user.ini',
+						user_ini_cache_ttl: 300,
+						config_refresh: 'restart',
+					} }
+					strategies={ {
+						plugins: { strategy: 'htaccess', status: 'ok' },
+						uploads: { strategy: 'htaccess', status: 'disabled' },
+						root: { strategy: 'htaccess', status: 'disabled' },
+					} }
+					snippet={ { format: '', body: '' } }
+					configStaleness={ { stale: false } }
+					cacheStaleness={ { stale: false } }
+					removableFiles={ [] }
 				/>
 			)
 		).not.toThrow();

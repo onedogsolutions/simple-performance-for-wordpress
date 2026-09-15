@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `claude/quirky-hawking-33r1gr` (2.15.0 — Step 18, server abstraction / nginx); prior `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.14.0
-- **Last updated:** 2026-09-14
-- **Overall status:** ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ⬜ Step 18 (server abstraction / nginx — designed, not implemented); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Plugin version target:** 2.15.0
+- **Last updated:** 2026-09-15
+- **Overall status:** ✅ Step 18 (2.15.0 — the hardening subsystem no longer assumes a server that reads `.htaccess`: `SPFW_Server` detects what is in front of PHP, a strategy interface routes each target to the mechanism that server honors, nginx gets a `.user.ini` PHP guard for uploads plus a generated vhost snippet for everything else, config staleness and cache staleness are reported as the two separate clocks they are, and deleting `readme.html`/`license.txt` is a first-class alternative to blocking them; **nginx live QA still owed — no nginx host exists in this build environment**); ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -136,12 +136,69 @@ the authoritative record.)
 | 15 | Dashicons dequeue-not-deregister (logged-out stylesheet loss) | ✅ Done | 99ff0a5 |
 | 16 | `wp-embed` dequeue-not-deregister (same defect, smaller radius) | ✅ Done | bed0b06 |
 | 17 | CSP collection blind spots + default-policy widget breakage | ✅ Done | e57a635 |
-| 18 | Server abstraction: nginx support, two staleness clocks | ⬜ Not started | design only |
+| 18 | Server abstraction: nginx support, two staleness clocks | ✅ Done | (this commit) |
 | 19 | Font-loader carry-over: CORS portability, purge scope, scan diagnostics, scan blindness | ✅ Done | 3e2ef41 |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⚠️ Blocked
 
 ## Next action
+
+**Step 18 shipped as 2.15.0 — nginx live QA is the remaining gate, and it is
+the whole point.** Every claim this step makes about nginx is reasoned from
+documentation: there is no nginx host in this build environment, and per the
+Step 14/15 pattern that means unconfirmed, not true. The static suite is green
+(206 PHPUnit, 45 Jest, `npm run build`, `php -l`, phpcs and `lint:js` at their
+recorded totals) and the `.user.ini` guard's *behavior* is executed for real in
+CI — a subprocess runs it as `auto_prepend_file` and asserts it refuses a
+planted script, admits a whitelisted one, and ignores a script outside the tree.
+What CI cannot do is run it under a FastCGI SAPI behind nginx, which is exactly
+where it is meant to live.
+
+On a real nginx + PHP-FPM WordPress install, in order:
+
+1. **Nothing is written that nothing reads.** Enable all three hardening
+   toggles. Confirm no `.htaccess` appears in `wp-content/plugins/`,
+   `wp-content/uploads/` or the site root, and that the plugins and root cards
+   read "Not available on this server" / "Needs server config" rather than
+   "File missing" with a Restore button.
+2. **The guard takes effect on its own.** Confirm `uploads/.user.ini` and
+   `uploads/.spfw-uploads-guard.php` exist. Immediately after enabling, request
+   `uploads/spfw-user-ini-canary.php` — it should still return 200, because PHP
+   has not re-read the directory yet. Wait out `user_ini.cache_ttl` (300s by
+   default) and request it again: it must return 403. This is the claim the
+   whole strategy rests on and it has never been observed.
+3. **The deferred self-test fires.** Confirm the `spfw_user_ini_verify` cron
+   event was scheduled at write time + TTL + 60s, and that when it runs the
+   cached verdict flips to "Enforced" without anyone clicking Verify.
+4. **The revert path works.** Break it deliberately — hand-edit the `.user.ini`
+   to name a path that does not exist — then run Verify enforcement. The canary
+   should 5xx, the probe should classify it `broken` rather than `unknown`, the
+   `.user.ini` should be removed automatically, and an admin notice should say
+   so. Confirm the uploads tree serves PHP again afterwards.
+5. **The snippet is correct, not merely plausible.** Paste the generated nginx
+   block into the vhost *above* the `location ~ \.php$` block, `nginx -t &&
+   nginx -s reload`, then Verify. All the deny canaries should flip to 403 and
+   any whitelisted file should stay 200. Then paste it *below* the PHP handler
+   and confirm it does nothing — the snippet's own comment claims that ordering
+   matters, and an unverified claim in generated config is worse than none.
+6. **Static files.** `readme.html` and `license.txt` must 403 once the snippet
+   is in, and 404 after using Delete instead. Confirm `/.user.ini` and
+   `/wp-content/uploads/.user.ini` are refused by the snippet's rule.
+7. **The two clocks say different things.** With the snippet in place but
+   `nginx -s reload` not yet run, the card should report config staleness with
+   the reload remedy. Change a CSP directive on a site with no purge listener
+   and confirm the card reports cache staleness with `purge_manual` and does
+   *not* report config staleness.
+
+**Also owed: one OpenLiteSpeed regression pass.** The acceptance criterion is
+that an OLS install behaves exactly as it did at 2.14.0 — `.htaccess` for all
+three targets, no `.user.ini`, no snippet. `test_htaccess_servers_keep_the_htaccess_strategy_everywhere`
+pins that in unit tests, but the live check is cheap and the field evidence is
+all on that server.
+
+**Step 19's live QA is still owed too** and is unaffected by this step.
+
+### Step 19 context (2.14.0, retained)
 
 **Step 19 shipped as 2.14.0 — live QA is the remaining gate.** The six
 unmerged font-loader commits from `claude/cors-font-loader-errors-01cd2j` are
@@ -177,13 +234,6 @@ An earlier note here claimed CI's PHPUnit job was also broken. **It is not** —
 see the 2026-09-14 correction in the decisions log. `composer install` and
 `composer test` both succeed against the committed lock; the failure was local
 to the build sandbox.
-
-**Step 18 (server abstraction / nginx) is designed and unbuilt.** Written up
-below; no code exists. Start with `SPFW_Server::detect()` and
-`supports_user_ini()` — every other deliverable in that step depends on knowing
-which server is running, and the current code never asks. Read the four open
-questions at the bottom of this file first; (a) and (b) change the shape of the
-implementation rather than its details.
 
 ### Step 17 context (2.13.0, retained)
 
@@ -486,6 +536,63 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-09-15 (server abstraction implemented, → 2.15.0, Step 18): four things
+  the design did not anticipate, all found while building it.
+
+  **The synthetic canary is wrong for `.user.ini`, and would have looked like a
+  bug in the guard.** The design says the enforcement probe is "the most
+  portable thing in the subsystem" and should be the single source of truth for
+  every strategy. It is — but the *canary* is not portable, and that distinction
+  nearly cost a working feature. `uploads_synthetic` requests a `.php` path that
+  does not exist, because a server-level deny rule fires on the URL before the
+  filesystem is consulted, making 403-vs-404 decisive. `auto_prepend_file` is
+  not a server-level rule: PHP only loads the prepend when the server hands it a
+  script that exists. Request a missing one and PHP-FPM answers "File not found"
+  without the guard ever running, so a perfectly working guard reports 404 →
+  `not_enforced`, permanently. The fix is a real canary file the guard refuses.
+  That also turned out to be the missing half of open question (b): with a file
+  that exists, 500 becomes distinguishable from both 403 and 200, which is
+  exactly the survival signal the probe was said to lack.
+
+  **Scoping `.user.ini` to uploads dissolved most of question (b) rather than
+  answering it.** The design treats "a wrong path fatals every PHP request in
+  that tree" as a hazard to be mitigated with a self-test. It is — but only
+  where the tree has legitimate PHP in it. In uploads it does not: refusing all
+  PHP there is the entire goal, so the blast radius of a broken prepend is the
+  set of requests that were to be refused anyway. `plugins/` is where the hazard
+  is real, and the acceptance criterion had already scoped the mechanism to
+  uploads. Reading the acceptance criterion as the answer to the open question
+  turned a hard problem into a bounded one.
+
+  **`has_action()` is what makes cache staleness honest.** The design frames
+  cache staleness as "rendered pages differ from current behavior" with a purge
+  as the remedy. The wrinkle is that this plugin already fires
+  `litespeed_purge_all` after every settings save, so naively stamping a purge
+  timestamp there would make every site report itself fresh — including the
+  nginx FastCGI and CDN sites where that action reaches no listener at all and
+  the stale pages keep being served. The clock is only closed when
+  `has_action()` confirms someone was listening; otherwise the card says the
+  purge is the admin's to perform. A silent no-op recorded as success is the
+  same class of false assurance as an `.htaccess` nothing reads.
+
+  **The guard's behavior is testable, and was worth making testable.** Every
+  nginx claim in this step is documentation-derived, but the guard itself is
+  plain PHP and can be run. A subprocess test executes it as
+  `auto_prepend_file` against planted, whitelisted and outside-the-tree scripts.
+  It needed one accommodation: the guard declines to act under CLI, because a
+  `.user.ini` is never read there and WP-CLI must not be refused, so an
+  `SPFW_GUARD_SELFTEST` env check opts back in. It can only make the guard
+  stricter, never looser, and nothing reachable over HTTP can set it. Given the
+  Step 14/15 pattern — treat the unobserved as unconfirmed — converting one
+  documentation claim into an executed one was worth the small contrivance.
+
+  Two smaller notes. The `.pot` had drifted: it was still stamped 2.13.0, so
+  2.14.0's strings were never extracted; regenerating for 2.15.0 picks up both,
+  which is why that diff is larger than this step's string count. And
+  `tests/bootstrap.php` gained a filter-override registry, because the CLI test
+  runner is definitionally not a FastCGI SAPI and `supports_user_ini()` could
+  not otherwise be made true.
 
 - 2026-09-14 (font-loader carry-over implemented, → 2.14.0, Step 19): replayed
   the six commits from `claude/cors-font-loader-errors-01cd2j` @ `d4b2b13` onto
@@ -2747,8 +2854,10 @@ checklist silently measuring nothing, now deferred to `template_redirect` and
 pinned by a test; and a JS test asserted `*.stripe.com` covers
 `m.stripe.network` — it does not, different domain, and the code was right.
 
-### Step 18 — Server abstraction: nginx support and the two staleness clocks ⬜ (design only)
-Design written 2026-09-14, nothing implemented. Prompted by the question the
+### Step 18 — Server abstraction: nginx support and the two staleness clocks ✅
+Design written 2026-09-14; implemented 2026-09-15 as 2.15.0 (see the
+"implemented" subsection at the end of this step for what was built and what the
+four open questions were resolved to). Prompted by the question the
 2.12.2/2.12.3 work raised: the hardening subsystem assumes a server that reads
 `.htaccess`, and on nginx that assumption is not merely weaker — it is absent.
 
@@ -2827,6 +2936,110 @@ snippet plus an honest "not enforced" verdict from the probe, and blocks PHP in
 uploads via `.user.ini` where the stack allows it; an OLS install behaves
 exactly as it does today; the probe's verdict is byte-identical in shape across
 all three.
+
+**Implemented 2026-09-15 as 2.15.0.** What shipped, and how the four open
+questions were resolved.
+
+*The four questions.*
+
+- **(a) Should OpenLiteSpeed prefer `.user.ini` over the rewrite rules it
+  already has? No.** The step's own acceptance criterion settles it — "an OLS
+  install behaves exactly as it does today" — and the reasoning holds up on its
+  own terms: a 300-second TTL is operationally nicer than a graceful restart,
+  but that is convenience, not coverage, and OLS is the one server this plugin
+  has field evidence for. `.user.ini` also cannot touch static files, so on OLS
+  it would be a second, narrower copy of a rule that already works. The
+  `.user.ini` strategy is therefore only reachable where `.htaccess` is absent,
+  and `test_htaccess_servers_keep_the_htaccess_strategy_everywhere` pins that.
+- **(b) `auto_prepend_file` fatals the whole tree when its path is wrong; the
+  probe verifies denial, not survival.** Resolved in four parts, in increasing
+  order of how much they actually buy.
+  1. *Scope.* The strategy applies to `uploads` only, never `plugins`. Uploads
+     has no legitimate PHP entry point — refusing all of it is the goal — so a
+     broken prepend there refuses requests that were to be refused anyway.
+     `plugins/` is the opposite (LiteSpeed's `guest.vary.php` and friends), so
+     on a server without `.htaccess` it gets the snippet instead. This is also
+     what the acceptance criterion says: "blocks PHP in uploads via `.user.ini`".
+  2. *Generation.* Whitelist paths are re-validated against the sanitizer's
+     character class and emitted with `var_export()`; the generated source is
+     parse-checked with `token_get_all( …, TOKEN_PARSE )` before it is written;
+     the `.user.ini` is written only after the guard exists and is readable; the
+     guard lives inside uploads rather than in the plugin directory, so deleting
+     or renaming the plugin cannot dangle the path.
+  3. *A canary that exists.* The `.htaccess` probe's synthetic canary is a
+     `.php` path that is deliberately absent, which cannot work here: a deny
+     rule fires on the URL before the filesystem is touched, but
+     `auto_prepend_file` only runs when the server hands PHP a script that
+     exists. Ask for a missing one and PHP-FPM answers "File not found" without
+     loading the prepend, so a working guard would read as inert forever. The
+     strategy therefore plants a real canary (`spfw-user-ini-canary.php`,
+     fixed output, no input) and the reading becomes three-way: 403 refused,
+     200 not guarding, 5xx broken.
+  4. *Acting on it.* `ENFORCEMENT_CANARIES` gained an opt-in `broken` code list
+     — only this canary declares one, so a 5xx elsewhere is still `unknown`,
+     because on a deny rule a 500 really could be anything. `broken` reverts the
+     `.user.ini` automatically and raises an admin notice, leaving the toggle on
+     and falling back to the snippet. A one-off cron (`spfw_user_ini_verify`) at
+     write time + `user_ini.cache_ttl` + 60s runs that probe, because probing
+     any earlier cannot tell "not picked up yet" from "picked up and ignored".
+  The guard's behavior is also executed for real in the test suite: a
+  subprocess runs it as `auto_prepend_file` and asserts it refuses a planted
+  script, admits a whitelisted one, ignores a script outside the tree, and
+  refuses its own canary. That needed a documented `SPFW_GUARD_SELFTEST` env
+  check, because the guard declines to act under CLI (a `.user.ini` is never
+  read there and WP-CLI must not be refused). The hook can only make the guard
+  stricter, never looser, and nothing reachable over HTTP can set it.
+- **(c) The `.user.ini` is plain text under the docroot.** The generated nginx
+  snippet denies `/\.user\.ini$`, and the guard file is a `.php` under uploads
+  that the uploads deny rule already refuses.
+- **(d) No nginx host exists here.** Unchanged and unchangeable in this
+  environment. Everything nginx-specific stays unconfirmed; see Next action for
+  the seven-step live QA that would confirm it.
+
+*What was built.*
+
+- `SPFW_Server` (`includes/class-spfw-server.php`): `detect()` →
+  apache|litespeed|openlitespeed|nginx|iis|unknown, `supports_htaccess()`,
+  `supports_user_ini()`, `user_ini_filename()`, `user_ini_cache_ttl()`,
+  `config_refresh()`, `info()`. The ini values are read live, never assumed —
+  a host that blanked `user_ini.filename` has switched the mechanism off.
+  OpenLiteSpeed is only labelled as such when the server says so outright:
+  both editions commonly advertise plain "LiteSpeed", they are treated
+  identically for strategy purposes, and guessing would be worse than the
+  honest shared label. Two filters (`spfw_server_kind`,
+  `spfw_supports_user_ini`) exist because detection reads what the server says
+  about itself, which a proxy or a container image can make wrong.
+- `SPFW_Hardening_Strategy` + three implementations + `SPFW_Hardening_Strategies`
+  as the resolver. Preference order htaccess → user_ini → snippet; first match
+  owns the target. `SPFW_Strategy_Htaccess` is a thin adapter — nothing moved
+  out of `SPFW_Htaccess`, deliberately, so the one server with field evidence
+  behind it is byte-identical to before. `revert()` asks *every* strategy, not
+  just the owner, because a site that changed servers can be holding a file the
+  current owner knows nothing about.
+- `SPFW_Htaccess::write()` is gated on `supports_htaccess()` at the writer
+  rather than only at the strategy layer, so every caller is covered —
+  activation hook, upgrade migration, settings import. `status()` gained
+  `unsupported`; the snippet strategy reports `advisory`.
+- Two staleness clocks, split. `config_staleness()` (rules on disk vs rules the
+  server is running; remedy is verify / restart / reload / wait, per server) and
+  `cache_staleness()` (rendered pages vs current behavior; remedy is a purge).
+  The second has an honest wrinkle worth keeping: this plugin fires
+  `litespeed_purge_all` after every save, which reaches nothing on a site whose
+  cache is nginx FastCGI or a CDN, so `cache_purged` is only stamped when
+  `has_action()` says someone was listening, and the card says `purge_manual`
+  when nobody was.
+- "Delete instead of block" for `readme.html` / `license.txt`: an allow-list
+  (not a path sanitizer) behind `POST /settings/remove-file`, deleting via
+  WP_Filesystem then re-requesting the URL and reporting the code it actually
+  answers with. The UI states plainly that a core update restores both.
+- Uninstall now removes the `.user.ini`, guard and canary, hash-gated. A
+  dangling `auto_prepend_file` left by an uninstall would break every PHP
+  request under uploads on a site that no longer has this plugin to explain why.
+
+*Gates.* 206 PHPUnit / 476 assertions (was 161/352), 45 Jest (was 42),
+`npm run build` clean, `php -l` clean, phpcs 87 errors / 150 warnings across 14
+files (unchanged — the six new PHP files are clean), `lint:js` 264 (unchanged),
+`.pot` regenerated at 588 entries.
 
 ### Step 19 — Font-loader carry-over from `claude/cors-font-loader-errors-01cd2j` ✅
 Planned 2026-09-14 in `FONT_LOADER_MERGE_PLAN.md` (root, `.distignore`d); no code
@@ -2983,18 +3196,27 @@ checks are carried in Open questions as owed.
   It can be deleted once 2.14.0 is merged — which needs a repo admin, the same
   HTTP 403 on ref deletion that blocked the other cleanup below.
 
-- **Step 18, unresolved before implementation.** (a) Should OpenLiteSpeed prefer
-  the `.user.ini` strategy over the rewrite rules it already has? A 300-second
-  TTL beats a graceful restart operationally, but it would change behavior on
-  the one server we have actually validated against, so it wants a deliberate
-  decision rather than a default. (b) `auto_prepend_file` fatals the whole tree
-  when its path is wrong — the self-test has to run before the file is trusted,
-  and the probe as written verifies denial, not survival. (c) A `.user.ini` is
-  plain text under the docroot and nginx will serve it on request; it carries no
-  secrets, but the snippet should cover it. (d) No nginx host is available in
-  this build environment, so every claim in Step 18 is reasoned from
-  documentation rather than observed — the Step 14/15 pattern says treat that as
-  unconfirmed until it runs on real hardware.
+- **Step 18 nginx behavior is unconfirmed on real hardware (was open question
+  (d), and is the only one still open).** Questions (a), (b) and (c) were
+  resolved during implementation and are written up under Step 18; (d) cannot
+  be resolved here, because no nginx host exists in this build environment. The
+  `.user.ini` guard's own logic IS executed in CI — a subprocess runs it as
+  `auto_prepend_file` — but never under a FastCGI SAPI behind nginx, which is
+  where it is meant to live. Per the Step 14/15 pattern, treat every
+  nginx-specific claim as unconfirmed until the seven-step live QA in **Next
+  action** has been run. The two checks that matter most, because nothing in
+  the test suite can stand in for them: that a freshly written `.user.ini`
+  actually starts being applied after `user_ini.cache_ttl` (the claim the whole
+  strategy rests on), and that the generated snippet's ordering warning is
+  true — that the same rules pasted below the `location ~ \.php$` block really
+  do nothing. An unverified claim inside generated configuration is worse than
+  no claim at all.
+
+- **One OpenLiteSpeed regression pass owed for 2.15.0.** The acceptance
+  criterion is that OLS behaves exactly as it did at 2.14.0: `.htaccess` for all
+  three targets, no `.user.ini`, no snippet. Unit tests pin the strategy
+  selection, but OLS is the server with the field evidence and the check is
+  cheap.
 
 ---
 

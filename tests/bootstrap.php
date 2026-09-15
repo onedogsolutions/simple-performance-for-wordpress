@@ -17,6 +17,12 @@ define( 'SPFW_URL', 'http://example.com/wp-content/plugins/simple-performance-fo
 define( 'SPFW_BASENAME', 'simple-performance-for-wordpress/simple-performance-for-wordpress.php' );
 define( 'WP_CONTENT_DIR', sys_get_temp_dir() . '/spfw-test/wp-content' );
 
+// The suite describes a server that reads .htaccess, which is what every
+// assertion written before the strategy layer assumed implicitly. SPFW_Server
+// now reads this, so it has to be stated rather than left to chance — and the
+// server tests flip it deliberately via SPFW_Server::reset_detection().
+$_SERVER['SERVER_SOFTWARE'] = 'Apache/2.4.58 (Unix)';
+
 // ---------------------------------------------------------------------------
 // In-memory option store (simulates wp_options table).
 // ---------------------------------------------------------------------------
@@ -105,7 +111,19 @@ function wp_rand( $min = 0, $max = 0 ) {
 	return random_int( $min, $max );
 }
 
+// Filters resolve through an override registry so a test can describe an
+// environment PHP itself cannot be talked into — a FastCGI SAPI, for one,
+// which the CLI test runner is definitionally not.
+global $spfw_test_filter_overrides;
+$spfw_test_filter_overrides = array();
+
 function apply_filters( $tag, $value ) {
+	global $spfw_test_filter_overrides;
+
+	if ( array_key_exists( $tag, $spfw_test_filter_overrides ) ) {
+		return $spfw_test_filter_overrides[ $tag ];
+	}
+
 	return $value;
 }
 
@@ -519,11 +537,41 @@ function wp_enqueue_style( $handle, $src = '', $deps = array(), $ver = false ) {
 	);
 }
 
+function has_action( $tag, $callback = false ) {
+	global $spfw_test_hooks;
+
+	foreach ( (array) $spfw_test_hooks as $hook ) {
+		if ( isset( $hook['tag'] ) && $hook['tag'] === $tag ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function delete_option( $key ) {
+	global $spfw_test_options;
+
+	unset( $spfw_test_options[ $key ] );
+
+	return true;
+}
+
+function sanitize_file_name( $name ) {
+	return preg_replace( '/[^A-Za-z0-9._-]/', '', (string) $name );
+}
+
 // ---------------------------------------------------------------------------
 // Load plugin classes under test.
 // ---------------------------------------------------------------------------
 require_once SPFW_PATH . 'includes/class-spfw-settings.php';
+require_once SPFW_PATH . 'includes/class-spfw-server.php';
 require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
+require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
+require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
+require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
+require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
 require_once SPFW_PATH . 'includes/interface-spfw-module.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
 require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';

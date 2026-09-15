@@ -54,13 +54,32 @@ class SPFW_Plugin {
 	private function __construct() {}
 
 	/**
+	 * Load the hardening layer: server detection, the .htaccess writer, and the
+	 * strategies that decide which of them this server can actually use.
+	 *
+	 * Shared by boot() and both lifecycle hooks, which run standalone — the
+	 * activation and deactivation callbacks fire without the plugin's normal
+	 * bootstrap, and SPFW_Htaccess::write() now asks SPFW_Server what the
+	 * server honors, so loading one without the other would fatal.
+	 */
+	private static function load_hardening_layer() {
+		require_once SPFW_PATH . 'includes/class-spfw-server.php';
+		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+		require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
+		require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
+		require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
+		require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
+		require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
+	}
+
+	/**
 	 * Load dependencies, register enabled modules, and load the admin
 	 * layer when in wp-admin. Called on `plugins_loaded`.
 	 */
 	public function boot() {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
 		require_once SPFW_PATH . 'includes/interface-spfw-module.php';
-		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+		self::load_hardening_layer();
 
 		// REST requests are not admin context (is_admin() is false for
 		// /wp-json/), so the settings API must load unconditionally for its
@@ -110,18 +129,18 @@ class SPFW_Plugin {
 	 */
 	public static function activate() {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
-		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+		self::load_hardening_layer();
 
 		if ( false === get_option( SPFW_Settings::OPTION_KEY ) ) {
 			SPFW_Settings::update( array() );
 		}
 
 		if ( SPFW_Settings::value( 'hardening', 'plugins_htaccess', false ) ) {
-			SPFW_Htaccess::write( 'plugins' );
+			SPFW_Hardening_Strategies::apply( 'plugins' );
 		}
 
 		if ( SPFW_Settings::value( 'hardening', 'uploads_htaccess', false ) ) {
-			SPFW_Htaccess::write( 'uploads' );
+			SPFW_Hardening_Strategies::apply( 'uploads' );
 		}
 	}
 
@@ -131,10 +150,10 @@ class SPFW_Plugin {
 	 */
 	public static function deactivate() {
 		require_once SPFW_PATH . 'includes/class-spfw-settings.php';
-		require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+		self::load_hardening_layer();
 
-		SPFW_Htaccess::remove( 'plugins' );
-		SPFW_Htaccess::remove( 'uploads' );
+		SPFW_Hardening_Strategies::revert( 'plugins' );
+		SPFW_Hardening_Strategies::revert( 'uploads' );
 
 		// Clear the scheduled database optimization cron event.
 		wp_clear_scheduled_hook( 'spfw_database_optimization' );
@@ -143,5 +162,6 @@ class SPFW_Plugin {
 		// close, so neither fires against a deactivated plugin.
 		wp_clear_scheduled_hook( 'spfw_file_monitor_scan' );
 		wp_clear_scheduled_hook( 'spfw_csp_collection_expired' );
+		wp_clear_scheduled_hook( 'spfw_user_ini_verify' );
 	}
 }
