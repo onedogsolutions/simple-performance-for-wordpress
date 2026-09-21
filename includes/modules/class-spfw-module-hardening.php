@@ -192,6 +192,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_PENDING = 'spfw_pending_file_alerts';
 
 	/**
+	 * Option key for the file-monitor snapshot, stored OUTSIDE the shared
+	 * `spfw_settings` option on purpose. The snapshot is by far the largest
+	 * value this plugin owns (tens of thousands of sha256 entries on a real
+	 * site), and every SPFW_Settings::update() from ANY writer rewrites the
+	 * whole shared option from a per-request cache: two overlapping requests
+	 * let the later writer resurrect a stale snapshot, which the next scan
+	 * then re-reported as changes — phantom "file changed" alerts for files
+	 * that no longer existed on disk. A dedicated non-autoloaded option takes
+	 * the scan out of that race entirely and keeps the shared option small
+	 * enough that its remaining writers are cheap.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_SNAPSHOT_OPTION = 'spfw_file_monitor_snapshot';
+
+	/**
 	 * Debounce window (seconds) between queueing a plugins/ change and
 	 * emailing it, giving upgrader_process_complete time to fire and clear the
 	 * alert as a legitimate update.
@@ -472,7 +488,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 	/**
 	 * Queue an admin notice if any managed hardening file is missing or
-	 * altered.
+	 * altered. The notice names every affected file and its state, so the
+	 * admin can verify on the server exactly what the plugin is reporting.
 	 */
 	public function maybe_show_notice() {
 		if ( get_option( 'spfw_user_ini_reverted' ) ) {
@@ -489,26 +506,64 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
-		$targets = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+		$targets   = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+		$offenders = array();
 
 		foreach ( $targets as $target ) {
 			// Asks whichever strategy owns the target, so a `.user.ini` install
 			// gets the same missing/altered notice a `.htaccess` one does, and
 			// a server that supports neither ('unsupported'/'advisory') gets no
 			// notice about a file it was never going to have.
-			if ( in_array( SPFW_Hardening_Strategies::status( $target ), array( 'missing', 'altered' ), true ) ) {
-				add_action( 'admin_notices', array( $this, 'render_notice' ) );
+			$status = SPFW_Hardening_Strategies::status( $target );
 
-				return;
+			if ( in_array( $status, array( 'missing', 'altered' ), true ) ) {
+				$offenders[ $target ] = $status;
 			}
 		}
+
+		if ( empty( $offenders ) ) {
+			return;
+		}
+
+		add_action(
+			'admin_notices',
+			function () use ( $offenders ) {
+				$this->render_notice( $offenders );
+			}
+		);
+	}
+
+	/**
+	 * The files a hardening target's owning strategy manages on disk, for the
+	 * missing/altered notice to name. A `.htaccess` server has one file per
+	 * target; a `.user.ini` install holds both the ini naming the guard and
+	 * the guard itself, and either one can be the missing half.
+	 *
+	 * @param string $target One of plugins|uploads|root.
+	 * @return string[] Absolute filesystem paths.
+	 */
+	private static function notice_files( $target ) {
+		$strategy = SPFW_Hardening_Strategies::for_target( $target );
+
+		if ( $strategy && 'user_ini' === $strategy->key() ) {
+			return array(
+				SPFW_Strategy_User_Ini::ini_path(),
+				SPFW_Strategy_User_Ini::guard_path(),
+			);
+		}
+
+		return array( SPFW_Htaccess::path( $target ) );
 	}
 
 	/**
 	 * Render the missing/altered admin notice, pointing at the Hardening tab
-	 * (where the Restore action lives, via the REST controller).
+	 * (where the Restore action lives, via the REST controller) and listing
+	 * every affected file with its state so the report can be checked on the
+	 * server instead of taken on faith.
+	 *
+	 * @param array<string,string> $offenders Target => status (missing|altered).
 	 */
-	public function render_notice() {
+	public function render_notice( $offenders = array() ) {
 		$message = __( 'Simple Performance: a directory hardening file is missing or has been modified.', 'simple-performance-for-wordpress' );
 
 		$url = add_query_arg(
@@ -519,12 +574,27 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			admin_url( 'options-general.php' )
 		);
 
-		printf(
-			'<div class="notice notice-warning"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
-			esc_html( $message ),
-			esc_url( $url ),
-			esc_html__( 'Go to the Hardening tab to restore it.', 'simple-performance-for-wordpress' )
-		);
+		echo '<div class="notice notice-warning"><p>';
+		printf( '%1$s <a href="%2$s">%3$s</a>', esc_html( $message ), esc_url( $url ), esc_html__( 'Go to the Hardening tab to restore it.', 'simple-performance-for-wordpress' ) );
+		echo '</p>';
+
+		if ( ! empty( $offenders ) ) {
+			echo '<ul>';
+
+			foreach ( $offenders as $target => $status ) {
+				$state = 'missing' === $status
+					? esc_html__( 'missing', 'simple-performance-for-wordpress' )
+					: esc_html__( 'modified', 'simple-performance-for-wordpress' );
+
+				foreach ( self::notice_files( $target ) as $path ) {
+					printf( '<li><code>%1$s</code> — %2$s</li>', esc_html( $path ), $state ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				}
+			}
+
+			echo '</ul>';
+		}
+
+		echo '</div>';
 	}
 
 	/**
@@ -2602,6 +2672,79 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * The file-monitor snapshot: scan time plus {relative_path => sha256}.
+	 *
+	 * Lives in its own non-autoloaded option, never in the shared settings
+	 * option — see FILE_MONITOR_SNAPSHOT_OPTION for the lost-update race that
+	 * motivated the move.
+	 *
+	 * @return array{time:int,entries:array<string,string>}
+	 */
+	public static function get_file_snapshot() {
+		$stored = get_option( self::FILE_MONITOR_SNAPSHOT_OPTION, null );
+
+		if ( null === $stored ) {
+			// Pre-2.17.0 installs carry the snapshot inside spfw_settings. The
+			// version-gated migration in SPFW_Settings::get() is the primary
+			// copy-out path; this fallback covers a read that races ahead of it
+			// and must not report an empty baseline just because the value has
+			// not moved yet.
+			$stored = self::migrate_file_snapshot_from_settings();
+		}
+
+		$stored = is_array( $stored ) ? $stored : array();
+
+		return array(
+			'time'    => isset( $stored['time'] ) ? absint( $stored['time'] ) : 0,
+			'entries' => isset( $stored['entries'] ) && is_array( $stored['entries'] ) ? $stored['entries'] : array(),
+		);
+	}
+
+	/**
+	 * Persist the snapshot in its dedicated option.
+	 *
+	 * Writes the option whole instead of merging over a per-request cache:
+	 * scans are the only writers, so there is no stale-merge window left to
+	 * resurrect an old baseline.
+	 *
+	 * @param array<string,string> $entries Relative path => sha256 map.
+	 * @param int|null             $time    Scan timestamp; defaults to now.
+	 * @return array{time:int,entries:array<string,string>} The stored shape.
+	 */
+	public static function save_file_snapshot( array $entries, $time = null ) {
+		$value = array(
+			'time'    => null === $time ? time() : absint( $time ),
+			'entries' => $entries,
+		);
+
+		update_option( self::FILE_MONITOR_SNAPSHOT_OPTION, $value, false );
+
+		return $value;
+	}
+
+	/**
+	 * One-time copy of a pre-2.17.0 snapshot out of the shared settings group.
+	 *
+	 * Idempotent: once the dedicated option exists, get_file_snapshot() never
+	 * reaches this again.
+	 *
+	 * @return array Stored snapshot shape.
+	 */
+	private static function migrate_file_snapshot_from_settings() {
+		$entries = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', null );
+		$time    = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
+
+		$value = array(
+			'time'    => is_numeric( $time ) ? absint( $time ) : 0,
+			'entries' => is_array( $entries ) ? $entries : array(),
+		);
+
+		update_option( self::FILE_MONITOR_SNAPSHOT_OPTION, $value, false );
+
+		return $value;
+	}
+
+	/**
 	 * Scan wp-content/plugins/ and wp-content/uploads/ for PHP files and
 	 * compare against the stored snapshot. Returns the diff (added, modified,
 	 * removed) and persists the new snapshot + timestamp.
@@ -2650,8 +2793,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		// Compare against the stored snapshot.
-		$old_snapshot = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
-		$old_snapshot = is_array( $old_snapshot ) ? $old_snapshot : array();
+		$old_snapshot = self::get_file_snapshot();
+		$old_snapshot = $old_snapshot['entries'];
 
 		$added    = array_diff( array_keys( $snapshot ), array_keys( $old_snapshot ) );
 		$removed  = array_diff( array_keys( $old_snapshot ), array_keys( $snapshot ) );
@@ -2665,15 +2808,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		$now = time();
 
-		// Persist the new snapshot and scan timestamp.
-		SPFW_Settings::update(
-			array(
-				'hardening' => array(
-					'file_monitor_snapshot'  => $snapshot,
-					'file_monitor_last_scan' => $now,
-				),
-			)
-		);
+		// Persist the new snapshot and scan timestamp in the dedicated option.
+		self::save_file_snapshot( $snapshot, $now );
 
 		return array(
 			'added'         => array_values( $added ),
@@ -2931,8 +3067,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$prefix   = 'plugins/' . $plugin_slug . '/';
 		$base_dir = WP_CONTENT_DIR . '/plugins/' . $plugin_slug;
 
-		$snapshot = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
-		$snapshot = is_array( $snapshot ) ? $snapshot : array();
+		$store    = self::get_file_snapshot();
+		$snapshot = $store['entries'];
 
 		// Drop every stored entry for this plugin before re-hashing.
 		foreach ( array_keys( $snapshot ) as $path ) {
@@ -2966,13 +3102,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 		}
 
-		SPFW_Settings::update(
-			array(
-				'hardening' => array(
-					'file_monitor_snapshot' => $snapshot,
-				),
-			)
-		);
+		// A rebuild is not a scan: keep the recorded scan time untouched.
+		self::save_file_snapshot( $snapshot, $store['time'] );
 	}
 
 	/**

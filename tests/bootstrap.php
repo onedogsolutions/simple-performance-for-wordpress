@@ -563,18 +563,29 @@ function sanitize_file_name( $name ) {
 
 // ---------------------------------------------------------------------------
 // Load plugin classes under test.
+//
+// Every class is required up front here, which is convenient for the unit
+// tests but deliberately hides one failure mode: SPFW_Settings is loaded by
+// boot() (and by activate()/deactivate()) at points where the module classes
+// do not exist yet, so an executable reference to e.g. SPFW_Module_Hardening
+// from this file fatals the whole site on deploy while every test here still
+// passes. Boot_Order_Test reproduces that require order in a subprocess; it
+// defines SPFW_TEST_NO_AUTOLOAD_CLASSES first so it inherits the WP stubs
+// above but loads no SPFW class, then requires them itself in boot() order.
 // ---------------------------------------------------------------------------
-require_once SPFW_PATH . 'includes/class-spfw-settings.php';
-require_once SPFW_PATH . 'includes/class-spfw-server.php';
-require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
-require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
-require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
-require_once SPFW_PATH . 'includes/interface-spfw-module.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-fonts.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
-require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
+if ( ! defined( 'SPFW_TEST_NO_AUTOLOAD_CLASSES' ) ) {
+	require_once SPFW_PATH . 'includes/class-spfw-settings.php';
+	require_once SPFW_PATH . 'includes/class-spfw-server.php';
+	require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+	require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
+	require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
+	require_once SPFW_PATH . 'includes/interface-spfw-module.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-fonts.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
+	require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
+}

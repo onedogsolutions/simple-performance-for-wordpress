@@ -321,10 +321,21 @@ class SPFW_Rest_Settings {
 		// Per-directive source-token cap, so the builder can warn as a directive
 		// approaches it instead of the sanitizer silently truncating on save.
 		$settings['csp_max_tokens'] = SPFW_Settings::CSP_MAX_TOKENS;
-		// File monitor metadata for the Hardening tab UI.
-		$settings['file_monitor_last_scan']      = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
-		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
-		$settings['file_monitor_snapshot_count'] = is_array( $fm_snapshot ) ? count( $fm_snapshot ) : 0;
+		// File monitor metadata for the Hardening tab UI. Read from the
+		// dedicated snapshot option (never the shared settings option — see
+		// SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION) and injected
+		// into both the top level and the hardening group, because the UI
+		// reads the group copy while older code read the top level.
+		$fm_snapshot                             = SPFW_Module_Hardening::get_file_snapshot();
+		$settings['file_monitor_last_scan']      = $fm_snapshot['time'];
+		$settings['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
+
+		if ( ! isset( $settings['hardening'] ) || ! is_array( $settings['hardening'] ) ) {
+			$settings['hardening'] = array();
+		}
+
+		$settings['hardening']['file_monitor_last_scan']      = $fm_snapshot['time'];
+		$settings['hardening']['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
 
 		// Enforcement is a separate dimension from the integrity status() above:
 		// status() proves a file is present and matches the hash we stored,

@@ -128,6 +128,9 @@ function spfw_uninstall_cleanup_site() {
 	}
 
 	delete_option( 'spfw_settings' );
+	// The file-monitor snapshot lives in its own option since 2.17.0 (it moved
+	// out of spfw_settings to escape a lost-update race); delete both.
+	delete_option( 'spfw_file_monitor_snapshot' );
 }
 
 if ( is_multisite() ) {

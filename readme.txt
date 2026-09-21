@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.16.0
+Stable tag: 2.17.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,11 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.17.0 =
+* Fixed: the file integrity monitor no longer sends repeated alerts about files that never actually changed on the server. The scan baseline (a sha256 map of every monitored PHP file) lived inside the plugin's single shared settings option, so every settings write from any feature was a whole-option read-modify-write; two overlapping requests could resurrect a stale baseline, and the next scan re-reported the same diff — including transient mid-deploy files that no longer existed. The baseline now lives in its own dedicated option, out of that race entirely, and the shared option drops from megabytes back to a few kilobytes.
+* Fixed: the root `.htaccess` no longer gets rewritten on every admin request. Since WordPress 5.3, `insert_with_markers()` injects instruction comment lines inside the marker block that the plugin's own payload generator never emits, so the integrity check saw a permanent mismatch and re-synced the file on each page load (a green "re-synced" notice every time, plus a self-check loopback and enforcement probe storm). The extractor now strips those injected comments, and a stale stored hash whose file still matches the current payload self-heals silently instead of reporting a false "modified".
+* Changed: the "a directory hardening file is missing or has been modified" admin notice now names every affected file and its state (missing or modified), so you can verify the report on the server instead of taking it on faith. The link to the Hardening tab is unchanged.
 
 = 2.16.0 =
 * Changed: the file integrity monitor is now directory-aware, cutting false-positive email alerts during legitimate bulk and background plugin updates without loosening security monitoring.

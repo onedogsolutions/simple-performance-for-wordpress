@@ -207,11 +207,16 @@ class SPFW_Settings {
 				'auto_allow_known_php'    => true,
 				// File integrity monitor: periodic scan of wp-content for new,
 				// modified, or removed PHP files. Sends a consolidated email
-				// alert when changes are detected outside the whitelist.
+				// alert when changes are detected outside the whitelist. The
+				// snapshot baseline and its scan timestamp live in their own
+				// non-autoloaded option (see
+				// SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION), not in
+				// this shared array: every writer of this option rewrites it
+				// whole from a per-request cache, and overlapping requests used
+				// to resurrect stale snapshots that the next scan re-reported as
+				// phantom file changes.
 				'file_monitor_enabled'    => false,
 				'file_monitor_email'      => '',
-				'file_monitor_snapshot'   => array(),
-				'file_monitor_last_scan'  => 0,
 			),
 			'fonts'       => array(
 				'localize_google'  => false,
@@ -420,6 +425,35 @@ class SPFW_Settings {
 		// running server out of step with disk until a graceful restart.
 		if ( version_compare( $stored_ver, '2.12.0', '<' ) ) {
 			self::reconcile_htaccess_on_upgrade();
+		}
+
+		// Migration to 2.17.0: copy the file-monitor snapshot out of this option
+		// into its own non-autoloaded option BEFORE any sanitize() in this
+		// request drops the now-unknown keys from the stored value. Runs on the
+		// first settings load after the upgrade, which every later writer of
+		// the shared option depends on: while the snapshot lived here, an
+		// overlapping request could resurrect a stale baseline and the next
+		// scan re-reported it as changes to files that no longer existed.
+		//
+		// The option name is a literal here — NOT
+		// SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION — and the write
+		// goes straight to update_option() instead of that class's
+		// save_file_snapshot(). get() runs during the core module's boot,
+		// before the hardening module class exists, so touching the class here
+		// fatals the entire site. Keep this string in sync with the constant;
+		// the hardening accessor's lazy fallback covers the same copy-out for
+		// a read that races ahead of this migration.
+		if ( version_compare( $stored_ver, '2.17.0', '<' )
+			&& isset( $stored['hardening']['file_monitor_snapshot'] )
+			&& null === get_option( 'spfw_file_monitor_snapshot', null ) ) {
+			update_option(
+				'spfw_file_monitor_snapshot',
+				array(
+					'time'    => isset( $stored['hardening']['file_monitor_last_scan'] ) ? (int) $stored['hardening']['file_monitor_last_scan'] : 0,
+					'entries' => is_array( $stored['hardening']['file_monitor_snapshot'] ) ? $stored['hardening']['file_monitor_snapshot'] : array(),
+				),
+				false
+			);
 		}
 
 		return self::$cache;
@@ -753,13 +787,11 @@ class SPFW_Settings {
 		$monitor_email                               = isset( $hardening['file_monitor_email'] ) ? sanitize_email( $hardening['file_monitor_email'] ) : '';
 		$clean['hardening']['file_monitor_email']    = is_email( $monitor_email ) ? $monitor_email : '';
 
-		// Snapshot is internal-only (populated by the scanner, never user-supplied
-		// through the settings form). Pass through if present and array-shaped.
-		$clean['hardening']['file_monitor_snapshot'] = isset( $hardening['file_monitor_snapshot'] ) && is_array( $hardening['file_monitor_snapshot'] )
-			? $hardening['file_monitor_snapshot']
-			: array();
-
-		$clean['hardening']['file_monitor_last_scan'] = isset( $hardening['file_monitor_last_scan'] ) ? absint( $hardening['file_monitor_last_scan'] ) : 0;
+		// The snapshot baseline and its scan timestamp are internal-only and
+		// live in SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION, not in
+		// this shared option. Anything arriving here — a pre-2.17.0 stored
+		// value merged over the defaults, an old client round-tripping it —
+		// is dropped on the floor.
 
 		$fonts = isset( $input['fonts'] ) && is_array( $input['fonts'] ) ? $input['fonts'] : array();
 
