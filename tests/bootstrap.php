@@ -278,6 +278,58 @@ function current_user_can( $capability ) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin-post / notice-dismiss stubs.
+//
+// wp_verify_nonce() reads a controllable map so a test can arm exactly one
+// valid nonce; wp_die() throws so the bail paths are assertable instead of
+// killing the runner.
+// ---------------------------------------------------------------------------
+global $spfw_test_nonces, $spfw_test_redirects, $spfw_test_referer;
+$spfw_test_nonces    = array();
+$spfw_test_redirects = array();
+$spfw_test_referer   = false;
+
+function admin_url( $path = '' ) {
+	return 'http://example.com/wp-admin/' . ltrim( $path, '/' );
+}
+
+function wp_verify_nonce( $nonce, $action = -1 ) {
+	global $spfw_test_nonces;
+	return isset( $spfw_test_nonces[ $action ] ) && hash_equals( (string) $spfw_test_nonces[ $action ], (string) $nonce );
+}
+
+function wp_nonce_field( $action = -1, $name = '_wpnonce', $referer_field = true, $display = true ) {
+	$field = '<input type="hidden" name="' . esc_attr( $name ) . '" value="nonce" />';
+
+	if ( $display ) {
+		echo $field;
+	}
+
+	return $field;
+}
+
+function wp_get_referer() {
+	global $spfw_test_referer;
+	return $spfw_test_referer;
+}
+
+function wp_safe_redirect( $location, $status = 302, $x_redirect_by = 'WordPress' ) {
+	global $spfw_test_redirects;
+	$spfw_test_redirects[] = $location;
+	return true;
+}
+
+/**
+ * Stand-in for wp_die(): throws so tests can expect the bail paths.
+ */
+class SPFW_Test_WP_Die_Exception extends Exception {
+}
+
+function wp_die( $message = '', $title = '', $args = array() ) {
+	throw new SPFW_Test_WP_Die_Exception( is_string( $message ) ? $message : 'wp_die' );
+}
+
+// ---------------------------------------------------------------------------
 // Template conditionals and cron, for the CSP collection-coverage tests.
 //
 // $spfw_test_page holds the page type the next request should look like;

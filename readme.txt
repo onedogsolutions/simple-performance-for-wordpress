@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.17.0
+Stable tag: 2.18.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.18.0 =
+* Fixed: the "a directory hardening file is missing or has been modified" admin notice (and the uploads PHP-guard revert notice) now shows to Administrator accounts only. It renders on every admin screen and names absolute server paths, but nothing in it is actionable for anyone without the `manage_options` capability the linked Restore action requires — editors, shop managers, and other dashboard users no longer see it.
+* Added: that notice can now be dismissed. When another security plugin or your host keeps its own rules in one of these files, the report is accurate — the file genuinely differs from ours — so instead of re-appearing on every admin page load, it now stays dismissed for the same set of affected files until the set changes or a few days pass, and the notice says another tool may legitimately manage the file. The default snooze window (three days) is filterable via `spfw_hardening_notice_snooze`.
 
 = 2.17.0 =
 * Fixed: the file integrity monitor no longer sends repeated alerts about files that never actually changed on the server. The scan baseline (a sha256 map of every monitored PHP file) lived inside the plugin's single shared settings option, so every settings write from any feature was a whole-option read-modify-write; two overlapping requests could resurrect a stale baseline, and the next scan re-reported the same diff — including transient mid-deploy files that no longer existed. The baseline now lives in its own dedicated option, out of that race entirely, and the shared option drops from megabytes back to a few kilobytes.

@@ -107,6 +107,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
 
 	/**
+	 * Option holding the dismissed state of the missing/altered hardening
+	 * notice: the offender-set signature and the snooze expiry. Deliberately
+	 * its own option rather than a key inside `spfw_settings` — transient
+	 * dismissal state has no business riding in the shared settings array,
+	 * for the same lost-update and bloat reasons the file-monitor snapshot
+	 * moved out (2.17.0). Stored with autoload off.
+	 */
+	const NOTICE_SNOOZE_OPTION = 'spfw_hardening_notice_snoozed';
+
+	/**
 	 * Hardening settings that change what a rendered page CONTAINS or what
 	 * headers travel with it, as opposed to what the server refuses.
 	 *
@@ -374,6 +384,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 */
 	public function register() {
 		add_action( 'admin_init', array( $this, 'maybe_show_notice' ) );
+		add_action( 'admin_post_spfw_dismiss_hardening_notice', array( $this, 'dismiss_notice' ) );
 		add_action( 'admin_init', array( $this, 'maybe_run_root_self_check' ) );
 		add_action( 'admin_init', array( $this, 'maybe_reconcile_htaccess' ) );
 		add_action( 'update_option_' . SPFW_Settings::OPTION_KEY, array( $this, 'handle_settings_change' ), 10, 2 );
@@ -490,8 +501,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * Queue an admin notice if any managed hardening file is missing or
 	 * altered. The notice names every affected file and its state, so the
 	 * admin can verify on the server exactly what the plugin is reporting.
+	 *
+	 * Administrator-only, the same bar as every other SPFW notice and as the
+	 * manage_options-capped Restore action the notice links to: nothing here
+	 * is actionable for anyone else, and it names absolute filesystem paths.
 	 */
 	public function maybe_show_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
 		if ( get_option( 'spfw_user_ini_reverted' ) ) {
 			delete_option( 'spfw_user_ini_reverted' );
 
@@ -506,22 +525,24 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
-		$targets   = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
-		$offenders = array();
-
-		foreach ( $targets as $target ) {
-			// Asks whichever strategy owns the target, so a `.user.ini` install
-			// gets the same missing/altered notice a `.htaccess` one does, and
-			// a server that supports neither ('unsupported'/'advisory') gets no
-			// notice about a file it was never going to have.
-			$status = SPFW_Hardening_Strategies::status( $target );
-
-			if ( in_array( $status, array( 'missing', 'altered' ), true ) ) {
-				$offenders[ $target ] = $status;
-			}
-		}
+		$offenders = self::collect_offenders();
 
 		if ( empty( $offenders ) ) {
+			return;
+		}
+
+		// A dismissed alert stays quiet until the offender set changes — a new
+		// target, a missing/altered flip, a restore — or the snooze lapses, so
+		// a file another tool legitimately rewrites on its own schedule does
+		// not nag on every admin page load.
+		$snoozed = get_option( self::NOTICE_SNOOZE_OPTION, array() );
+
+		if (
+			is_array( $snoozed )
+			&& isset( $snoozed['signature'], $snoozed['until'] )
+			&& self::offenders_signature( $offenders ) === $snoozed['signature']
+			&& (int) $snoozed['until'] > time()
+		) {
 			return;
 		}
 
@@ -531,6 +552,51 @@ class SPFW_Module_Hardening implements SPFW_Module {
 				$this->render_notice( $offenders );
 			}
 		);
+	}
+
+	/**
+	 * Every managed hardening target whose file is missing or altered right
+	 * now. Asks whichever strategy owns the target, so a `.user.ini` install
+	 * gets the same missing/altered verdict a `.htaccess` one does, and a
+	 * server that supports neither ('unsupported'/'advisory') never counts as
+	 * an offender.
+	 *
+	 * @return array<string,string> Target => status (missing|altered).
+	 */
+	private static function collect_offenders() {
+		$targets   = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+		$offenders = array();
+
+		foreach ( $targets as $target ) {
+			$status = SPFW_Hardening_Strategies::status( $target );
+
+			if ( in_array( $status, array( 'missing', 'altered' ), true ) ) {
+				$offenders[ $target ] = $status;
+			}
+		}
+
+		return $offenders;
+	}
+
+	/**
+	 * Canonical fingerprint of an offender set, recorded when the notice is
+	 * dismissed. Any change to the set — a new target, a status flip, a
+	 * restore that empties the list — changes the signature and re-arms the
+	 * alert.
+	 *
+	 * @param array<string,string> $offenders Target => status (missing|altered).
+	 * @return string
+	 */
+	private static function offenders_signature( array $offenders ) {
+		$pairs = array();
+
+		foreach ( $offenders as $target => $status ) {
+			$pairs[] = $target . ':' . $status;
+		}
+
+		sort( $pairs );
+
+		return sha1( implode( '|', $pairs ) );
 	}
 
 	/**
@@ -592,9 +658,94 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 
 			echo '</ul>';
+
+			// A "modified" file is not always an attack: security plugins and
+			// hosts write their own rules into these files too, and restoring
+			// over them on sight would fight that tool on every request. Say
+			// so, and offer a snooze instead of an endless nag.
+			echo '<p>';
+			echo esc_html__( 'Another security plugin or your hosting provider may also manage these files — restore only a change you do not recognize.', 'simple-performance-for-wordpress' );
+			echo '</p>';
+
+			$this->render_dismiss_form();
 		}
 
 		echo '</div>';
+	}
+
+	/**
+	 * The Dismiss control for the missing/altered notice: a plain POST form
+	 * to admin-post.php. The notice renders on every admin screen and the
+	 * plugin's admin script only loads on its own settings page, so a no-JS
+	 * form is the one mechanism that works everywhere; POST rather than GET
+	 * because the action changes state.
+	 */
+	private function render_dismiss_form() {
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="spfw_dismiss_hardening_notice" />';
+		wp_nonce_field( 'spfw_dismiss_hardening_notice' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- core emits its own escaped hidden fields.
+
+		echo '<p><button type="submit" class="button button-secondary">' . esc_html__( 'Dismiss for a few days', 'simple-performance-for-wordpress' ) . '</button></p>';
+		echo '</form>';
+	}
+
+	/**
+	 * Handle the Dismiss POST from the missing/altered notice: remember the
+	 * current offender set for the snooze window, then send the admin back
+	 * where they came from. Registered on admin_post_ (authenticated requests
+	 * only) and re-checks capability and nonce to the same bar as the REST
+	 * routes. No exit after wp_safe_redirect(): admin-post.php ends the
+	 * request at the action hook, and an exit would make the handler
+	 * ununit-testable.
+	 */
+	public function dismiss_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die(
+				esc_html__( 'Sorry, you are not allowed to manage this notice.', 'simple-performance-for-wordpress' ),
+				'',
+				array( 'response' => 403 )
+			);
+		}
+
+		$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
+
+		if ( ! wp_verify_nonce( $nonce, 'spfw_dismiss_hardening_notice' ) ) {
+			wp_die(
+				esc_html__( 'The link you followed has expired.', 'simple-performance-for-wordpress' ),
+				'',
+				array( 'response' => 403 )
+			);
+		}
+
+		$this->store_dismiss_snooze();
+
+		$redirect = wp_get_referer();
+
+		wp_safe_redirect( $redirect ? $redirect : admin_url( 'index.php' ) );
+	}
+
+	/**
+	 * Persist the snooze for the offender set as it is right now. Split from
+	 * dismiss_notice() so the persistence is unit-testable without the
+	 * redirect/wp_die tails.
+	 */
+	public function store_dismiss_snooze() {
+		$offenders = self::collect_offenders();
+
+		if ( empty( $offenders ) ) {
+			return;
+		}
+
+		$window = (int) apply_filters( 'spfw_hardening_notice_snooze', 3 * DAY_IN_SECONDS );
+
+		update_option(
+			self::NOTICE_SNOOZE_OPTION,
+			array(
+				'signature' => self::offenders_signature( $offenders ),
+				'until'     => time() + $window,
+			),
+			false // Autoload off: transient state, read only in wp-admin.
+		);
 	}
 
 	/**

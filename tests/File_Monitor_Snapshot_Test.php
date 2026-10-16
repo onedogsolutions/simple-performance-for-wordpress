@@ -19,20 +19,6 @@
 
 use PHPUnit\Framework\TestCase;
 
-// render_notice() builds its Hardening-tab link with admin_url(); the
-// lightweight bootstrap does not stub it.
-if ( ! function_exists( 'admin_url' ) ) {
-	/**
-	 * Stub admin_url() for notice rendering.
-	 *
-	 * @param string $path Path to append.
-	 * @return string
-	 */
-	function admin_url( $path = '' ) {
-		return 'http://example.com/wp-admin/' . ltrim( $path, '/' );
-	}
-}
-
 /**
  * Snapshot storage, migration, scan persistence, and notice-listing tests.
  */
