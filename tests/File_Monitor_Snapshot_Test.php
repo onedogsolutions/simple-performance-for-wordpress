@@ -335,8 +335,8 @@ class File_Monitor_Snapshot_Test extends TestCase {
 
 		$store_before = SPFW_Module_Hardening::get_file_snapshot();
 
-		$ref = new ReflectionMethod( 'SPFW_Module_Hardening', 'rebuild_baseline_for_plugin' );
-		$ref->invoke( $module, 'my-plugin' );
+		$ref = new ReflectionMethod( 'SPFW_Module_Hardening', 'accept_into_baseline' );
+		$ref->invoke( $module, 'my-plugin', 'manual', 1 );
 
 		$store = SPFW_Module_Hardening::get_file_snapshot();
 

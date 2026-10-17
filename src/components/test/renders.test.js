@@ -16,6 +16,7 @@ import CspPolicyCard from '../CspPolicyCard';
 import WooCommerceSettings from '../WooCommerceSettings';
 import FontsSettings from '../FontsSettings';
 import HardeningSettings from '../HardeningSettings';
+import FileReviewPanel from '../FileReviewPanel';
 
 const noop = () => {};
 
@@ -350,5 +351,72 @@ describe( 'HardeningSettings', () => {
 				/>
 			)
 		).not.toThrow();
+	} );
+} );
+
+describe( 'FileReviewPanel', () => {
+	it( 'renders with nothing pending', () => {
+		expect( () =>
+			renderOnce(
+				<FileReviewPanel
+					pending={ undefined }
+					verified={ undefined }
+					autoVerified={ null }
+					onVerify={ noop }
+					isVerifying={ false }
+				/>
+			)
+		).not.toThrow();
+	} );
+
+	it( 'renders unexplained changes and unverified updates', () => {
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+
+		act( () =>
+			root.render(
+				<FileReviewPanel
+					pending={ {
+						unexplained: {
+							added: [ 'uploads/2026/10/x.php' ],
+							modified: [],
+							removed: [],
+						},
+						updates: {
+							'bb-plugin': {
+								from: '2.11',
+								to: '2.12',
+								paths: {
+									added: [],
+									modified: [ 'plugins/bb-plugin/a.php' ],
+									removed: [],
+								},
+							},
+						},
+						signatures: {
+							all: 'abc',
+							uploads: 'def',
+							plugins: { 'bb-plugin': 'ghi' },
+						},
+					} }
+					verified={ {
+						time: 1700000000,
+						source: 'manual',
+						user: 'Ryan',
+					} }
+					autoVerified={ { akismet: 'package' } }
+					onVerify={ noop }
+					isVerifying={ false }
+				/>
+			)
+		);
+
+		expect( container.textContent ).toContain( '1 unexplained change(s)' );
+		expect( container.textContent ).toContain( '2.11 → 2.12' );
+		expect( container.textContent ).toContain( 'Ryan' );
+
+		act( () => root.unmount() );
+		container.remove();
 	} );
 } );

@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.19.0
+Stable tag: 2.20.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,15 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.20.0 =
+* Changed: the file integrity monitor now keeps a verified baseline. It only moves when something actually verifies the files: the update package WordPress downloaded, wordpress.org's published checksums, or an administrator clicking Mark as verified (which records who and when). Changes nothing has verified stay listed on the Hardening tab until someone reviews them.
+* Added: every plugin update installed through WordPress' updater — including premium plugins, auto-updates, MainWP and WP-CLI — is checked against the package that was downloaded. Matching files are accepted silently; files that differ from the package trigger an immediate alert.
+* Added: updates copied in outside the updater are checked against wordpress.org's published checksums for free plugins. The request names only the plugin and version, like WordPress' own update checks, and can be turned off with the `spfw_file_monitor_wporg_checksums` filter.
+* Changed: a plugin whose version changed but whose files nothing could verify (for example a premium plugin uploaded by SFTP) is no longer silent. It sends one short "update could not be verified" email per version, separate from integrity alerts, and waits on the Hardening tab. Editing a plugin's files and changing its version number no longer hides the change.
+* Added: Mark as verified on the Hardening tab, for everything listed at once or one plugin at a time. It only accepts exactly what the review showed; if the files changed since, it asks you to scan again.
+* Fixed: Scan now no longer accepts what it finds as the new baseline, so clicking it can no longer make a tampered file look known-good.
+* Changed: each change is emailed once instead of on every twice-daily scan while it waits for review.
 
 = 2.19.0 =
 * Fixed: WordPress auto-updates (and any other single-plugin update) no longer trigger a file integrity alert hours later. A single update reports the plugin under a different key than a bulk update, which the monitor did not read, so the file baseline was never rebuilt and the next twice-daily scan emailed the update as an unexplained change.
