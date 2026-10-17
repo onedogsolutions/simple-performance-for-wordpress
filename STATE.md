@@ -9,14 +9,14 @@ top-level document. (The original full-detail per-step specs that once lived in
 Phase 1 shipped — the condensed steps below plus the dated decisions log are now
 the authoritative record.)
 
-- **Branch:** `main` (2.18.0 — hardening notice capability gate + dismiss/snooze); prior `main` (2.17.0 — file-integrity false-positive fix + actionable hardening notice); prior `main` (2.16.0 — smart file integrity alerts); prior `claude/quirky-hawking-33r1gr` (2.15.0 — Step 18, server abstraction / nginx); prior `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
+- **Branch:** `main` (2.19.0 — update-aware file monitor + block-scoped .htaccess integrity); prior `main` (2.18.0 — hardening notice capability gate + dismiss/snooze); prior `main` (2.17.0 — file-integrity false-positive fix + actionable hardening notice); prior `main` (2.16.0 — smart file integrity alerts); prior `claude/quirky-hawking-33r1gr` (2.15.0 — Step 18, server abstraction / nginx); prior `claude/serene-meitner-bybf11` (2.14.0 — Step 19, font-loader carry-over); prior `claude/nifty-hypatia-0x78ub` (2.13.0 — Step 17, CSP collection blind spots); prior `claude/funny-lamport-589dr7` (2.12.2 logged-out dashicons dependency fix); prior `claude/modest-mayer-6rm967` (2.11.0 LiteSpeed compatibility); prior `main` (font-weight fix merged from
   `claude/plugin-font-weight-issues-2xfjms`; prior work on
   `claude/missing-security-headers-x8gyp9`,
   `claude/simple-performance-wordpress-plugin-6qbso2` / Step 10 on
   `claude/feature-parity-quick-toggles-sf64kt`)
-- **Plugin version target:** 2.18.0
-- **Last updated:** 2026-10-16
-- **Overall status:** ✅ Hardening notice admin-only + dismissible (2.18.0 — the "a directory hardening file is missing or has been modified" notice rendered on every admin screen to every authenticated wp-admin user (no capability gate) and could never be dismissed, so a genuine foreign rewrite of `uploads/.htaccess` by another security plugin or the host nagged on every page load, forever; `maybe_show_notice()` is now gated on `manage_options` like every other SPFW notice (the `spfw_user_ini_reverted` branch included, and it no longer consumes the one-shot flag on a non-admin request), and the notice gains a nonce-protected POST Dismiss (admin-post.php, no-JS) that snoozes the current offender-set signature in its own non-autoloaded `spfw_hardening_notice_snoozed` option — 3-day default, filterable — until the set changes or the window lapses; notice copy now says another tool may legitimately manage the file; 14 new tests in `tests/Hardening_Notice_Test.php`, bootstrap gained admin-post stubs, `uninstall.php` drops the option, 235 PHPUnit green, phpcs on touched files at HEAD baseline, .pot 594 entries, 2.18.0 ZIP built; **live QA owed on laseraesthetics.org — dismiss behavior, re-arm on offender change, and a non-admin role no longer seeing it**); ✅ File-integrity false-positive fix + actionable hardening notice (2.17.0 — two root causes found live on test.onedog.solutions: (1) since WP 5.3 `insert_with_markers()` injects instruction comment lines inside the root marker block that `payload_root()` never emits, so `needs_resync('root')` was permanently true and `reconcile()` rewrote the root `.htaccess` on every admin request — green "re-synced" notice spam, an OpenLiteSpeed rule desync, and a self-check loopback + enforcement-probe storm; the extractor now strips the injected comments and a stale stored hash whose file still equals the current payload self-heals; (2) the 14,762-entry file-monitor snapshot lived inside the monolithic 2.4 MB `spfw_settings` option, so every `SPFW_Settings::update()` from any writer was a whole-option read-modify-write off a per-request cache and overlapping requests resurrected a stale baseline — the next scan re-reported the same diff including transient mid-deploy files that no longer existed; the snapshot now lives in its own non-autoloaded `spfw_file_monitor_snapshot` option, out of that race, with a version-gated migration in `SPFW_Settings::get()` and a lazy fallback in the accessor. The hardening notice now names every affected file and its state instead of only linking to the tab. **Live QA complete on test.onedog.solutions — root resync loop dead (`needs_resync('root')` false, `.htaccess` unchanged across 7 requests), snapshot moved to its own non-autoloaded option, `spfw_settings` 2,383,937 → 6,744 bytes. The first deploy hit a load-order fatal (`SPFW_Settings::get()` referencing `SPFW_Module_Hardening` before it is required); fixed and now guarded by `tests/Boot_Order_Test.php`, which reproduces the real require order in a subprocess**); ✅ Smart file integrity alerts (2.16.0 — the file monitor is now directory-aware to cut false-positive emails during legitimate plugin updates: `uploads/` is Strict Mode and emails any PHP change immediately, `plugins/` is Smart Mode and queues changes for a 15-minute debounce window, `upgrader_process_complete` rebuilds the sha256 baseline for an updated plugin and clears its queued alert, and disabling the monitor cancels any in-flight debounce; **live QA still owed — needs a real WP install to observe a scan-during-update race and the cron dispatch**); ✅ Step 18 (2.15.0 — the hardening subsystem no longer assumes a server that reads `.htaccess`: `SPFW_Server` detects what is in front of PHP, a strategy interface routes each target to the mechanism that server honors, nginx gets a `.user.ini` PHP guard for uploads plus a generated vhost snippet for everything else, config staleness and cache staleness are reported as the two separate clocks they are, and deleting `readme.html`/`license.txt` is a first-class alternative to blocking them; **nginx live QA still owed — no nginx host exists in this build environment**); ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
+- **Plugin version target:** 2.19.0
+- **Last updated:** 2026-10-17
+- **Overall status:** ✅ Update-aware file monitor + block-scoped `.htaccess` integrity (2.19.0 — the late "NOT ON WHITELIST" emails after plugin updates were a confirmed bug: a single `Plugin_Upgrader::upgrade()` (WordPress auto-updates, MainWP vulnerability fixes) passes `plugin` singular to `upgrader_process_complete` and the handler read only bulk `plugins`, so the baseline was never rebuilt and the next twice-daily scan emailed the update up to 12 h later; handler now reads all three shapes incl. installs via `plugin_info()`, `deleted_plugin` drops entries, and the snapshot records plugin versions so a scan attributes any version-changed plugin's files to an update however it was applied; first scan with no baseline is silent; inert uploads stubs ignored; whitelist label dropped from email. The uploads `.htaccess` "modified" notice is now judged on our own BEGIN/END block, so another tool's rules beside ours read `ok`, and write/Restore/remove touch only our block; 252 PHPUnit, 45 Jest, build, .pot 595, ZIP; **live QA complete on test.onedog.solutions; field confirmation owed on sanantoniopetsalive.org, whose actual `uploads/.htaccess` has not been seen**); ✅ Hardening notice admin-only + dismissible (2.18.0 — the "a directory hardening file is missing or has been modified" notice rendered on every admin screen to every authenticated wp-admin user (no capability gate) and could never be dismissed, so a genuine foreign rewrite of `uploads/.htaccess` by another security plugin or the host nagged on every page load, forever; `maybe_show_notice()` is now gated on `manage_options` like every other SPFW notice (the `spfw_user_ini_reverted` branch included, and it no longer consumes the one-shot flag on a non-admin request), and the notice gains a nonce-protected POST Dismiss (admin-post.php, no-JS) that snoozes the current offender-set signature in its own non-autoloaded `spfw_hardening_notice_snoozed` option — 3-day default, filterable — until the set changes or the window lapses; notice copy now says another tool may legitimately manage the file; 14 new tests in `tests/Hardening_Notice_Test.php`, bootstrap gained admin-post stubs, `uninstall.php` drops the option, 235 PHPUnit green, phpcs on touched files at HEAD baseline, .pot 594 entries, 2.18.0 ZIP built; **live QA owed on laseraesthetics.org — dismiss behavior, re-arm on offender change, and a non-admin role no longer seeing it**); ✅ File-integrity false-positive fix + actionable hardening notice (2.17.0 — two root causes found live on test.onedog.solutions: (1) since WP 5.3 `insert_with_markers()` injects instruction comment lines inside the root marker block that `payload_root()` never emits, so `needs_resync('root')` was permanently true and `reconcile()` rewrote the root `.htaccess` on every admin request — green "re-synced" notice spam, an OpenLiteSpeed rule desync, and a self-check loopback + enforcement-probe storm; the extractor now strips the injected comments and a stale stored hash whose file still equals the current payload self-heals; (2) the 14,762-entry file-monitor snapshot lived inside the monolithic 2.4 MB `spfw_settings` option, so every `SPFW_Settings::update()` from any writer was a whole-option read-modify-write off a per-request cache and overlapping requests resurrected a stale baseline — the next scan re-reported the same diff including transient mid-deploy files that no longer existed; the snapshot now lives in its own non-autoloaded `spfw_file_monitor_snapshot` option, out of that race, with a version-gated migration in `SPFW_Settings::get()` and a lazy fallback in the accessor. The hardening notice now names every affected file and its state instead of only linking to the tab. **Live QA complete on test.onedog.solutions — root resync loop dead (`needs_resync('root')` false, `.htaccess` unchanged across 7 requests), snapshot moved to its own non-autoloaded option, `spfw_settings` 2,383,937 → 6,744 bytes. The first deploy hit a load-order fatal (`SPFW_Settings::get()` referencing `SPFW_Module_Hardening` before it is required); fixed and now guarded by `tests/Boot_Order_Test.php`, which reproduces the real require order in a subprocess**); ✅ Smart file integrity alerts (2.16.0 — the file monitor is now directory-aware to cut false-positive emails during legitimate plugin updates: `uploads/` is Strict Mode and emails any PHP change immediately, `plugins/` is Smart Mode and queues changes for a 15-minute debounce window, `upgrader_process_complete` rebuilds the sha256 baseline for an updated plugin and clears its queued alert, and disabling the monitor cancels any in-flight debounce; **live QA still owed — needs a real WP install to observe a scan-during-update race and the cron dispatch**); ✅ Step 18 (2.15.0 — the hardening subsystem no longer assumes a server that reads `.htaccess`: `SPFW_Server` detects what is in front of PHP, a strategy interface routes each target to the mechanism that server honors, nginx gets a `.user.ini` PHP guard for uploads plus a generated vhost snippet for everything else, config staleness and cache staleness are reported as the two separate clocks they are, and deleting `readme.html`/`license.txt` is a first-class alternative to blocking them; **nginx live QA still owed — no nginx host exists in this build environment**); ✅ Step 19 (2.14.0 — the font loader is domain-portable, the scan can finally see the fonts it already localized, derived LiteSpeed CSS is purged alongside the page cache, and a scan reports what each stage found; **live QA still owed**); ✅ Step 17 (2.13.0 — the default policy no longer blocks reCAPTCHA, and a Report-Only window can actually collect: admins are inside the test, reporting responses bypass the page cache, page coverage is tracked, and enforcing is gated on the evidence); ✅ Step 16 (2.12.3 — `wp-embed` gets the same dequeue-not-deregister treatment); ✅ Step 15 (2.12.2 — logged-out visitors no longer lose stylesheets that depend on dashicons); ✅ Step 14 (2.12.0 — OpenLiteSpeed restart cost reduced to one restart, staleness now reported); ✅ Step 13 (2.11.0 LiteSpeed Cache compatibility — whitelist authz fix, `blob:` in the default CSP, whitelist allow-canaries); ✅ Phase 1 complete (9/9); ✅ Step 10 (quick-toggle
   parity + WooCommerce tab) implemented; ✅ Google Fonts discovery
   reliability fix (branch `claude/google-fonts-discovery-plan-tjsdwr`); ✅
   Upgrade-compatibility probe and leftover cleanup removed (2.9.0); ✅
@@ -536,6 +536,73 @@ check so double-running uninstall is a no-op.
 Record here anything a later step needs to know: choices that differ from the spec,
 handles/paths that turned out different in practice, WP/PHP quirks encountered, or
 follow-ups deferred. Keep entries dated and terse.
+
+- 2026-10-17 (update-aware file monitor + block-scoped .htaccess integrity,
+  → 2.19.0): two field complaints — the uploads `.htaccess` "modified" notice
+  on sanantoniopetsalive.org (SAPA) never stays fixed, and plugin updates
+  produce "NOT ON WHITELIST" integrity emails 8+ hours later. Investigated live
+  on test.onedog.solutions via the Novamira "One Dog Test" connection before
+  any code was written.
+
+  **Emails — root cause confirmed.** WP 7.1.3 core: `Plugin_Upgrader::upgrade()`
+  fires `upgrader_process_complete` with `hook_extra = {plugin, type, action}`
+  (singular); `bulk_upgrade()` passes `plugins` (array). `WP_Automatic_Updater`
+  calls `upgrade()`. Reproduced: classic-editor 1.6.5 → 1.7.0 via `upgrade()`
+  left the baseline stale and the next scan reported `classic-editor.php`
+  modified; the same via `bulk_upgrade()` converged. MainWP Child's normal
+  plugin updates use `bulk_upgrade` (fine) but its vulnerability checker calls
+  `upgrade()`; `wp plugin install --force` and "replace with uploaded" fire
+  `action=install` (also ignored). The 8+ h delay is the `twicedaily` scan
+  surfacing a diff the hook should have absorbed, plus the debounce and the
+  host's system cron (`DISABLE_WP_CRON` true on test). Fix:
+  `handle_upgrader_complete()` reads `plugins`, `plugin`, or
+  `$upgrader->plugin_info()` (installs); `deleted_plugin` rebaselines; root
+  single-file plugins are keyed by file name instead of skipped. The structural
+  fix is **version attribution**: the snapshot option gains
+  `versions` (slug => Version header, via `get_plugins()`); `scan_wp_content()`
+  returns `updated_plugins` and `route_file_changes()` drops changes in those
+  plugins, so an update applied by SFTP/git/any tool that fires no hook is still
+  recognized, while a change in a plugin whose version did not move is still
+  queued (the tamper signal). A pre-2.19 snapshot has no versions and
+  attributes nothing on its first scan — except this plugin's own directory,
+  since updating to 2.19.0 is what produced that state and the hook ran 2.18
+  code (found live: our own files were queued on the first scan after deploy).
+  Also: the first scan with an empty baseline only records (it used to queue
+  every file on the site); inert "Silence is golden" uploads stubs are ignored
+  (token-level check); the email drops the `[NOT ON WHITELIST]` label (the
+  whitelist governs HTTP execution, not integrity) and says why the change is
+  unexplained.
+
+  **Notice — real measurement, wrong unit.** `status()` compared the whole
+  `uploads/`/`plugins/` file to our payload, so any tool adding rules beside
+  ours read `altered` forever and Restore overwrote that tool's rules (a tug of
+  war). No plugin on test writes the root uploads `.htaccess` (FluentCRM,
+  Fluent Forms Pro, FluentBooking, PowerPack, MainWP write their own
+  subfolders; WPvivid restore and MainWP clone can replace it wholesale), so
+  SAPA's writer is something installed only there. Fix: `split_own_file()`
+  extracts our marked block; `status()` judges it (stored hash or payload
+  match, self-heal kept); `needs_resync()` compares only the block;
+  `write_own_file()` replaces the block in place, or prepends it when absent so
+  our deny comes first; `remove_own_file()` removes only our block and deletes
+  the file only if nothing else remains. Existing stored hashes stay valid
+  (sha1 of a file holding only our block == sha1 of the block). Whether foreign
+  rules neutralize ours at runtime is the enforcement probe's job, unchanged.
+
+  **Live QA (test.onedog.solutions, LiteSpeed, WP 7.1.3, PHP 8.3).** Deployed
+  2.19.0 (front 200, wp-admin 302, REST 401, wp-cron 200). Install hook and
+  `upgrade()` both rebaseline (zero diff, no mail); files swapped by direct
+  unzip with a version change → `updated_plugins`, nothing queued; same-version
+  edit → queued + dispatch armed (then cleared); uploads `.htaccess` with a
+  foreign block appended → `ok`, no resync; our block edited → `altered`;
+  wholesale replacement → `altered`, Restore kept the foreign block with ours
+  first → `ok`; original bytes restored. Classic Editor left installed at a
+  clean 1.7.0. 252 PHPUnit (+17), 45 Jest, build, phpcs on touched files at or
+  below HEAD, `.pot` 595 entries.
+
+  **Deliberately not done:** moving `*_htaccess_hash` out of `spfw_settings`
+  (planned). With block-scoped checks and the existing self-heal, a lost hash
+  update only surfaces if the same clobber also rolls back the whitelist —
+  not worth a migration plus boot-order risk until it is seen in the field.
 
 - 2026-10-16 (hardening notice admin-only + dismissible, → 2.18.0): the
   "a directory hardening file is missing or has been modified" notice rendered
@@ -3348,6 +3415,19 @@ against a running WordPress. Step 19 is marked ✅ for the code, and the field
 checks are carried in Open questions as owed.
 
 ## Open questions / blockers
+
+- **SAPA `uploads/.htaccess` never inspected (2.19.0).** The fix assumes the
+  common case — another tool's rules beside ours. If SAPA's file shows our
+  block itself edited or the whole file replaced, the notice is correct and
+  the writer needs identifying. The `novamira-staging-sananton` connection
+  fails with `DEPTH_ZERO_SELF_SIGNED_CERT`; get the file (and mtime/owner) from
+  production or fix the staging cert, then confirm the notice clears on 2.19.0.
+
+- **Version attribution trusts the Version header (2.19.0).** An attacker who
+  edits a plugin file *and* bumps its Version header is attributed as an
+  update. Verifying wordpress.org plugins against
+  `downloads.wordpress.org/plugin-checksums/{slug}/{version}.json` would close
+  it for repo plugins; premium plugins have no public checksums.
 
 - **Live QA owed for the 2.14.0 font loader (Step 19).** The code is on this
   branch and the static suite is green, but **no assertion in it was made

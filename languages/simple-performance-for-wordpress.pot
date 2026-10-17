@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.18.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.19.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-16T17:07:16+00:00\n"
+"POT-Creation-Date: 2026-10-17T21:08:09+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -184,80 +184,84 @@ msgstr ""
 msgid "[%1$d/%2$d pages loaded · %3$d Google stylesheets on the site · %4$d of %5$d manual declarations used · %6$d @font-face blocks · %7$d files downloaded, %8$d failed]"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1014
+#: includes/modules/class-spfw-module-hardening.php:1018
 msgid "Simple Performance: re-synced your root .htaccess to match your current hardening toggles."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1764
-#: includes/modules/class-spfw-module-hardening.php:1796
+#: includes/modules/class-spfw-module-hardening.php:1768
+#: includes/modules/class-spfw-module-hardening.php:1800
 msgid "Invalid username or password."
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:3012
+#: includes/modules/class-spfw-module-hardening.php:3167
 #, php-format
 msgid "[%s] File integrity alert"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:3018
+#: includes/modules/class-spfw-module-hardening.php:3173
 #, php-format
 msgid "File integrity scan detected changes on %s:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3023
+#: includes/modules/class-spfw-module-hardening.php:3178
 msgid "NEW FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3034
+#: includes/modules/class-spfw-module-hardening.php:3188
 msgid "MODIFIED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3045
+#: includes/modules/class-spfw-module-hardening.php:3198
 msgid "REMOVED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3054
+#: includes/modules/class-spfw-module-hardening.php:3207
+msgid "None of these changes is explained by a plugin update: the plugins they belong to report the same version as at the previous scan. Plugin updates are recognized automatically and never trigger this alert.\n\n"
+msgstr ""
+
+#: includes/modules/class-spfw-module-hardening.php:3208
 msgid "Review these files immediately if the changes were not expected.\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:522
+#: includes/modules/class-spfw-module-hardening.php:526
 msgid "Simple Performance: the uploads PHP guard (.user.ini) made that directory return server errors, so it was removed automatically. Uploads hardening is still switched on — see the server configuration snippet on the Hardening tab for a way to enforce it that does not depend on PHP."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:633
+#: includes/modules/class-spfw-module-hardening.php:637
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:644
+#: includes/modules/class-spfw-module-hardening.php:648
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:652
+#: includes/modules/class-spfw-module-hardening.php:656
 msgid "missing"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:653
+#: includes/modules/class-spfw-module-hardening.php:657
 msgid "modified"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:667
+#: includes/modules/class-spfw-module-hardening.php:671
 msgid "Another security plugin or your hosting provider may also manage these files — restore only a change you do not recognize."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:688
+#: includes/modules/class-spfw-module-hardening.php:692
 msgid "Dismiss for a few days"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:704
+#: includes/modules/class-spfw-module-hardening.php:708
 msgid "Sorry, you are not allowed to manage this notice."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:714
+#: includes/modules/class-spfw-module-hardening.php:718
 msgid "The link you followed has expired."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:943
+#: includes/modules/class-spfw-module-hardening.php:947
 msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
 msgstr ""
 

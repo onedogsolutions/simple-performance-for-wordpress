@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 2.18.0
+Stable tag: 2.19.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,15 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.19.0 =
+* Fixed: WordPress auto-updates (and any other single-plugin update) no longer trigger a file integrity alert hours later. A single update reports the plugin under a different key than a bulk update, which the monitor did not read, so the file baseline was never rebuilt and the next twice-daily scan emailed the update as an unexplained change.
+* Added: the monitor now records each plugin's version with its file baseline and recognizes an update by the version change, however it was applied — auto-update, MainWP, WP-CLI, SFTP, or a git deploy. Files that change in a plugin whose version did not move are still reported; that is the tamper signal.
+* Added: plugin installs (including "replace with uploaded") and deletions update the baseline immediately, so they no longer show up as new or removed files at the next scan.
+* Fixed: the first scan after enabling the monitor only records a baseline instead of reporting every file on the site as new.
+* Changed: inert "Silence is golden" `index.php` stubs that plugins drop into uploads folders no longer trigger the immediate uploads alert.
+* Changed: alert emails no longer label every file "[NOT ON WHITELIST]". The PHP whitelist controls which files may be requested over HTTP; it never had anything to do with whether a file changed.
+* Fixed: the "a directory hardening file has been modified" notice no longer fires when another plugin or your host adds its own rules to `wp-content/uploads/.htaccess` or `wp-content/plugins/.htaccess`. Integrity is now checked on this plugin's own marked block; an edit inside that block is still reported. Restore and settings changes now replace only that block and keep the other tool's rules, instead of overwriting the whole file.
 
 = 2.18.0 =
 * Fixed: the "a directory hardening file is missing or has been modified" admin notice (and the uploads PHP-guard revert notice) now shows to Administrator accounts only. It renders on every admin screen and names absolute server paths, but nothing in it is actionable for anyone without the `manage_options` capability the linked Restore action requires — editors, shop managers, and other dashboard users no longer see it.

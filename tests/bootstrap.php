@@ -614,6 +614,56 @@ function sanitize_file_name( $name ) {
 }
 
 // ---------------------------------------------------------------------------
+// Plugin headers + mail capture for the file monitor. get_plugins() reads the
+// Version header of every top-level PHP file one directory deep, the way core
+// does, from the bootstrap's temp plugins dir.
+// ---------------------------------------------------------------------------
+function get_plugins() {
+	$root    = WP_CONTENT_DIR . '/plugins';
+	$plugins = array();
+
+	if ( ! is_dir( $root ) ) {
+		return $plugins;
+	}
+
+	$candidates = glob( $root . '/*.php' ) ?: array();
+
+	foreach ( glob( $root . '/*', GLOB_ONLYDIR ) ?: array() as $dir ) {
+		$candidates = array_merge( $candidates, glob( $dir . '/*.php' ) ?: array() );
+	}
+
+	foreach ( $candidates as $file ) {
+		$head = (string) file_get_contents( $file, false, null, 0, 8192 );
+
+		if ( ! preg_match( '/^[ \t\/*#@]*Plugin Name:(.*)$/mi', $head ) ) {
+			continue;
+		}
+
+		$version = preg_match( '/^[ \t\/*#@]*Version:(.*)$/mi', $head, $m ) ? trim( $m[1] ) : '';
+
+		$plugins[ ltrim( substr( $file, strlen( $root ) ), '/' ) ] = array( 'Version' => $version );
+	}
+
+	return $plugins;
+}
+
+function wp_clean_plugins_cache( $clear_update_cache = true ) {
+}
+
+function wp_specialchars_decode( $text, $quote_style = ENT_NOQUOTES ) {
+	return htmlspecialchars_decode( (string) $text, $quote_style );
+}
+
+global $spfw_test_mail;
+$spfw_test_mail = array();
+
+function wp_mail( $to, $subject, $message ) {
+	global $spfw_test_mail;
+	$spfw_test_mail[] = compact( 'to', 'subject', 'message' );
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Load plugin classes under test.
 //
 // Every class is required up front here, which is convenient for the unit

@@ -1301,4 +1301,101 @@ class Htaccess_Enforcement_Test extends TestCase {
 			'a foreign edit must not rewrite the stored hash'
 		);
 	}
+
+	/**
+	 * Another tool adding its own rules beside our block (the
+	 * sanantoniopetsalive.org report) leaves our protection intact: 'ok', no
+	 * resync, and so no notice.
+	 */
+	public function test_own_file_foreign_rules_beside_our_block_read_ok() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+		file_put_contents( $this->plugins_path, "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n" . $payload . "\n# trailing host rule\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+	}
+
+	/**
+	 * An edit inside our block is still 'altered', foreign rules or not.
+	 */
+	public function test_own_file_edit_inside_our_block_stays_altered() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$tampered = str_replace( '[F,L]', '[L]', SPFW_Htaccess::payload( 'plugins' ) );
+		file_put_contents( $this->plugins_path, "Options -Indexes\n" . $tampered ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'altered', SPFW_Htaccess::status( 'plugins' ) );
+	}
+
+	/**
+	 * A file another tool replaced wholesale has no block of ours: 'altered',
+	 * and Restore puts our block first while keeping their rules.
+	 */
+	public function test_restore_keeps_foreign_rules_and_puts_our_block_first() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		file_put_contents( $this->plugins_path, "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'altered', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$contents = file_get_contents( $this->plugins_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$this->assertSame( 0, strpos( $contents, SPFW_Htaccess::payload( 'plugins' ) ) );
+		$this->assertStringContainsString( "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n", $contents );
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'plugins' ) );
+	}
+
+	/**
+	 * A payload change (whitelist edit) replaces our block in place and
+	 * leaves the surrounding rules byte-for-byte where they were.
+	 */
+	public function test_resync_replaces_our_block_in_place() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$before = "# host rule above\n";
+		$after  = "# host rule below\n";
+		file_put_contents( $this->plugins_path, $before . SPFW_Htaccess::payload( 'plugins' ) . $after ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'htaccess_hash'    => sha1( SPFW_Htaccess::payload( 'plugins' ) ),
+				'php_whitelist'    => array( 'plugins/some-plugin/endpoint.php' ),
+			)
+		);
+
+		$this->assertTrue( SPFW_Htaccess::needs_resync( 'plugins' ) );
+		$this->assertSame( array( 'plugins' ), SPFW_Htaccess::reconcile() );
+		$this->assertSame(
+			$before . SPFW_Htaccess::payload( 'plugins' ) . $after,
+			file_get_contents( $this->plugins_path ) // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		);
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+	}
+
+	/**
+	 * Turning the toggle off removes only our block when the file is shared,
+	 * and deletes the file when our block was all it held.
+	 */
+	public function test_remove_leaves_foreign_rules_behind() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$foreign = "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n";
+		file_put_contents( $this->plugins_path, SPFW_Htaccess::payload( 'plugins' ) . $foreign ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertTrue( SPFW_Htaccess::remove( 'plugins' ) );
+		$this->assertSame( $foreign, file_get_contents( $this->plugins_path ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		file_put_contents( $this->plugins_path, '' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		unlink( $this->plugins_path );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+		$this->assertTrue( SPFW_Htaccess::remove( 'plugins' ) );
+		$this->assertFileDoesNotExist( $this->plugins_path );
+	}
 }

@@ -494,6 +494,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			// a plugin the moment WordPress finishes a legitimate update, so the
 			// next scan sees no diff and no false-positive email is sent.
 			add_action( 'upgrader_process_complete', array( $this, 'handle_upgrader_complete' ), 10, 2 );
+
+			// A plugin deleted from wp-admin takes its files with it; drop them
+			// from the baseline so the next scan does not report the removal.
+			add_action( 'deleted_plugin', array( $this, 'handle_plugin_deleted' ), 10, 2 );
 		}
 	}
 
@@ -2823,13 +2827,17 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * The file-monitor snapshot: scan time plus {relative_path => sha256}.
+	 * The file-monitor snapshot: scan time, {relative_path => sha256}, and the
+	 * plugin versions the hashes were taken against.
 	 *
 	 * Lives in its own non-autoloaded option, never in the shared settings
 	 * option — see FILE_MONITOR_SNAPSHOT_OPTION for the lost-update race that
-	 * motivated the move.
+	 * motivated the move. `versions` (plugin slug => Version header) is what
+	 * lets a scan tell an update from tampering; snapshots written before
+	 * 2.19.0 have none, and simply get no update attribution on their first
+	 * scan.
 	 *
-	 * @return array{time:int,entries:array<string,string>}
+	 * @return array{time:int,entries:array<string,string>,versions:array<string,string>}
 	 */
 	public static function get_file_snapshot() {
 		$stored = get_option( self::FILE_MONITOR_SNAPSHOT_OPTION, null );
@@ -2846,8 +2854,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$stored = is_array( $stored ) ? $stored : array();
 
 		return array(
-			'time'    => isset( $stored['time'] ) ? absint( $stored['time'] ) : 0,
-			'entries' => isset( $stored['entries'] ) && is_array( $stored['entries'] ) ? $stored['entries'] : array(),
+			'time'     => isset( $stored['time'] ) ? absint( $stored['time'] ) : 0,
+			'entries'  => isset( $stored['entries'] ) && is_array( $stored['entries'] ) ? $stored['entries'] : array(),
+			'versions' => isset( $stored['versions'] ) && is_array( $stored['versions'] ) ? $stored['versions'] : array(),
 		);
 	}
 
@@ -2858,14 +2867,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * scans are the only writers, so there is no stale-merge window left to
 	 * resurrect an old baseline.
 	 *
-	 * @param array<string,string> $entries Relative path => sha256 map.
-	 * @param int|null             $time    Scan timestamp; defaults to now.
-	 * @return array{time:int,entries:array<string,string>} The stored shape.
+	 * @param array<string,string>      $entries  Relative path => sha256 map.
+	 * @param int|null                  $time     Scan timestamp; defaults to now.
+	 * @param array<string,string>|null $versions Plugin slug => version; null
+	 *                                            keeps the stored map.
+	 * @return array{time:int,entries:array<string,string>,versions:array<string,string>} The stored shape.
 	 */
-	public static function save_file_snapshot( array $entries, $time = null ) {
+	public static function save_file_snapshot( array $entries, $time = null, $versions = null ) {
+		if ( null === $versions ) {
+			$current  = self::get_file_snapshot();
+			$versions = $current['versions'];
+		}
+
 		$value = array(
-			'time'    => null === $time ? time() : absint( $time ),
-			'entries' => $entries,
+			'time'     => null === $time ? time() : absint( $time ),
+			'entries'  => $entries,
+			'versions' => is_array( $versions ) ? $versions : array(),
 		);
 
 		update_option( self::FILE_MONITOR_SNAPSHOT_OPTION, $value, false );
@@ -2896,11 +2913,82 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
+	 * Installed plugin versions keyed the way snapshot paths are: the first
+	 * path segment under wp-content/plugins — the directory for a normal
+	 * plugin, the file name for a root-level single-file one (hello.php).
+	 *
+	 * @return array<string,string> Plugin slug => Version header.
+	 */
+	protected function plugin_versions() {
+		if ( ! function_exists( 'get_plugins' ) && file_exists( ABSPATH . 'wp-admin/includes/plugin.php' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		if ( ! function_exists( 'get_plugins' ) ) {
+			return array();
+		}
+
+		// get_plugins() caches per request; a scan straight after an update in
+		// the same request must see the new headers.
+		if ( function_exists( 'wp_clean_plugins_cache' ) ) {
+			wp_clean_plugins_cache( false );
+		}
+
+		$versions = array();
+
+		foreach ( get_plugins() as $plugin_file => $data ) {
+			$slug = self::plugin_slug( $plugin_file );
+
+			if ( '' !== $slug && ! empty( $data['Version'] ) ) {
+				$versions[ $slug ] = (string) $data['Version'];
+			}
+		}
+
+		return $versions;
+	}
+
+	/**
+	 * The snapshot slug for a plugin file as WordPress names it
+	 * ('akismet/akismet.php' => 'akismet', 'hello.php' => 'hello.php').
+	 *
+	 * @param string $plugin_file Plugin basename relative to the plugins dir.
+	 * @return string
+	 */
+	private static function plugin_slug( $plugin_file ) {
+		$plugin_file = ltrim( str_replace( '\\', '/', (string) $plugin_file ), '/' );
+		$parts       = explode( '/', $plugin_file );
+
+		return isset( $parts[0] ) && '.' !== $parts[0] && '..' !== $parts[0] ? $parts[0] : '';
+	}
+
+	/**
+	 * The plugin slug a snapshot path belongs to, or '' for a path outside
+	 * wp-content/plugins.
+	 *
+	 * @param string $path Snapshot key, e.g. 'plugins/akismet/akismet.php'.
+	 * @return string
+	 */
+	private static function plugin_slug_for_path( $path ) {
+		if ( 0 !== strpos( $path, 'plugins/' ) ) {
+			return '';
+		}
+
+		return self::plugin_slug( substr( $path, strlen( 'plugins/' ) ) );
+	}
+
+	/**
 	 * Scan wp-content/plugins/ and wp-content/uploads/ for PHP files and
 	 * compare against the stored snapshot. Returns the diff (added, modified,
 	 * removed) and persists the new snapshot + timestamp.
 	 *
-	 * @return array{added:string[],modified:string[],removed:string[],snapshot_time:int}
+	 * `updated_plugins` lists the plugins whose Version header moved since the
+	 * last scan. Their file changes are still part of the diff (the on-demand
+	 * scan shows everything) but are explained by the update, and
+	 * route_file_changes() does not alert on them. This is what catches an
+	 * update however it was applied — auto-update, MainWP, WP-CLI, SFTP, a git
+	 * deploy — rather than only the ones that fire upgrader_process_complete.
+	 *
+	 * @return array{added:string[],modified:string[],removed:string[],snapshot_time:int,updated_plugins:array<string,array{from:string,to:string}>}
 	 */
 	public function scan_wp_content() {
 		$dirs = array();
@@ -2944,8 +3032,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		}
 
 		// Compare against the stored snapshot.
-		$old_snapshot = self::get_file_snapshot();
-		$old_snapshot = $old_snapshot['entries'];
+		$store        = self::get_file_snapshot();
+		$old_snapshot = $store['entries'];
 
 		$added    = array_diff( array_keys( $snapshot ), array_keys( $old_snapshot ) );
 		$removed  = array_diff( array_keys( $old_snapshot ), array_keys( $snapshot ) );
@@ -2957,23 +3045,91 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 		}
 
+		$versions = $this->plugin_versions();
+		$updated  = array();
+
+		foreach ( $versions as $slug => $version ) {
+			if ( isset( $store['versions'][ $slug ] ) && $store['versions'][ $slug ] !== $version ) {
+				$updated[ $slug ] = array(
+					'from' => $store['versions'][ $slug ],
+					'to'   => $version,
+				);
+			}
+		}
+
+		// A baseline with entries but no versions was written before 2.19.0,
+		// so this is the first scan since this plugin was updated to a release
+		// that records them — and the upgrader hook that would have
+		// rebaselined our own files ran the previous release's code. Our own
+		// update is the one change that is known to have happened.
+		$own_slug = defined( 'SPFW_BASENAME' ) ? self::plugin_slug( SPFW_BASENAME ) : '';
+
+		if ( '' !== $own_slug && array() === $store['versions'] && array() !== $old_snapshot && isset( $versions[ $own_slug ] ) ) {
+			$updated[ $own_slug ] = array(
+				'from' => '',
+				'to'   => $versions[ $own_slug ],
+			);
+		}
+
 		$now = time();
 
 		// Persist the new snapshot and scan timestamp in the dedicated option.
-		self::save_file_snapshot( $snapshot, $now );
+		self::save_file_snapshot( $snapshot, $now, $versions );
 
 		return array(
-			'added'         => array_values( $added ),
-			'modified'      => array_values( $modified ),
-			'removed'       => array_values( $removed ),
-			'snapshot_time' => $now,
+			'added'           => array_values( $added ),
+			'modified'        => array_values( $modified ),
+			'removed'         => array_values( $removed ),
+			'snapshot_time'   => $now,
+			'updated_plugins' => $updated,
 		);
 	}
 
 	/**
-	 * Send a consolidated email alert when file changes are detected. Flags
-	 * non-whitelisted additions and modifications. Rate-limits to one alert
-	 * per hour via a transient.
+	 * Whether a PHP file in uploads is an inert directory-listing stub — the
+	 * `<?php // Silence is golden.` index.php that plugins drop into every
+	 * folder they create. It executes nothing, so emailing about one is noise;
+	 * a file with a single real statement in it is not a stub.
+	 *
+	 * @param string $full_path Absolute path.
+	 * @return bool
+	 */
+	private static function is_inert_stub( $full_path ) {
+		if ( ! is_file( $full_path ) || filesize( $full_path ) > 1024 ) {
+			return false;
+		}
+
+		$code = file_get_contents( $full_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		if ( ! is_string( $code ) ) {
+			return false;
+		}
+
+		foreach ( token_get_all( $code ) as $token ) {
+			if ( ! is_array( $token ) ) {
+				return false;
+			}
+
+			if ( in_array( $token[0], array( T_OPEN_TAG, T_CLOSE_TAG, T_COMMENT, T_DOC_COMMENT, T_WHITESPACE ), true ) ) {
+				continue;
+			}
+
+			if ( T_INLINE_HTML === $token[0] && '' === trim( $token[1] ) ) {
+				continue;
+			}
+
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Send a consolidated email alert when file changes are detected.
+	 * Rate-limits to one alert per hour per cooldown key via a transient.
+	 *
+	 * Only changes nothing explained reach this point: plugin updates are
+	 * attributed away before routing, so every line is worth a look.
 	 *
 	 * @param array  $changes      Diff array from scan_wp_content().
 	 * @param string $cooldown_key Transient key for the one-per-hour rate limit.
@@ -3005,7 +3161,6 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return;
 		}
 
-		$whitelist  = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
 		$site_name  = wp_specialchars_decode( get_option( 'blogname' ), ENT_QUOTES );
 		$subject    = sprintf(
 			/* translators: %s: site name */
@@ -3023,8 +3178,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= __( "NEW FILES:\n", 'simple-performance-for-wordpress' );
 
 			foreach ( $changes['added'] as $path ) {
-				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
-				$body .= "  + {$path}{$flag}\n";
+				$body .= "  + {$path}\n";
 			}
 
 			$body .= "\n";
@@ -3034,8 +3188,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= __( "MODIFIED FILES:\n", 'simple-performance-for-wordpress' );
 
 			foreach ( $changes['modified'] as $path ) {
-				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
-				$body .= "  ~ {$path}{$flag}\n";
+				$body .= "  ~ {$path}\n";
 			}
 
 			$body .= "\n";
@@ -3051,6 +3204,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= "\n";
 		}
 
+		$body .= __( "None of these changes is explained by a plugin update: the plugins they belong to report the same version as at the previous scan. Plugin updates are recognized automatically and never trigger this alert.\n\n", 'simple-performance-for-wordpress' );
 		$body .= __( "Review these files immediately if the changes were not expected.\n", 'simple-performance-for-wordpress' );
 
 		wp_mail( $email, $subject, $body );
@@ -3063,12 +3217,24 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * changes by directory (strict uploads vs. smart plugins).
 	 */
 	public function run_file_monitor_scan() {
+		$before  = self::get_file_snapshot();
 		$changes = $this->scan_wp_content();
+
+		// With no baseline there is nothing to compare against: every file on
+		// the site would read as "added". The first scan only records.
+		if ( 0 === $before['time'] && array() === $before['entries'] ) {
+			return;
+		}
+
 		$this->route_file_changes( $changes );
 	}
 
 	/**
 	 * Phase 1: split a scan diff by directory and apply the right strictness.
+	 *
+	 * Changes explained by something legitimate are dropped first: files in a
+	 * plugin whose version moved since the last scan (an update, however it
+	 * was applied), and inert "Silence is golden" stubs in uploads.
 	 *
 	 * wp-content/uploads is Strict Mode — legitimate plugins/themes rarely drop
 	 * executable PHP there, so any change is emailed immediately with no delay.
@@ -3088,6 +3254,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		);
 		$smart  = $strict;
 
+		$updated = isset( $changes['updated_plugins'] ) && is_array( $changes['updated_plugins'] ) ? $changes['updated_plugins'] : array();
+		$uploads = wp_upload_dir();
+		$basedir = isset( $uploads['basedir'] ) ? $uploads['basedir'] : '';
+
 		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
 			if ( empty( $changes[ $type ] ) || ! is_array( $changes[ $type ] ) ) {
 				continue;
@@ -3095,10 +3265,19 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 			foreach ( $changes[ $type ] as $path ) {
 				if ( 0 === strpos( $path, 'uploads/' ) ) {
+					if ( 'removed' !== $type && '' !== $basedir && self::is_inert_stub( $basedir . '/' . substr( $path, strlen( 'uploads/' ) ) ) ) {
+						continue;
+					}
+
 					$strict[ $type ][] = $path;
-				} else {
-					$smart[ $type ][] = $path;
+					continue;
 				}
+
+				if ( isset( $updated[ self::plugin_slug_for_path( $path ) ] ) ) {
+					continue;
+				}
+
+				$smart[ $type ][] = $path;
 			}
 		}
 
@@ -3168,32 +3347,49 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 	/**
 	 * Phase 2: upgrader_process_complete callback. When WordPress finishes a
-	 * legitimate plugin update, rebuild the file baseline for each updated
-	 * plugin (so the next scan sees no diff) and drop any queued alert for that
-	 * plugin's directory (so a scan that ran mid-update emails nothing).
+	 * legitimate plugin update or install, rebuild the file baseline for each
+	 * affected plugin (so the next scan sees no diff) and drop any queued
+	 * alert for that plugin's directory (so a scan that ran mid-update emails
+	 * nothing).
 	 *
-	 * @param \WP_Upgrader $upgrader_object The upgrader instance (unused).
-	 * @param array        $options         Hook options: action, type, plugins.
+	 * The plugin list arrives in three shapes, and reading only the first one
+	 * is what let every auto-update through as an alert: bulk updates pass
+	 * `plugins` (array); a single Plugin_Upgrader::upgrade() — WordPress
+	 * auto-updates, MainWP's vulnerability fixes — passes `plugin` (string);
+	 * an install (including "replace with uploaded" and `wp plugin install
+	 * --force`) passes neither, and the upgrader knows the result only through
+	 * plugin_info().
+	 *
+	 * @param \WP_Upgrader $upgrader_object The upgrader instance.
+	 * @param array        $options         Hook options: action, type, plugin(s).
 	 */
 	public function handle_upgrader_complete( $upgrader_object, $options ) {
-		if ( ! isset( $options['action'], $options['type'] ) ) {
+		if ( ! is_array( $options ) || ! isset( $options['action'], $options['type'] ) ) {
 			return;
 		}
 
-		if ( 'update' !== $options['action'] || 'plugin' !== $options['type'] ) {
+		if ( 'plugin' !== $options['type'] || ! in_array( $options['action'], array( 'update', 'install' ), true ) ) {
 			return;
 		}
 
-		if ( empty( $options['plugins'] ) || ! is_array( $options['plugins'] ) ) {
-			return;
+		$plugin_files = array();
+
+		if ( ! empty( $options['plugins'] ) && is_array( $options['plugins'] ) ) {
+			$plugin_files = $options['plugins'];
+		} elseif ( ! empty( $options['plugin'] ) && is_string( $options['plugin'] ) ) {
+			$plugin_files = array( $options['plugin'] );
+		} elseif ( is_object( $upgrader_object ) && method_exists( $upgrader_object, 'plugin_info' ) ) {
+			$installed = $upgrader_object->plugin_info();
+
+			if ( is_string( $installed ) && '' !== $installed ) {
+				$plugin_files = array( $installed );
+			}
 		}
 
-		foreach ( $options['plugins'] as $plugin_path ) {
-			$plugin_slug = dirname( $plugin_path );
+		foreach ( $plugin_files as $plugin_file ) {
+			$plugin_slug = self::plugin_slug( $plugin_file );
 
-			// A root-level single-file plugin (e.g. hello.php) has no directory
-			// of its own to re-baseline; dirname() yields '.' for those.
-			if ( '' === $plugin_slug || '.' === $plugin_slug || '/' === $plugin_slug ) {
+			if ( '' === $plugin_slug ) {
 				continue;
 			}
 
@@ -3203,19 +3399,43 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Phase 2: re-hash one plugin directory and splice the fresh hashes into
-	 * the stored snapshot, establishing the new "known good state". Existing
-	 * entries under the plugin's prefix are dropped first so removed files do
-	 * not linger as phantom baselines.
+	 * Callback for deleted_plugin: forget a plugin WordPress just deleted, so its
+	 * files do not come back as a REMOVED FILES alert at the next scan.
 	 *
-	 * Path shapes mirror scan_wp_content() exactly: the snapshot key is
-	 * 'plugins/{slug}/{relative-path}' with the same sha256 hashing and
-	 * extension filter.
+	 * @param string $plugin_file Plugin basename, e.g. 'akismet/akismet.php'.
+	 * @param bool   $deleted     Whether the deletion succeeded.
+	 */
+	public function handle_plugin_deleted( $plugin_file, $deleted ) {
+		if ( ! $deleted ) {
+			return;
+		}
+
+		$plugin_slug = self::plugin_slug( $plugin_file );
+
+		if ( '' === $plugin_slug ) {
+			return;
+		}
+
+		$this->rebuild_baseline_for_plugin( $plugin_slug );
+		$this->clear_pending_alerts_for_plugin( $plugin_slug );
+	}
+
+	/**
+	 * Phase 2: re-hash one plugin and splice the fresh hashes into the stored
+	 * snapshot, establishing the new "known good state". Existing entries for
+	 * the plugin are dropped first so removed files do not linger as phantom
+	 * baselines, and its recorded version is refreshed so the next scan does
+	 * not attribute anything to it twice.
 	 *
-	 * @param string $plugin_slug Plugin directory name under wp-content/plugins.
+	 * Path shapes mirror scan_wp_content() exactly: 'plugins/{slug}/{path}'
+	 * for a directory plugin, 'plugins/{file}' for a root-level single-file
+	 * one, with the same sha256 hashing and extension filter.
+	 *
+	 * @param string $plugin_slug Plugin directory (or root file) name under wp-content/plugins.
 	 */
 	protected function rebuild_baseline_for_plugin( $plugin_slug ) {
-		$prefix   = 'plugins/' . $plugin_slug . '/';
+		$own_key  = 'plugins/' . $plugin_slug;
+		$prefix   = $own_key . '/';
 		$base_dir = WP_CONTENT_DIR . '/plugins/' . $plugin_slug;
 
 		$store    = self::get_file_snapshot();
@@ -3223,15 +3443,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		// Drop every stored entry for this plugin before re-hashing.
 		foreach ( array_keys( $snapshot ) as $path ) {
-			if ( 0 === strpos( $path, $prefix ) ) {
+			if ( $own_key === $path || 0 === strpos( $path, $prefix ) ) {
 				unset( $snapshot[ $path ] );
 			}
 		}
 
-		if ( is_dir( $base_dir ) ) {
-			$extensions  = self::MONITOR_EXTENSIONS;
-			$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', $extensions ) ) . ')$/i';
+		$extensions  = self::MONITOR_EXTENSIONS;
+		$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', $extensions ) ) . ')$/i';
 
+		if ( is_dir( $base_dir ) ) {
 			$iterator = new RecursiveIteratorIterator(
 				new RecursiveDirectoryIterator( $base_dir, RecursiveDirectoryIterator::SKIP_DOTS ),
 				RecursiveIteratorIterator::SELF_FIRST
@@ -3251,10 +3471,21 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 				$snapshot[ $relative ] = hash_file( 'sha256', $full_path );
 			}
+		} elseif ( is_file( $base_dir ) && preg_match( $ext_pattern, $plugin_slug ) ) {
+			$snapshot[ $own_key ] = hash_file( 'sha256', $base_dir );
+		}
+
+		$versions = $store['versions'];
+		$current  = $this->plugin_versions();
+
+		if ( isset( $current[ $plugin_slug ] ) ) {
+			$versions[ $plugin_slug ] = $current[ $plugin_slug ];
+		} else {
+			unset( $versions[ $plugin_slug ] );
 		}
 
 		// A rebuild is not a scan: keep the recorded scan time untouched.
-		self::save_file_snapshot( $snapshot, $store['time'] );
+		self::save_file_snapshot( $snapshot, $store['time'], $versions );
 	}
 
 	/**
@@ -3262,7 +3493,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * that WordPress just legitimately updated. If nothing remains queued,
 	 * delete the transient and cancel the pending dispatch event.
 	 *
-	 * @param string $plugin_slug Plugin directory name under wp-content/plugins.
+	 * @param string $plugin_slug Plugin directory (or root file) name under wp-content/plugins.
 	 */
 	protected function clear_pending_alerts_for_plugin( $plugin_slug ) {
 		$pending = get_transient( self::FILE_MONITOR_PENDING );
@@ -3271,11 +3502,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return;
 		}
 
-		$prefix  = 'plugins/' . $plugin_slug . '/';
 		$changed = false;
 
 		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
 			if ( empty( $pending[ $type ] ) || ! is_array( $pending[ $type ] ) ) {
+				$pending[ $type ] = array();
 				continue;
 			}
 
@@ -3284,8 +3515,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$pending[ $type ] = array_values(
 				array_filter(
 					$pending[ $type ],
-					static function ( $path ) use ( $prefix ) {
-						return 0 !== strpos( $path, $prefix );
+					static function ( $path ) use ( $plugin_slug ) {
+						return self::plugin_slug_for_path( $path ) !== $plugin_slug;
 					}
 				)
 			);
