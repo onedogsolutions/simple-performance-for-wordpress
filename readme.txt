@@ -3,8 +3,8 @@ Contributors: One Dog Solutions
 Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
-Requires PHP: 8.0
-Stable tag: 2.20.0
+Requires PHP: 8.1
+Stable tag: 2.20.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.20.1 =
+* Changed: the minimum supported PHP version is now 8.1, up from 8.0. No functional change from 2.20.0 — the plugin's committed dependency lock has required 8.1 since PHPUnit 10 landed, so "Requires PHP: 8.0" was a claim nothing verified. WordPress will not offer this update to a site still on PHP 8.0; such a site keeps 2.20.0. PHP 8.0 reached end of security support in November 2023.
 
 = 2.20.0 =
 * Changed: the file integrity monitor now keeps a verified baseline. It only moves when something actually verifies the files: the update package WordPress downloaded, wordpress.org's published checksums, or an administrator clicking Mark as verified (which records who and when). Changes nothing has verified stay listed on the Hardening tab until someone reviews them.

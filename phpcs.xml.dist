@@ -20,7 +20,7 @@
 	</rule>
 
 	<!-- PHP cross-version compatibility. -->
-	<config name="testVersion" value="8.0-" />
+	<config name="testVersion" value="8.1-" />
 	<rule ref="PHPCompatibilityWP" />
 
 	<!-- Text domain enforcement. -->
