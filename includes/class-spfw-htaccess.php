@@ -553,8 +553,9 @@ class SPFW_Htaccess {
 		// The stored hash is still refreshed, which also repairs an install
 		// whose content is correct but whose recorded hash drifted.
 		$payload_hash = sha1( $payload );
+		$parts        = self::split_own_file( $config['path'] );
 
-		if ( file_exists( $config['path'] ) && sha1_file( $config['path'] ) === $payload_hash ) {
+		if ( $parts['block'] === $payload ) {
 			if ( SPFW_Settings::value( 'hardening', $config['hash'], '' ) !== $payload_hash ) {
 				SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => $payload_hash ) ) );
 			}
@@ -573,13 +574,79 @@ class SPFW_Htaccess {
 			wp_mkdir_p( $dir );
 		}
 
-		$written = $fs->put_contents( $config['path'], $payload, 0644 );
+		// Rules another tool keeps in the same file (a security plugin, the
+		// host panel, an image optimizer's WebP rewrites) are preserved: only
+		// our block is replaced in place, or put first when it is absent so our
+		// deny is evaluated before anything else. Overwriting the whole file
+		// used to start a tug-of-war with that tool on every Restore.
+		$contents = $payload;
+
+		if ( '' !== trim( $parts['before'] . $parts['after'] ) ) {
+			$contents = '' !== $parts['block']
+				? $parts['before'] . $payload . $parts['after']
+				: $payload . "\n" . ltrim( $parts['after'], "\n" );
+		}
+
+		$written = $fs->put_contents( $config['path'], $contents, 0644 );
 
 		if ( $written ) {
-			SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => sha1( $payload ) ) ) );
+			SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => $payload_hash ) ) );
 		}
 
 		return (bool) $written;
+	}
+
+	/**
+	 * Split a whole-file target into our BEGIN/END block and whatever else
+	 * the file holds before and after it.
+	 *
+	 * Our payload carries its own markers, so the block is the exact bytes
+	 * from the BEGIN line through the END line and its newline — byte-equal
+	 * to payload() when untouched. A file with no block puts everything in
+	 * `after`.
+	 *
+	 * @param string $path File path.
+	 * @return array{before:string,block:string,after:string}
+	 */
+	private static function split_own_file( $path ) {
+		$parts = array(
+			'before' => '',
+			'block'  => '',
+			'after'  => '',
+		);
+
+		if ( ! file_exists( $path ) ) {
+			return $parts;
+		}
+
+		$contents = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		if ( ! is_string( $contents ) ) {
+			return $parts;
+		}
+
+		$begin     = '# BEGIN ' . self::MARKER;
+		$end       = '# END ' . self::MARKER;
+		$begin_pos = strpos( $contents, $begin );
+		$end_pos   = false === $begin_pos ? false : strpos( $contents, $end, $begin_pos );
+
+		if ( false === $end_pos ) {
+			$parts['after'] = $contents;
+
+			return $parts;
+		}
+
+		$block_end = $end_pos + strlen( $end );
+
+		if ( "\n" === substr( $contents, $block_end, 1 ) ) {
+			++$block_end;
+		}
+
+		$parts['before'] = substr( $contents, 0, $begin_pos );
+		$parts['block']  = substr( $contents, $begin_pos, $block_end - $begin_pos );
+		$parts['after']  = (string) substr( $contents, $block_end );
+
+		return $parts;
 	}
 
 	/**
@@ -655,7 +722,49 @@ class SPFW_Htaccess {
 		$block_start = $begin_pos + strlen( $begin );
 		$block       = substr( $contents, $block_start, $end_pos - $block_start );
 
-		return trim( $block, "\n" );
+		return self::strip_marker_instructions( trim( $block, "\n" ) );
+	}
+
+	/**
+	 * Drop the instruction comments WordPress injects inside marker blocks.
+	 *
+	 * Since WP 5.3 insert_with_markers() writes three comment lines of its own
+	 * between the BEGIN marker and the content ("The directives (lines)
+	 * between ... are / dynamically generated ... / Any changes ..."). This
+	 * extractor used to return them verbatim, so the stored integrity hash and
+	 * every comparison ran over content the payload generator never emits:
+	 * needs_resync() could then never converge, and reconcile() rewrote the
+	 * root .htaccess on every single admin request. Core's own
+	 * extract_from_markers() is NOT a drop-in replacement: it also drops blank
+	 * lines, which our payload carries between rule groups.
+	 *
+	 * The strip keys off the first line, which names both markers — and marker
+	 * names are never translated, so a localized instruction body is still
+	 * removed. Only a LEADING run of comment lines is stripped, and only when
+	 * that first line matches: our own payloads never open with a comment,
+	 * while a foreign edit elsewhere in the block still reads 'altered'.
+	 *
+	 * @param string $block Extracted block content (markers already removed).
+	 * @return string Block without the injected instruction comments.
+	 */
+	private static function strip_marker_instructions( $block ) {
+		if ( '' === $block ) {
+			return $block;
+		}
+
+		$lines   = explode( "\n", $block );
+		$marker  = preg_quote( self::MARKER, '/' );
+		$lead_in = '/^# .*"BEGIN ' . $marker . '".*"END ' . $marker . '"/';
+
+		if ( ! isset( $lines[0] ) || 1 !== preg_match( $lead_in, $lines[0] ) ) {
+			return $block;
+		}
+
+		while ( isset( $lines[0] ) && '' !== $lines[0] && '#' === $lines[0][0] ) {
+			array_shift( $lines );
+		}
+
+		return implode( "\n", $lines );
 	}
 
 	/**
@@ -689,7 +798,13 @@ class SPFW_Htaccess {
 
 		$hash = SPFW_Settings::value( 'hardening', $config['hash'], '' );
 
-		if ( '' === $hash || sha1_file( $config['path'] ) !== $hash ) {
+		if ( '' === $hash ) {
+			return false;
+		}
+
+		$parts = self::split_own_file( $config['path'] );
+
+		if ( '' === $parts['block'] || sha1( $parts['block'] ) !== $hash ) {
 			return false;
 		}
 
@@ -699,13 +814,18 @@ class SPFW_Htaccess {
 			return false;
 		}
 
-		$deleted = $fs->delete( $config['path'] );
+		// Leave another tool's rules where they are; delete the file only when
+		// our block was all it held.
+		$rest = $parts['before'] . $parts['after'];
+		$done = '' === trim( $rest )
+			? $fs->delete( $config['path'] )
+			: $fs->put_contents( $config['path'], $rest, 0644 );
 
-		if ( $deleted ) {
+		if ( $done ) {
 			SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => '' ) ) );
 		}
 
-		return (bool) $deleted;
+		return (bool) $done;
 	}
 
 	/**
@@ -780,30 +900,50 @@ class SPFW_Htaccess {
 		}
 
 		if ( 'marker_block' === $config['mode'] ) {
-			return self::status_marker_block( $config, $hardening );
+			return self::status_marker_block( $config, $hardening, $target );
 		}
 
 		if ( ! file_exists( $config['path'] ) ) {
 			return 'missing';
 		}
 
-		$stored = isset( $hardening[ $config['hash'] ] ) ? $hardening[ $config['hash'] ] : '';
+		// Integrity is judged on our own BEGIN/END block, not the whole file.
+		// Another tool adding its rules beside ours (a security plugin, the
+		// host panel, an image optimizer's WebP rewrites) changes the file but
+		// not our protection, and used to raise "modified" forever. Whether the
+		// server still applies the deny with those rules present is a separate
+		// question the enforcement probe answers by requesting a canary.
+		$stored    = isset( $hardening[ $config['hash'] ] ) ? $hardening[ $config['hash'] ] : '';
+		$block     = self::split_own_file( $config['path'] )['block'];
+		$block_sha = '' !== $block ? sha1( $block ) : '';
 
-		if ( sha1_file( $config['path'] ) !== $stored ) {
-			return 'altered';
+		if ( '' !== $block_sha && $block_sha === $stored ) {
+			return 'ok';
 		}
 
-		return 'ok';
+		// Self-heal a stale stored hash when our block is exactly the payload
+		// the current settings require: the content is correct, only the
+		// recorded hash drifted (a settings write that lost a race, a write
+		// path that stored nothing). A block someone edited, or a file whose
+		// block is gone, still differs from the payload and stays 'altered'.
+		if ( '' !== $block && $block === self::payload( $target ) ) {
+			SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => $block_sha ) ) );
+
+			return 'ok';
+		}
+
+		return 'altered';
 	}
 
 	/**
 	 * Status check for a marker-block target.
 	 *
-	 * @param array $config    Target config.
-	 * @param array $hardening Hardening settings group.
+	 * @param array  $config    Target config.
+	 * @param array  $hardening Hardening settings group.
+	 * @param string $target    Target key, for the payload self-heal compare.
 	 * @return string
 	 */
-	private static function status_marker_block( $config, $hardening ) {
+	private static function status_marker_block( $config, $hardening, $target = 'root' ) {
 		$block = self::extract_marker_block( $config['path'] );
 
 		if ( '' === $block ) {
@@ -813,6 +953,17 @@ class SPFW_Htaccess {
 		$stored = isset( $hardening[ $config['hash'] ] ) ? $hardening[ $config['hash'] ] : '';
 
 		if ( '' === $stored || sha1( $block ) !== $stored ) {
+			// Same self-heal as the own_file branch: a block whose content equals
+			// the payload the current toggles require is correct by definition,
+			// even when the stored hash describes an older shape of it — notably
+			// the pre-2.17.0 hash, which was taken over the block INCLUDING the
+			// instruction comments WordPress injects inside the markers.
+			if ( rtrim( self::payload( $target ), "\n" ) === $block ) {
+				SPFW_Settings::update( array( 'hardening' => array( $config['hash'] => sha1( $block ) ) ) );
+
+				return 'ok';
+			}
+
 			return 'altered';
 		}
 
@@ -888,11 +1039,7 @@ class SPFW_Htaccess {
 			return rtrim( $expected, "\n" ) !== $block;
 		}
 
-		if ( ! file_exists( $config['path'] ) ) {
-			return false;
-		}
-
-		return sha1_file( $config['path'] ) !== sha1( $expected );
+		return self::split_own_file( $config['path'] )['block'] !== $expected;
 	}
 
 	/**

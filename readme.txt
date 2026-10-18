@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.15.1
+Stable tag: 2.20.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -105,8 +105,43 @@ No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are
 
 == Changelog ==
 
-= 2.15.1 =
-* Changed: the minimum supported PHP version is now 8.1, up from 8.0. No functional change from 2.15.0 — the plugin's own code already ran on 8.0, but its committed dependency lock has required 8.1 since PHPUnit 10 landed, so "Requires PHP: 8.0" was a claim nothing verified. WordPress will not offer this update to a site still on PHP 8.0; such a site keeps 2.15.0, which works. PHP 8.0 reached end of security support in November 2023.
+= 2.20.1 =
+* Changed: the minimum supported PHP version is now 8.1, up from 8.0. No functional change from 2.20.0 — the plugin's committed dependency lock has required 8.1 since PHPUnit 10 landed, so "Requires PHP: 8.0" was a claim nothing verified. WordPress will not offer this update to a site still on PHP 8.0; such a site keeps 2.20.0. PHP 8.0 reached end of security support in November 2023.
+
+= 2.20.0 =
+* Changed: the file integrity monitor now keeps a verified baseline. It only moves when something actually verifies the files: the update package WordPress downloaded, wordpress.org's published checksums, or an administrator clicking Mark as verified (which records who and when). Changes nothing has verified stay listed on the Hardening tab until someone reviews them.
+* Added: every plugin update installed through WordPress' updater — including premium plugins, auto-updates, MainWP and WP-CLI — is checked against the package that was downloaded. Matching files are accepted silently; files that differ from the package trigger an immediate alert.
+* Added: updates copied in outside the updater are checked against wordpress.org's published checksums for free plugins. The request names only the plugin and version, like WordPress' own update checks, and can be turned off with the `spfw_file_monitor_wporg_checksums` filter.
+* Changed: a plugin whose version changed but whose files nothing could verify (for example a premium plugin uploaded by SFTP) is no longer silent. It sends one short "update could not be verified" email per version, separate from integrity alerts, and waits on the Hardening tab. Editing a plugin's files and changing its version number no longer hides the change.
+* Added: Mark as verified on the Hardening tab, for everything listed at once or one plugin at a time. It only accepts exactly what the review showed; if the files changed since, it asks you to scan again.
+* Fixed: Scan now no longer accepts what it finds as the new baseline, so clicking it can no longer make a tampered file look known-good.
+* Changed: each change is emailed once instead of on every twice-daily scan while it waits for review.
+
+= 2.19.0 =
+* Fixed: WordPress auto-updates (and any other single-plugin update) no longer trigger a file integrity alert hours later. A single update reports the plugin under a different key than a bulk update, which the monitor did not read, so the file baseline was never rebuilt and the next twice-daily scan emailed the update as an unexplained change.
+* Added: the monitor now records each plugin's version with its file baseline and recognizes an update by the version change, however it was applied — auto-update, MainWP, WP-CLI, SFTP, or a git deploy. Files that change in a plugin whose version did not move are still reported; that is the tamper signal.
+* Added: plugin installs (including "replace with uploaded") and deletions update the baseline immediately, so they no longer show up as new or removed files at the next scan.
+* Fixed: the first scan after enabling the monitor only records a baseline instead of reporting every file on the site as new.
+* Changed: inert "Silence is golden" `index.php` stubs that plugins drop into uploads folders no longer trigger the immediate uploads alert.
+* Changed: alert emails no longer label every file "[NOT ON WHITELIST]". The PHP whitelist controls which files may be requested over HTTP; it never had anything to do with whether a file changed.
+* Fixed: the "a directory hardening file has been modified" notice no longer fires when another plugin or your host adds its own rules to `wp-content/uploads/.htaccess` or `wp-content/plugins/.htaccess`. Integrity is now checked on this plugin's own marked block; an edit inside that block is still reported. Restore and settings changes now replace only that block and keep the other tool's rules, instead of overwriting the whole file.
+
+= 2.18.0 =
+* Fixed: the "a directory hardening file is missing or has been modified" admin notice (and the uploads PHP-guard revert notice) now shows to Administrator accounts only. It renders on every admin screen and names absolute server paths, but nothing in it is actionable for anyone without the `manage_options` capability the linked Restore action requires — editors, shop managers, and other dashboard users no longer see it.
+* Added: that notice can now be dismissed. When another security plugin or your host keeps its own rules in one of these files, the report is accurate — the file genuinely differs from ours — so instead of re-appearing on every admin page load, it now stays dismissed for the same set of affected files until the set changes or a few days pass, and the notice says another tool may legitimately manage the file. The default snooze window (three days) is filterable via `spfw_hardening_notice_snooze`.
+
+= 2.17.0 =
+* Fixed: the file integrity monitor no longer sends repeated alerts about files that never actually changed on the server. The scan baseline (a sha256 map of every monitored PHP file) lived inside the plugin's single shared settings option, so every settings write from any feature was a whole-option read-modify-write; two overlapping requests could resurrect a stale baseline, and the next scan re-reported the same diff — including transient mid-deploy files that no longer existed. The baseline now lives in its own dedicated option, out of that race entirely, and the shared option drops from megabytes back to a few kilobytes.
+* Fixed: the root `.htaccess` no longer gets rewritten on every admin request. Since WordPress 5.3, `insert_with_markers()` injects instruction comment lines inside the marker block that the plugin's own payload generator never emits, so the integrity check saw a permanent mismatch and re-synced the file on each page load (a green "re-synced" notice every time, plus a self-check loopback and enforcement probe storm). The extractor now strips those injected comments, and a stale stored hash whose file still matches the current payload self-heals silently instead of reporting a false "modified".
+* Changed: the "a directory hardening file is missing or has been modified" admin notice now names every affected file and its state (missing or modified), so you can verify the report on the server instead of taking it on faith. The link to the Hardening tab is unchanged.
+
+= 2.16.0 =
+* Changed: the file integrity monitor is now directory-aware, cutting false-positive email alerts during legitimate bulk and background plugin updates without loosening security monitoring.
+* Added: `wp-content/uploads` is treated as Strict Mode. Legitimate plugins and themes rarely place executable PHP there, so any new, modified, or removed PHP file is emailed immediately, with no delay.
+* Changed: `wp-content/plugins` is treated as Smart Mode. It is expected to churn during updates, so changes there are queued for a 15-minute debounce window instead of being emailed on sight, and are only sent if nothing cleared them in the meantime.
+* Added: the monitor now hooks `upgrader_process_complete`. When WordPress finishes a legitimate plugin update, the sha256 file baseline for that plugin's directory is rebuilt on the spot so the next scan sees no diff, and any queued alert for that plugin is discarded before it can be sent.
+* Changed: queued (plugins) alerts use a separate one-per-hour rate limit from immediate (uploads) alerts, so an uploads alert firing first can no longer suppress a plugins alert coming out of the debounce window moments later.
+* Fixed: disabling the file integrity monitor now also cancels any in-flight debounce, so a queued alert and its one-off dispatch event no longer outlive the toggle that armed them.
 
 = 2.15.0 =
 * Fixed: on nginx the plugin wrote `.htaccess` files nothing reads, behind a UI that said the directory was protected. nginx has no per-directory configuration file and never will — honoring one would cost a filesystem walk on every request — so the file was inert and the badge was a false claim. The plugin now detects the web server (Apache, LiteSpeed, OpenLiteSpeed, nginx, IIS) and writes only what that server actually honors.

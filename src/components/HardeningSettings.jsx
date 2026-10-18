@@ -774,6 +774,8 @@ export default function HardeningSettings( {
 	fileScanResults,
 	onScanFiles,
 	isScanning,
+	onVerifyFiles,
+	isVerifying,
 	hardeningEnforcement,
 	uploadsEnforcement,
 	rootEnforcement,
@@ -1060,6 +1062,8 @@ export default function HardeningSettings( {
 				fileScanResults={ fileScanResults }
 				onScanFiles={ onScanFiles }
 				isScanning={ isScanning }
+				onVerifyFiles={ onVerifyFiles }
+				isVerifying={ isVerifying }
 				adminEmail={ adminEmail }
 			/>
 

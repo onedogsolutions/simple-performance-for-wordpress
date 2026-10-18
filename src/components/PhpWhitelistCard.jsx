@@ -1,8 +1,9 @@
-import { useEffect, useState } from '@wordpress/element';
+import { useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import Toggle from './Toggle';
+import FileReviewPanel from './FileReviewPanel';
 
 // Well-known plugin paths that commonly execute PHP from wp-content/plugins/.
 // Offered as a convenience "Pre-fill" action, mirroring the CSP builder's
@@ -65,6 +66,8 @@ export default function PhpWhitelistCard( {
 	fileScanResults,
 	onScanFiles,
 	isScanning,
+	onVerifyFiles,
+	isVerifying,
 	adminEmail,
 	suggestions,
 	autoAllowed,
@@ -81,9 +84,6 @@ export default function PhpWhitelistCard( {
 	);
 	const [ inputPath, setInputPath ] = useState( '' );
 	const [ showPrefillConfirm, setShowPrefillConfirm ] = useState( false );
-	// The results list can be very long (a first scan reports every tracked
-	// file), so it stays collapsed behind a "Show file list" button.
-	const [ showFileList, setShowFileList ] = useState( false );
 
 	const trimmedInput = inputPath.trim().replace( /\\/g, '/' ).replace( /^\/+/, '' );
 	const isDuplicate = whitelist.includes( trimmedInput );
@@ -129,20 +129,6 @@ export default function PhpWhitelistCard( {
 	const monitorEmail = hardening.file_monitor_email || '';
 	const lastScan = hardening.file_monitor_last_scan || 0;
 	const snapshotCount = hardening.file_monitor_snapshot_count || 0;
-
-	const scanResult = fileScanResults || null;
-	const hasChanges =
-		scanResult &&
-		( scanResult.added.length > 0 ||
-			scanResult.modified.length > 0 ||
-			scanResult.removed.length > 0 );
-
-	// Collapse the list again whenever a fresh scan result arrives.
-	useEffect( () => {
-		setShowFileList( false );
-	}, [ fileScanResults ] );
-
-	const isOnWhitelist = ( path ) => whitelist.includes( path );
 
 	return (
 		<SettingsCard
@@ -448,171 +434,17 @@ export default function PhpWhitelistCard( {
 						</div>
 					</SettingsRow>
 
-					{ hasChanges && (
-						<SettingsRow
-							title={ __(
-								'Scan results',
-								'simple-performance-for-wordpress'
-							) }
-							description={ __(
-								'Changes detected since the previous scan. Entries marked "not on whitelist" are not in the PHP execution whitelist above.',
-								'simple-performance-for-wordpress'
-							) }
-						>
-							<div className="w-full space-y-3">
-								<div className="flex items-center justify-between gap-x-3">
-									<p className="text-sm text-gray-700">
-										{ sprintf(
-											/* translators: %1$d: new files, %2$d: modified files, %3$d: removed files */
-											__(
-												'%1$d new, %2$d modified, %3$d removed file(s) since the last scan.',
-												'simple-performance-for-wordpress'
-											),
-											scanResult.added.length,
-											scanResult.modified.length,
-											scanResult.removed.length
-										) }
-									</p>
-									<button
-										type="button"
-										onClick={ () =>
-											setShowFileList(
-												( prev ) => ! prev
-											)
-										}
-										className="shrink-0 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-									>
-										{ showFileList
-											? __(
-													'Hide file list',
-													'simple-performance-for-wordpress'
-											  )
-											: __(
-													'Show file list',
-													'simple-performance-for-wordpress'
-											  ) }
-									</button>
-								</div>
-
-								{ showFileList &&
-									scanResult.added.length > 0 && (
-									<div>
-										<h4 className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">
-											{ __(
-												'New files',
-												'simple-performance-for-wordpress'
-											) }
-										</h4>
-										<ul className="space-y-0.5">
-											{ scanResult.added.map(
-												( path ) => (
-													<li
-														key={ path }
-														className={ `text-xs font-mono ${
-															isOnWhitelist(
-																path
-															)
-																? 'text-gray-600'
-																: 'text-amber-700 bg-amber-50 px-2 py-0.5 rounded'
-														}` }
-													>
-														+ { path }
-														{ ! isOnWhitelist(
-															path
-														) &&
-															' ' +
-																__(
-																	'[not on whitelist]',
-																	'simple-performance-for-wordpress'
-																) }
-													</li>
-												)
-											) }
-										</ul>
-									</div>
-								) }
-
-								{ showFileList &&
-									scanResult.modified.length > 0 && (
-									<div>
-										<h4 className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">
-											{ __(
-												'Modified files',
-												'simple-performance-for-wordpress'
-											) }
-										</h4>
-										<ul className="space-y-0.5">
-											{ scanResult.modified.map(
-												( path ) => (
-													<li
-														key={ path }
-														className={ `text-xs font-mono ${
-															isOnWhitelist(
-																path
-															)
-																? 'text-gray-600'
-																: 'text-amber-700 bg-amber-50 px-2 py-0.5 rounded'
-														}` }
-													>
-														~ { path }
-														{ ! isOnWhitelist(
-															path
-														) &&
-															' ' +
-																__(
-																	'[not on whitelist]',
-																	'simple-performance-for-wordpress'
-																) }
-													</li>
-												)
-											) }
-										</ul>
-									</div>
-								) }
-
-								{ showFileList &&
-									scanResult.removed.length > 0 && (
-									<div>
-										<h4 className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-1">
-											{ __(
-												'Removed files',
-												'simple-performance-for-wordpress'
-											) }
-										</h4>
-										<ul className="space-y-0.5">
-											{ scanResult.removed.map(
-												( path ) => (
-													<li
-														key={ path }
-														className="text-xs font-mono text-gray-600"
-													>
-														- { path }
-													</li>
-												)
-											) }
-										</ul>
-									</div>
-								) }
-							</div>
-						</SettingsRow>
-					) }
-
-					{ scanResult && ! hasChanges && (
-						<SettingsRow
-							title={ __(
-								'Scan results',
-								'simple-performance-for-wordpress'
-							) }
-							description=""
-						>
-							<p className="text-sm text-green-600">
-								{ __(
-									'No changes detected since the last scan.',
-									'simple-performance-for-wordpress'
-								) }
-							</p>
-						</SettingsRow>
-					) }
+					<FileReviewPanel
+						pending={ hardening.file_monitor_pending }
+						verified={ hardening.file_monitor_verified }
+						autoVerified={
+							fileScanResults
+								? fileScanResults.auto_verified
+								: null
+						}
+						onVerify={ onVerifyFiles }
+						isVerifying={ isVerifying }
+					/>
 				</>
 			) }
 		</SettingsCard>

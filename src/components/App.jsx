@@ -65,6 +65,7 @@ export default function App() {
 	const [ showPresetConfirm, setShowPresetConfirm ] = useState( null );
 	const [ fileScanResults, setFileScanResults ] = useState( null );
 	const [ isScanning, setIsScanning ] = useState( false );
+	const [ isVerifying, setIsVerifying ] = useState( false );
 	const [ isVerifyingHtaccess, setIsVerifyingHtaccess ] = useState( false );
 	const [ removingFile, setRemovingFile ] = useState( '' );
 	const fileInputRef = useRef( null );
@@ -407,6 +408,40 @@ export default function App() {
 					err.message ||
 						__(
 							'File scan failed.',
+							'simple-performance-for-wordpress'
+						),
+					'error'
+				);
+			} );
+	};
+
+	// Mark as verified: accept the reviewed changes for a scope ('all' or a
+	// plugin slug). The signature is the one the last scan returned for that
+	// scope; the server refuses (409) if the files changed since, so nothing is
+	// vouched for that the admin did not see.
+	const handleVerifyFiles = ( scope, signature ) => {
+		setIsVerifying( true );
+
+		apiFetch( {
+			path: '/spfw/v1/settings/verify-files',
+			method: 'POST',
+			data: { scope, signature },
+		} )
+			.then( ( data ) => {
+				mergeServerSettings( data );
+				setFileScanResults( data.scan_result || null );
+				setIsVerifying( false );
+				showToast(
+					__( 'Marked as verified.', 'simple-performance-for-wordpress' ),
+					'success'
+				);
+			} )
+			.catch( ( err ) => {
+				setIsVerifying( false );
+				showToast(
+					err.message ||
+						__(
+							'Could not mark as verified.',
 							'simple-performance-for-wordpress'
 						),
 					'error'
@@ -821,6 +856,8 @@ export default function App() {
 								fileScanResults={ fileScanResults }
 								onScanFiles={ handleScanFiles }
 								isScanning={ isScanning }
+								onVerifyFiles={ handleVerifyFiles }
+								isVerifying={ isVerifying }
 								hardeningEnforcement={
 									settings.hardening_enforcement
 								}

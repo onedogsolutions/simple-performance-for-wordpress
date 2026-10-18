@@ -208,6 +208,29 @@ class SPFW_Rest_Settings {
 			)
 		);
 
+		// Mark as verified: accept the reviewed file changes for a scope into
+		// the verified baseline. The signature proves the admin saw exactly
+		// the set being accepted; a mismatch returns 409.
+		register_rest_route(
+			self::NAMESPACE_,
+			'/settings/verify-files',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'verify_files' ),
+				'permission_callback' => array( $this, 'check_permissions' ),
+				'args'                => array(
+					'signature' => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'scope'     => array(
+						'type'    => 'string',
+						'default' => 'all',
+					),
+				),
+			)
+		);
+
 		// .htaccess enforcement verification: probe whether the web server
 		// actually applies the hardening rules (a file can be intact yet inert
 		// on a vhost that does not honor .htaccess) and cache the verdict.
@@ -321,10 +344,30 @@ class SPFW_Rest_Settings {
 		// Per-directive source-token cap, so the builder can warn as a directive
 		// approaches it instead of the sanitizer silently truncating on save.
 		$settings['csp_max_tokens'] = SPFW_Settings::CSP_MAX_TOKENS;
-		// File monitor metadata for the Hardening tab UI.
-		$settings['file_monitor_last_scan']      = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
-		$fm_snapshot                             = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
-		$settings['file_monitor_snapshot_count'] = is_array( $fm_snapshot ) ? count( $fm_snapshot ) : 0;
+		// File monitor metadata for the Hardening tab UI. Read from the
+		// dedicated snapshot option (never the shared settings option — see
+		// SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION) and injected
+		// into both the top level and the hardening group, because the UI
+		// reads the group copy while older code read the top level.
+		$fm_snapshot                             = SPFW_Module_Hardening::get_file_snapshot();
+		$settings['file_monitor_last_scan']      = $fm_snapshot['time'];
+		$settings['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
+
+		if ( ! isset( $settings['hardening'] ) || ! is_array( $settings['hardening'] ) ) {
+			$settings['hardening'] = array();
+		}
+
+		$settings['hardening']['file_monitor_last_scan']      = $fm_snapshot['time'];
+		$settings['hardening']['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
+
+		// What the last scan left for review, and who last verified, so the
+		// tab shows outstanding changes without anyone running a scan.
+		$settings['hardening']['file_monitor_pending']  = array(
+			'unexplained' => $fm_snapshot['pending']['unexplained'],
+			'updates'     => $fm_snapshot['pending']['updates'],
+			'signatures'  => $fm_snapshot['signatures'],
+		);
+		$settings['hardening']['file_monitor_verified'] = self::describe_verification( $fm_snapshot['verified'] );
 
 		// Enforcement is a separate dimension from the integrity status() above:
 		// status() proves a file is present and matches the hash we stored,
@@ -1388,6 +1431,8 @@ class SPFW_Rest_Settings {
 		unset( $settings['hardening']['cache_purged'] );
 		unset( $settings['hardening']['file_monitor_snapshot'] );
 		unset( $settings['hardening']['file_monitor_last_scan'] );
+		unset( $settings['hardening']['file_monitor_pending'] );
+		unset( $settings['hardening']['file_monitor_verified'] );
 		unset( $settings['fonts']['discovered'] );
 		unset( $settings['fonts']['last_scan'] );
 		unset( $settings['fonts']['needs_rescan'] );
@@ -1433,6 +1478,8 @@ class SPFW_Rest_Settings {
 		unset( $incoming['hardening']['htaccess_enforcement'] );
 		unset( $incoming['hardening']['file_monitor_snapshot'] );
 		unset( $incoming['hardening']['file_monitor_last_scan'] );
+		unset( $incoming['hardening']['file_monitor_pending'] );
+		unset( $incoming['hardening']['file_monitor_verified'] );
 		unset( $incoming['fonts']['discovered'] );
 		unset( $incoming['fonts']['last_scan'] );
 		unset( $incoming['fonts']['needs_rescan'] );
@@ -1773,6 +1820,57 @@ class SPFW_Rest_Settings {
 		$response->set_data( $data );
 
 		return $response;
+	}
+
+	/**
+	 * POST callback: Mark as verified for a scope ('all', 'uploads', or a
+	 * plugin slug), then return the fresh scan plus updated settings.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function verify_files( $request ) {
+		$scope = sanitize_text_field( (string) $request->get_param( 'scope' ) );
+		$scope = '' !== $scope ? $scope : 'all';
+
+		if ( 'all' !== $scope && 'uploads' !== $scope && ! preg_match( '/^[A-Za-z0-9._-]+$/', $scope ) ) {
+			return new WP_Error( 'spfw_bad_scope', __( 'Unknown verification scope.', 'simple-performance-for-wordpress' ), array( 'status' => 400 ) );
+		}
+
+		$module = new SPFW_Module_Hardening();
+		$result = $module->verify_files( (string) $request->get_param( 'signature' ), $scope, get_current_user_id() );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$response            = $this->get_settings();
+		$data                = $response->get_data();
+		$data['scan_result'] = $result;
+		$response->set_data( $data );
+
+		return $response;
+	}
+
+	/**
+	 * The last verification event, with a display name instead of a user ID.
+	 *
+	 * @param array $verified Stored {time, user_id, source}.
+	 * @return array{time:int,source:string,user:string}
+	 */
+	private static function describe_verification( array $verified ) {
+		$user = '';
+
+		if ( ! empty( $verified['user_id'] ) && function_exists( 'get_userdata' ) ) {
+			$data = get_userdata( (int) $verified['user_id'] );
+			$user = $data ? (string) $data->display_name : '';
+		}
+
+		return array(
+			'time'   => isset( $verified['time'] ) ? absint( $verified['time'] ) : 0,
+			'source' => isset( $verified['source'] ) ? (string) $verified['source'] : '',
+			'user'   => $user,
+		);
 	}
 
 	/**

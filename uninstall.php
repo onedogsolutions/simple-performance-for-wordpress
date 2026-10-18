@@ -128,6 +128,12 @@ function spfw_uninstall_cleanup_site() {
 	}
 
 	delete_option( 'spfw_settings' );
+	// The file-monitor snapshot lives in its own option since 2.17.0 (it moved
+	// out of spfw_settings to escape a lost-update race); delete both.
+	delete_option( 'spfw_file_monitor_snapshot' );
+	// The hardening-notice snooze (2.18.0) is transient dismissal state in its
+	// own option; it goes too.
+	delete_option( 'spfw_hardening_notice_snoozed' );
 }
 
 if ( is_multisite() ) {

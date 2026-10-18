@@ -1123,4 +1123,279 @@ class Htaccess_Enforcement_Test extends TestCase {
 			SPFW_Module_Hardening::SYNTHETIC_CANARY
 		);
 	}
+
+	// ---------------------------------------------------------------------
+	// Marker-block convergence: WP's injected instruction comments.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * The three comment lines insert_with_markers() has injected inside every
+	 * marker block since WP 5.3 — the asymmetry that made needs_resync('root')
+	 * permanently true and rewrote the root .htaccess on every admin request.
+	 *
+	 * @return string[]
+	 */
+	private function core_instruction_lines() {
+		$marker = SPFW_Htaccess::MARKER;
+
+		return array(
+			'# The directives (lines) between "BEGIN ' . $marker . '" and "END ' . $marker . '" are',
+			'# dynamically generated, and can only be modified through WordPress filters.',
+			'# Any changes to the directives between these markers will be overwritten.',
+		);
+	}
+
+	/**
+	 * Write a root .htaccess exactly as core insert_with_markers() leaves it:
+	 * BEGIN marker, the three instruction comments, the payload lines, END.
+	 *
+	 * @param string $inner Block content (without markers or instructions).
+	 */
+	private function write_root_marker_block_core_shaped( $inner ) {
+		$lines = array_merge(
+			array( '# BEGIN ' . SPFW_Htaccess::MARKER ),
+			$this->core_instruction_lines(),
+			explode( "\n", $inner ),
+			array( '# END ' . SPFW_Htaccess::MARKER )
+		);
+
+		file_put_contents( $this->root_path, implode( "\n", $lines ) . "\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+	}
+
+	/**
+	 * Call the private extract_marker_block() directly.
+	 *
+	 * @param string $path File to extract from.
+	 * @return string
+	 */
+	private function extract_marker_block( $path ) {
+		$ref = new ReflectionMethod( 'SPFW_Htaccess', 'extract_marker_block' );
+
+		return $ref->invoke( null, $path );
+	}
+
+	/**
+	 * A block written in core's insert_with_markers() shape must extract to
+	 * exactly rtrim(payload): instruction comments stripped, blank lines
+	 * between rule groups preserved (core's own extract_from_markers() drops
+	 * those too, which is why the extractor is ours).
+	 */
+	public function test_extraction_strips_wp_instruction_lines_and_keeps_blank_lines() {
+		$this->set_hardening(
+			array(
+				'protect_sensitive_files' => true,
+				'block_xmlrpc_file'       => true,
+			)
+		);
+
+		$payload = rtrim( SPFW_Htaccess::payload( 'root' ), "\n" );
+
+		// Both groups on means the payload carries a blank line between them —
+		// the round-trip only proves anything if that line survives.
+		$this->assertStringContainsString( "\n\n", $payload, 'fixture needs a blank line to be meaningful' );
+
+		$this->write_root_marker_block_core_shaped( $payload );
+
+		$this->assertSame( $payload, $this->extract_marker_block( $this->root_path ) );
+	}
+
+	/**
+	 * The upgrade shape: the stored hash was taken over the block INCLUDING
+	 * the instruction comments (what the pre-2.17.0 extractor returned), while
+	 * the fixed extractor now returns the stripped block. status() must heal
+	 * the stale hash to 'ok' and needs_resync() must converge to false in the
+	 * same pass — this is the pair that kept reconcile() rewriting the root
+	 * .htaccess on every admin request.
+	 */
+	public function test_upgrade_shaped_stored_hash_self_heals_and_converges() {
+		$this->set_hardening(
+			array(
+				'protect_sensitive_files' => true,
+				'block_xmlrpc_file'       => true,
+			)
+		);
+
+		$payload          = rtrim( SPFW_Htaccess::payload( 'root' ), "\n" );
+		$with_instructions = implode( "\n", $this->core_instruction_lines() ) . "\n" . $payload;
+
+		$this->write_root_marker_block_core_shaped( $payload );
+
+		// The hash a pre-2.17.0 install stored: sha1 of the unstripped block.
+		$this->set_hardening(
+			array(
+				'protect_sensitive_files' => true,
+				'block_xmlrpc_file'       => true,
+				'root_htaccess_hash'      => sha1( $with_instructions ),
+			)
+		);
+
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'root' ), 'a block equal to the payload is not altered' );
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'root' ), 'the perpetual resync loop must converge' );
+
+		// The heal persisted the stripped-block hash, so the next read is a
+		// plain hash match with no payload comparison needed.
+		global $spfw_test_options;
+		$this->assertSame(
+			sha1( $payload ),
+			$spfw_test_options['spfw_settings']['hardening']['root_htaccess_hash'],
+			'the healed hash must be the sha1 of the stripped block'
+		);
+	}
+
+	/**
+	 * own_file self-heal: a plugins/.htaccess whose bytes are exactly the
+	 * current payload but whose stored hash drifted (a settings write that
+	 * lost a race) reads 'ok' and heals the hash, instead of crying 'altered'
+	 * about a perfect file — the false warning the shared-option clobbering
+	 * used to produce.
+	 */
+	public function test_own_file_stale_hash_self_heals_when_disk_matches_payload() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+		file_put_contents( $this->plugins_path, $payload ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'htaccess_hash'    => sha1( 'a stale hash from a clobbered settings write' ),
+			)
+		);
+
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+
+		global $spfw_test_options;
+		$this->assertSame(
+			sha1( $payload ),
+			$spfw_test_options['spfw_settings']['hardening']['htaccess_hash'],
+			'the healed hash must be the sha1 of the file on disk'
+		);
+	}
+
+	/**
+	 * The self-heal must not soften the foreign-edit case: a plugins file
+	 * whose bytes differ from both the stored hash and the current payload is
+	 * still 'altered', and the stale hash is left untouched for Restore.
+	 */
+	public function test_own_file_foreign_edit_stays_altered_and_is_not_healed() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		file_put_contents( $this->plugins_path, "# hand-edited by someone else\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$stale = sha1( 'a stale hash from a clobbered settings write' );
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'htaccess_hash'    => $stale,
+			)
+		);
+
+		$this->assertSame( 'altered', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+
+		global $spfw_test_options;
+		$this->assertSame(
+			$stale,
+			$spfw_test_options['spfw_settings']['hardening']['htaccess_hash'],
+			'a foreign edit must not rewrite the stored hash'
+		);
+	}
+
+	/**
+	 * Another tool adding its own rules beside our block (the
+	 * sanantoniopetsalive.org report) leaves our protection intact: 'ok', no
+	 * resync, and so no notice.
+	 */
+	public function test_own_file_foreign_rules_beside_our_block_read_ok() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$payload = SPFW_Htaccess::payload( 'plugins' );
+		file_put_contents( $this->plugins_path, "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n" . $payload . "\n# trailing host rule\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+	}
+
+	/**
+	 * An edit inside our block is still 'altered', foreign rules or not.
+	 */
+	public function test_own_file_edit_inside_our_block_stays_altered() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$tampered = str_replace( '[F,L]', '[L]', SPFW_Htaccess::payload( 'plugins' ) );
+		file_put_contents( $this->plugins_path, "Options -Indexes\n" . $tampered ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'altered', SPFW_Htaccess::status( 'plugins' ) );
+	}
+
+	/**
+	 * A file another tool replaced wholesale has no block of ours: 'altered',
+	 * and Restore puts our block first while keeping their rules.
+	 */
+	public function test_restore_keeps_foreign_rules_and_puts_our_block_first() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+
+		file_put_contents( $this->plugins_path, "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertSame( 'altered', SPFW_Htaccess::status( 'plugins' ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$contents = file_get_contents( $this->plugins_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$this->assertSame( 0, strpos( $contents, SPFW_Htaccess::payload( 'plugins' ) ) );
+		$this->assertStringContainsString( "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n", $contents );
+		$this->assertSame( 'ok', SPFW_Htaccess::status( 'plugins' ) );
+	}
+
+	/**
+	 * A payload change (whitelist edit) replaces our block in place and
+	 * leaves the surrounding rules byte-for-byte where they were.
+	 */
+	public function test_resync_replaces_our_block_in_place() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$before = "# host rule above\n";
+		$after  = "# host rule below\n";
+		file_put_contents( $this->plugins_path, $before . SPFW_Htaccess::payload( 'plugins' ) . $after ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->set_hardening(
+			array(
+				'plugins_htaccess' => true,
+				'htaccess_hash'    => sha1( SPFW_Htaccess::payload( 'plugins' ) ),
+				'php_whitelist'    => array( 'plugins/some-plugin/endpoint.php' ),
+			)
+		);
+
+		$this->assertTrue( SPFW_Htaccess::needs_resync( 'plugins' ) );
+		$this->assertSame( array( 'plugins' ), SPFW_Htaccess::reconcile() );
+		$this->assertSame(
+			$before . SPFW_Htaccess::payload( 'plugins' ) . $after,
+			file_get_contents( $this->plugins_path ) // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		);
+		$this->assertFalse( SPFW_Htaccess::needs_resync( 'plugins' ) );
+	}
+
+	/**
+	 * Turning the toggle off removes only our block when the file is shared,
+	 * and deletes the file when our block was all it held.
+	 */
+	public function test_remove_leaves_foreign_rules_behind() {
+		$this->set_hardening( array( 'plugins_htaccess' => true ) );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+
+		$foreign = "# BEGIN Other Tool\nOptions -Indexes\n# END Other Tool\n";
+		file_put_contents( $this->plugins_path, SPFW_Htaccess::payload( 'plugins' ) . $foreign ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->assertTrue( SPFW_Htaccess::remove( 'plugins' ) );
+		$this->assertSame( $foreign, file_get_contents( $this->plugins_path ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		file_put_contents( $this->plugins_path, '' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		unlink( $this->plugins_path );
+		$this->assertTrue( SPFW_Htaccess::write( 'plugins' ) );
+		$this->assertTrue( SPFW_Htaccess::remove( 'plugins' ) );
+		$this->assertFileDoesNotExist( $this->plugins_path );
+	}
 }

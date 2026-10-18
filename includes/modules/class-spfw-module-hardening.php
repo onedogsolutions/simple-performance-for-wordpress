@@ -107,6 +107,16 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_CRON = 'spfw_file_monitor_scan';
 
 	/**
+	 * Option holding the dismissed state of the missing/altered hardening
+	 * notice: the offender-set signature and the snooze expiry. Deliberately
+	 * its own option rather than a key inside `spfw_settings` — transient
+	 * dismissal state has no business riding in the shared settings array,
+	 * for the same lost-update and bloat reasons the file-monitor snapshot
+	 * moved out (2.17.0). Stored with autoload off.
+	 */
+	const NOTICE_SNOOZE_OPTION = 'spfw_hardening_notice_snoozed';
+
+	/**
 	 * Hardening settings that change what a rendered page CONTAINS or what
 	 * headers travel with it, as opposed to what the server refuses.
 	 *
@@ -165,11 +175,80 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_COOLDOWN = 'spfw_file_monitor_cooldown';
 
 	/**
+	 * Separate rate-limit key for the debounced (Smart Mode) alert dispatch, so
+	 * an immediate uploads alert never suppresses a queued plugins alert that
+	 * fires out of the delay window moments later.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_DISPATCH_COOLDOWN = 'spfw_file_monitor_dispatch_cooldown';
+
+	/**
+	 * One-off cron hook that dispatches queued (Smart Mode) file-change alerts
+	 * once the debounce window has elapsed without a legitimate update clearing
+	 * them.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_DISPATCH_CRON = 'spfw_dispatch_queued_alerts';
+
+	/**
+	 * Transient key holding the pending (queued, not yet emailed) plugin
+	 * file-change alerts. Shaped like scan_wp_content()'s diff: added/modified/
+	 * removed arrays of relative snapshot paths.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_PENDING = 'spfw_pending_file_alerts';
+
+	/**
+	 * Option key for the file-monitor snapshot, stored OUTSIDE the shared
+	 * `spfw_settings` option on purpose. The snapshot is by far the largest
+	 * value this plugin owns (tens of thousands of sha256 entries on a real
+	 * site), and every SPFW_Settings::update() from ANY writer rewrites the
+	 * whole shared option from a per-request cache: two overlapping requests
+	 * let the later writer resurrect a stale snapshot, which the next scan
+	 * then re-reported as changes — phantom "file changed" alerts for files
+	 * that no longer existed on disk. A dedicated non-autoloaded option takes
+	 * the scan out of that race entirely and keeps the shared option small
+	 * enough that its remaining writers are cheap.
+	 *
+	 * @var string
+	 */
+	const FILE_MONITOR_SNAPSHOT_OPTION = 'spfw_file_monitor_snapshot';
+
+	/**
+	 * Debounce window (seconds) between queueing a plugins/ change and
+	 * emailing it, giving upgrader_process_complete time to fire and clear the
+	 * alert as a legitimate update.
+	 *
+	 * @var int
+	 */
+	const FILE_MONITOR_DEBOUNCE = 900;
+
+	/**
 	 * PHP file extensions the monitor scans for (same set the .htaccess blocks).
 	 *
 	 * @var string[]
 	 */
 	const MONITOR_EXTENSIONS = array( 'php', 'php5', 'php7', 'php8', 'phtml', 'phps', 'phar', 'inc' );
+
+	/**
+	 * Transient key prefix for cached wordpress.org plugin checksums (one per
+	 * slug and version).
+	 *
+	 * @var string
+	 */
+	const WPORG_CHECKSUM_TRANSIENT_PREFIX = 'spfw_wporg_sums_';
+
+	/**
+	 * Fingerprints of the update packages WordPress unpacked during this
+	 * request, keyed by plugin slug. Filled by capture_package_manifest() and
+	 * compared by handle_upgrader_complete() in the same request.
+	 *
+	 * @var array<string,array<string,string>>
+	 */
+	protected $package_manifests = array();
 
 	/**
 	 * Enforcement canaries for the .htaccess rule groups this plugin authors.
@@ -322,6 +401,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 */
 	public function register() {
 		add_action( 'admin_init', array( $this, 'maybe_show_notice' ) );
+		add_action( 'admin_post_spfw_dismiss_hardening_notice', array( $this, 'dismiss_notice' ) );
 		add_action( 'admin_init', array( $this, 'maybe_run_root_self_check' ) );
 		add_action( 'admin_init', array( $this, 'maybe_reconcile_htaccess' ) );
 		add_action( 'update_option_' . SPFW_Settings::OPTION_KEY, array( $this, 'handle_settings_change' ), 10, 2 );
@@ -413,21 +493,50 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		add_action( SPFW_Strategy_User_Ini::VERIFY_CRON, array( $this, 'run_user_ini_verification' ) );
 
 		// File integrity monitor: schedule the twice-daily scan when enabled.
-		// The cron callback scans wp-content for PHP file changes and sends
-		// an email alert when non-whitelisted files appear or change.
+		// The cron callback scans wp-content for PHP file changes and routes
+		// them by directory — uploads/ alerts immediately (strict), plugins/
+		// changes are queued for a debounce window (smart) so a legitimate
+		// plugin update can clear them before any email goes out.
 		if ( ! empty( $h['file_monitor_enabled'] ) ) {
 			if ( ! wp_next_scheduled( self::FILE_MONITOR_CRON ) ) {
 				wp_schedule_event( time(), 'twicedaily', self::FILE_MONITOR_CRON );
 			}
 			add_action( self::FILE_MONITOR_CRON, array( $this, 'run_file_monitor_scan' ) );
+
+			// Phase 3: dispatch queued plugins/ alerts once the debounce window
+			// elapses without a legitimate update clearing them.
+			add_action( self::FILE_MONITOR_DISPATCH_CRON, array( $this, 'dispatch_queued_alerts' ) );
+
+			// Phase 2: rebuild the file baseline and clear any queued alert for
+			// a plugin the moment WordPress finishes a legitimate update, so the
+			// next scan sees no diff and no false-positive email is sent.
+			add_action( 'upgrader_process_complete', array( $this, 'handle_upgrader_complete' ), 10, 2 );
+
+			// A plugin deleted from wp-admin takes its files with it; drop them
+			// from the baseline so the next scan does not report the removal.
+			add_action( 'deleted_plugin', array( $this, 'handle_plugin_deleted' ), 10, 2 );
+
+			// Fingerprint each plugin package after it is unpacked and before
+			// it is moved into place — the record of what the vendor shipped.
+			// Last in line, so a filter that renames the source is respected.
+			add_filter( 'upgrader_source_selection', array( $this, 'capture_package_manifest' ), PHP_INT_MAX, 4 );
 		}
 	}
 
 	/**
 	 * Queue an admin notice if any managed hardening file is missing or
-	 * altered.
+	 * altered. The notice names every affected file and its state, so the
+	 * admin can verify on the server exactly what the plugin is reporting.
+	 *
+	 * Administrator-only, the same bar as every other SPFW notice and as the
+	 * manage_options-capped Restore action the notice links to: nothing here
+	 * is actionable for anyone else, and it names absolute filesystem paths.
 	 */
 	public function maybe_show_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
 		if ( get_option( 'spfw_user_ini_reverted' ) ) {
 			delete_option( 'spfw_user_ini_reverted' );
 
@@ -442,26 +551,111 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
-		$targets = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+		$offenders = self::collect_offenders();
+
+		if ( empty( $offenders ) ) {
+			return;
+		}
+
+		// A dismissed alert stays quiet until the offender set changes — a new
+		// target, a missing/altered flip, a restore — or the snooze lapses, so
+		// a file another tool legitimately rewrites on its own schedule does
+		// not nag on every admin page load.
+		$snoozed = get_option( self::NOTICE_SNOOZE_OPTION, array() );
+
+		if (
+			is_array( $snoozed )
+			&& isset( $snoozed['signature'], $snoozed['until'] )
+			&& self::offenders_signature( $offenders ) === $snoozed['signature']
+			&& (int) $snoozed['until'] > time()
+		) {
+			return;
+		}
+
+		add_action(
+			'admin_notices',
+			function () use ( $offenders ) {
+				$this->render_notice( $offenders );
+			}
+		);
+	}
+
+	/**
+	 * Every managed hardening target whose file is missing or altered right
+	 * now. Asks whichever strategy owns the target, so a `.user.ini` install
+	 * gets the same missing/altered verdict a `.htaccess` one does, and a
+	 * server that supports neither ('unsupported'/'advisory') never counts as
+	 * an offender.
+	 *
+	 * @return array<string,string> Target => status (missing|altered).
+	 */
+	private static function collect_offenders() {
+		$targets   = array_merge( array_keys( self::HTACCESS_TARGETS ), array( 'root' ) );
+		$offenders = array();
 
 		foreach ( $targets as $target ) {
-			// Asks whichever strategy owns the target, so a `.user.ini` install
-			// gets the same missing/altered notice a `.htaccess` one does, and
-			// a server that supports neither ('unsupported'/'advisory') gets no
-			// notice about a file it was never going to have.
-			if ( in_array( SPFW_Hardening_Strategies::status( $target ), array( 'missing', 'altered' ), true ) ) {
-				add_action( 'admin_notices', array( $this, 'render_notice' ) );
+			$status = SPFW_Hardening_Strategies::status( $target );
 
-				return;
+			if ( in_array( $status, array( 'missing', 'altered' ), true ) ) {
+				$offenders[ $target ] = $status;
 			}
 		}
+
+		return $offenders;
+	}
+
+	/**
+	 * Canonical fingerprint of an offender set, recorded when the notice is
+	 * dismissed. Any change to the set — a new target, a status flip, a
+	 * restore that empties the list — changes the signature and re-arms the
+	 * alert.
+	 *
+	 * @param array<string,string> $offenders Target => status (missing|altered).
+	 * @return string
+	 */
+	private static function offenders_signature( array $offenders ) {
+		$pairs = array();
+
+		foreach ( $offenders as $target => $status ) {
+			$pairs[] = $target . ':' . $status;
+		}
+
+		sort( $pairs );
+
+		return sha1( implode( '|', $pairs ) );
+	}
+
+	/**
+	 * The files a hardening target's owning strategy manages on disk, for the
+	 * missing/altered notice to name. A `.htaccess` server has one file per
+	 * target; a `.user.ini` install holds both the ini naming the guard and
+	 * the guard itself, and either one can be the missing half.
+	 *
+	 * @param string $target One of plugins|uploads|root.
+	 * @return string[] Absolute filesystem paths.
+	 */
+	private static function notice_files( $target ) {
+		$strategy = SPFW_Hardening_Strategies::for_target( $target );
+
+		if ( $strategy && 'user_ini' === $strategy->key() ) {
+			return array(
+				SPFW_Strategy_User_Ini::ini_path(),
+				SPFW_Strategy_User_Ini::guard_path(),
+			);
+		}
+
+		return array( SPFW_Htaccess::path( $target ) );
 	}
 
 	/**
 	 * Render the missing/altered admin notice, pointing at the Hardening tab
-	 * (where the Restore action lives, via the REST controller).
+	 * (where the Restore action lives, via the REST controller) and listing
+	 * every affected file with its state so the report can be checked on the
+	 * server instead of taken on faith.
+	 *
+	 * @param array<string,string> $offenders Target => status (missing|altered).
 	 */
-	public function render_notice() {
+	public function render_notice( $offenders = array() ) {
 		$message = __( 'Simple Performance: a directory hardening file is missing or has been modified.', 'simple-performance-for-wordpress' );
 
 		$url = add_query_arg(
@@ -472,11 +666,111 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			admin_url( 'options-general.php' )
 		);
 
-		printf(
-			'<div class="notice notice-warning"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
-			esc_html( $message ),
-			esc_url( $url ),
-			esc_html__( 'Go to the Hardening tab to restore it.', 'simple-performance-for-wordpress' )
+		echo '<div class="notice notice-warning"><p>';
+		printf( '%1$s <a href="%2$s">%3$s</a>', esc_html( $message ), esc_url( $url ), esc_html__( 'Go to the Hardening tab to restore it.', 'simple-performance-for-wordpress' ) );
+		echo '</p>';
+
+		if ( ! empty( $offenders ) ) {
+			echo '<ul>';
+
+			foreach ( $offenders as $target => $status ) {
+				$state = 'missing' === $status
+					? esc_html__( 'missing', 'simple-performance-for-wordpress' )
+					: esc_html__( 'modified', 'simple-performance-for-wordpress' );
+
+				foreach ( self::notice_files( $target ) as $path ) {
+					printf( '<li><code>%1$s</code> — %2$s</li>', esc_html( $path ), $state ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				}
+			}
+
+			echo '</ul>';
+
+			// A "modified" file is not always an attack: security plugins and
+			// hosts write their own rules into these files too, and restoring
+			// over them on sight would fight that tool on every request. Say
+			// so, and offer a snooze instead of an endless nag.
+			echo '<p>';
+			echo esc_html__( 'Another security plugin or your hosting provider may also manage these files — restore only a change you do not recognize.', 'simple-performance-for-wordpress' );
+			echo '</p>';
+
+			$this->render_dismiss_form();
+		}
+
+		echo '</div>';
+	}
+
+	/**
+	 * The Dismiss control for the missing/altered notice: a plain POST form
+	 * to admin-post.php. The notice renders on every admin screen and the
+	 * plugin's admin script only loads on its own settings page, so a no-JS
+	 * form is the one mechanism that works everywhere; POST rather than GET
+	 * because the action changes state.
+	 */
+	private function render_dismiss_form() {
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="spfw_dismiss_hardening_notice" />';
+		wp_nonce_field( 'spfw_dismiss_hardening_notice' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- core emits its own escaped hidden fields.
+
+		echo '<p><button type="submit" class="button button-secondary">' . esc_html__( 'Dismiss for a few days', 'simple-performance-for-wordpress' ) . '</button></p>';
+		echo '</form>';
+	}
+
+	/**
+	 * Handle the Dismiss POST from the missing/altered notice: remember the
+	 * current offender set for the snooze window, then send the admin back
+	 * where they came from. Registered on admin_post_ (authenticated requests
+	 * only) and re-checks capability and nonce to the same bar as the REST
+	 * routes. No exit after wp_safe_redirect(): admin-post.php ends the
+	 * request at the action hook, and an exit would make the handler
+	 * ununit-testable.
+	 */
+	public function dismiss_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die(
+				esc_html__( 'Sorry, you are not allowed to manage this notice.', 'simple-performance-for-wordpress' ),
+				'',
+				array( 'response' => 403 )
+			);
+		}
+
+		$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
+
+		if ( ! wp_verify_nonce( $nonce, 'spfw_dismiss_hardening_notice' ) ) {
+			wp_die(
+				esc_html__( 'The link you followed has expired.', 'simple-performance-for-wordpress' ),
+				'',
+				array( 'response' => 403 )
+			);
+		}
+
+		$this->store_dismiss_snooze();
+
+		$redirect = wp_get_referer();
+
+		wp_safe_redirect( $redirect ? $redirect : admin_url( 'index.php' ) );
+	}
+
+	/**
+	 * Persist the snooze for the offender set as it is right now. Split from
+	 * dismiss_notice() so the persistence is unit-testable without the
+	 * redirect/wp_die tails.
+	 */
+	public function store_dismiss_snooze() {
+		$offenders = self::collect_offenders();
+
+		if ( empty( $offenders ) ) {
+			return;
+		}
+
+		$window = (int) apply_filters( 'spfw_hardening_notice_snooze', 3 * DAY_IN_SECONDS );
+
+		update_option(
+			self::NOTICE_SNOOZE_OPTION,
+			array(
+				'signature' => self::offenders_signature( $offenders ),
+				'until'     => time() + $window,
+			),
+			false // Autoload off: transient state, read only in wp-admin.
 		);
 	}
 
@@ -524,6 +818,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			}
 		} elseif ( $was_monitoring && ! $is_monitoring ) {
 			wp_clear_scheduled_hook( self::FILE_MONITOR_CRON );
+
+			// Drop any in-flight debounce: the queued plugins alert and the
+			// one-off dispatch event must not outlive the toggle that armed them.
+			wp_clear_scheduled_hook( self::FILE_MONITOR_DISPATCH_CRON );
+			delete_transient( self::FILE_MONITOR_PENDING );
 		}
 
 		// Root .htaccess: composed from two toggles.
@@ -2550,119 +2849,980 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	}
 
 	/**
-	 * Scan wp-content/plugins/ and wp-content/uploads/ for PHP files and
-	 * compare against the stored snapshot. Returns the diff (added, modified,
-	 * removed) and persists the new snapshot + timestamp.
+	 * The file-monitor state.
 	 *
-	 * @return array{added:string[],modified:string[],removed:string[],snapshot_time:int}
+	 * `entries` is the VERIFIED baseline (relative path => sha256) and only
+	 * moves when something verified the files: the update package WordPress
+	 * downloaded, wordpress.org's published checksums, or an admin clicking
+	 * Mark as verified. A scan never moves it on its own say-so. Everything a
+	 * scan finds that nothing verified sits in `pending` until it is.
+	 *
+	 * - time:     last scan.
+	 * - versions: plugin slug => Version header, as of the verified baseline.
+	 * - verified: the last verification event {time, user_id, source}.
+	 * - pending:  {unexplained:{added,modified,removed}, updates:{slug:{from,to,paths}}}.
+	 * - notified: path (or "update:slug") => hash (or version) already emailed,
+	 *             so a change is reported once, not on every scan.
+	 * - signatures: pending_signatures() as of the last scan, for the UI to
+	 *             send back with Mark as verified (always re-checked).
+	 *
+	 * Lives in its own non-autoloaded option, never in the shared settings
+	 * option — see FILE_MONITOR_SNAPSHOT_OPTION. Keys missing from an older
+	 * shape default to empty, so a 2.17–2.19 snapshot reads as a baseline
+	 * with nothing pending.
+	 *
+	 * @return array{time:int,entries:array<string,string>,versions:array<string,string>,verified:array,pending:array,notified:array<string,string>}
 	 */
-	public function scan_wp_content() {
-		$dirs = array();
+	public static function get_file_snapshot() {
+		$stored = get_option( self::FILE_MONITOR_SNAPSHOT_OPTION, null );
 
-		if ( is_dir( WP_CONTENT_DIR . '/plugins' ) ) {
-			$dirs['plugins'] = WP_CONTENT_DIR . '/plugins';
+		if ( null === $stored ) {
+			// Pre-2.17.0 installs carry the snapshot inside spfw_settings. The
+			// version-gated migration in SPFW_Settings::get() is the primary
+			// copy-out path; this fallback covers a read that races ahead of it
+			// and must not report an empty baseline just because the value has
+			// not moved yet.
+			$stored = self::migrate_file_snapshot_from_settings();
 		}
 
-		$uploads = wp_upload_dir();
+		$stored = is_array( $stored ) ? $stored : array();
 
-		if ( isset( $uploads['basedir'] ) && is_dir( $uploads['basedir'] ) ) {
-			$dirs['uploads'] = $uploads['basedir'];
-		}
-
-		$snapshot    = array();
-		$extensions  = self::MONITOR_EXTENSIONS;
-		$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', $extensions ) ) . ')$/i';
-
-		foreach ( $dirs as $prefix => $base_dir ) {
-			$iterator = new RecursiveIteratorIterator(
-				new RecursiveDirectoryIterator( $base_dir, RecursiveDirectoryIterator::SKIP_DOTS ),
-				RecursiveIteratorIterator::SELF_FIRST
-			);
-
-			foreach ( $iterator as $file ) {
-				if ( ! $file->isFile() ) {
-					continue;
-				}
-
-				$filename = $file->getFilename();
-
-				if ( ! preg_match( $ext_pattern, $filename ) ) {
-					continue;
-				}
-
-				$full_path   = $file->getPathname();
-				$relative    = $prefix . '/' . ltrim( substr( $full_path, strlen( $base_dir ) ), '/\\' );
-				$hash        = hash_file( 'sha256', $full_path );
-				$snapshot[ $relative ] = $hash;
-			}
-		}
-
-		// Compare against the stored snapshot.
-		$old_snapshot = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', array() );
-		$old_snapshot = is_array( $old_snapshot ) ? $old_snapshot : array();
-
-		$added    = array_diff( array_keys( $snapshot ), array_keys( $old_snapshot ) );
-		$removed  = array_diff( array_keys( $old_snapshot ), array_keys( $snapshot ) );
-		$modified = array();
-
-		foreach ( $snapshot as $path => $hash ) {
-			if ( isset( $old_snapshot[ $path ] ) && $old_snapshot[ $path ] !== $hash ) {
-				$modified[] = $path;
-			}
-		}
-
-		$now = time();
-
-		// Persist the new snapshot and scan timestamp.
-		SPFW_Settings::update(
-			array(
-				'hardening' => array(
-					'file_monitor_snapshot'  => $snapshot,
-					'file_monitor_last_scan' => $now,
-				),
-			)
-		);
+		$pending = isset( $stored['pending'] ) && is_array( $stored['pending'] ) ? $stored['pending'] : array();
 
 		return array(
-			'added'         => array_values( $added ),
-			'modified'      => array_values( $modified ),
-			'removed'       => array_values( $removed ),
-			'snapshot_time' => $now,
+			'time'       => isset( $stored['time'] ) ? absint( $stored['time'] ) : 0,
+			'entries'    => isset( $stored['entries'] ) && is_array( $stored['entries'] ) ? $stored['entries'] : array(),
+			'versions'   => isset( $stored['versions'] ) && is_array( $stored['versions'] ) ? $stored['versions'] : array(),
+			'verified'   => isset( $stored['verified'] ) && is_array( $stored['verified'] ) ? $stored['verified'] : array(),
+			'pending'    => self::normalize_pending( $pending ),
+			'notified'   => isset( $stored['notified'] ) && is_array( $stored['notified'] ) ? $stored['notified'] : array(),
+			'signatures' => isset( $stored['signatures'] ) && is_array( $stored['signatures'] ) ? $stored['signatures'] : array(),
 		);
 	}
 
 	/**
-	 * Send a consolidated email alert when file changes are detected. Flags
-	 * non-whitelisted additions and modifications. Rate-limits to one alert
-	 * per hour via a transient.
+	 * Fill in the pending shape so callers never need isset() chains.
 	 *
-	 * @param array $changes Diff array from scan_wp_content().
+	 * @param array $pending Stored pending value.
+	 * @return array{unexplained:array{added:string[],modified:string[],removed:string[]},updates:array}
 	 */
-	public function maybe_send_file_alert( $changes ) {
+	private static function normalize_pending( array $pending ) {
+		$unexplained = isset( $pending['unexplained'] ) && is_array( $pending['unexplained'] ) ? $pending['unexplained'] : array();
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			$unexplained[ $type ] = isset( $unexplained[ $type ] ) && is_array( $unexplained[ $type ] ) ? array_values( $unexplained[ $type ] ) : array();
+		}
+
+		return array(
+			'unexplained' => $unexplained,
+			'updates'     => isset( $pending['updates'] ) && is_array( $pending['updates'] ) ? $pending['updates'] : array(),
+		);
+	}
+
+	/**
+	 * Merge keys into the stored state and write it whole.
+	 *
+	 * Reads the option fresh rather than merging over a per-request cache:
+	 * the monitor is the only writer, so there is no stale-merge window left
+	 * to resurrect an old baseline.
+	 *
+	 * @param array $patch Keys to replace.
+	 * @return array The stored state.
+	 */
+	private static function store_file_state( array $patch ) {
+		$value = array_merge( self::get_file_snapshot(), $patch );
+
+		update_option( self::FILE_MONITOR_SNAPSHOT_OPTION, $value, false );
+
+		return $value;
+	}
+
+	/**
+	 * Persist the baseline (kept for the migration path and tests).
+	 *
+	 * @param array<string,string>      $entries  Relative path => sha256 map.
+	 * @param int|null                  $time     Scan timestamp; defaults to now.
+	 * @param array<string,string>|null $versions Plugin slug => version; null
+	 *                                            keeps the stored map.
+	 * @return array The stored state.
+	 */
+	public static function save_file_snapshot( array $entries, $time = null, $versions = null ) {
+		$patch = array(
+			'time'    => null === $time ? time() : absint( $time ),
+			'entries' => $entries,
+		);
+
+		if ( null !== $versions ) {
+			$patch['versions'] = is_array( $versions ) ? $versions : array();
+		}
+
+		return self::store_file_state( $patch );
+	}
+
+	/**
+	 * One-time copy of a pre-2.17.0 snapshot out of the shared settings group.
+	 *
+	 * Idempotent: once the dedicated option exists, get_file_snapshot() never
+	 * reaches this again.
+	 *
+	 * @return array Stored snapshot shape.
+	 */
+	private static function migrate_file_snapshot_from_settings() {
+		$entries = SPFW_Settings::value( 'hardening', 'file_monitor_snapshot', null );
+		$time    = SPFW_Settings::value( 'hardening', 'file_monitor_last_scan', 0 );
+
+		$value = array(
+			'time'    => is_numeric( $time ) ? absint( $time ) : 0,
+			'entries' => is_array( $entries ) ? $entries : array(),
+		);
+
+		update_option( self::FILE_MONITOR_SNAPSHOT_OPTION, $value, false );
+
+		return $value;
+	}
+
+	/**
+	 * Installed plugin versions keyed the way snapshot paths are: the first
+	 * path segment under wp-content/plugins — the directory for a normal
+	 * plugin, the file name for a root-level single-file one (hello.php).
+	 *
+	 * @return array<string,string> Plugin slug => Version header.
+	 */
+	protected function plugin_versions() {
+		if ( ! function_exists( 'get_plugins' ) && file_exists( ABSPATH . 'wp-admin/includes/plugin.php' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		if ( ! function_exists( 'get_plugins' ) ) {
+			return array();
+		}
+
+		// get_plugins() caches per request; a scan straight after an update in
+		// the same request must see the new headers.
+		if ( function_exists( 'wp_clean_plugins_cache' ) ) {
+			wp_clean_plugins_cache( false );
+		}
+
+		$versions = array();
+
+		foreach ( get_plugins() as $plugin_file => $data ) {
+			$slug = self::plugin_slug( $plugin_file );
+
+			if ( '' !== $slug && ! empty( $data['Version'] ) ) {
+				$versions[ $slug ] = (string) $data['Version'];
+			}
+		}
+
+		return $versions;
+	}
+
+	/**
+	 * The snapshot slug for a plugin file as WordPress names it
+	 * ('akismet/akismet.php' => 'akismet', 'hello.php' => 'hello.php').
+	 *
+	 * @param string $plugin_file Plugin basename relative to the plugins dir.
+	 * @return string
+	 */
+	private static function plugin_slug( $plugin_file ) {
+		$plugin_file = ltrim( str_replace( '\\', '/', (string) $plugin_file ), '/' );
+		$parts       = explode( '/', $plugin_file );
+
+		return isset( $parts[0] ) && '.' !== $parts[0] && '..' !== $parts[0] ? $parts[0] : '';
+	}
+
+	/**
+	 * The plugin slug a snapshot path belongs to, or '' for a path outside
+	 * wp-content/plugins.
+	 *
+	 * @param string $path Snapshot key, e.g. 'plugins/akismet/akismet.php'.
+	 * @return string
+	 */
+	private static function plugin_slug_for_path( $path ) {
+		if ( 0 !== strpos( $path, 'plugins/' ) ) {
+			return '';
+		}
+
+		return self::plugin_slug( substr( $path, strlen( 'plugins/' ) ) );
+	}
+
+	/**
+	 * Whether a snapshot path falls inside a verification scope.
+	 *
+	 * @param string $path  Snapshot key.
+	 * @param string $scope 'all', 'uploads', or a plugin slug.
+	 * @return bool
+	 */
+	private static function path_in_scope( $path, $scope ) {
+		if ( 'all' === $scope ) {
+			return true;
+		}
+
+		if ( 'uploads' === $scope ) {
+			return 0 === strpos( $path, 'uploads/' );
+		}
+
+		return self::plugin_slug_for_path( $path ) === $scope;
+	}
+
+	/**
+	 * Hash every monitored file under a directory into snapshot keys.
+	 *
+	 * @param string $base_dir Directory to walk.
+	 * @param string $prefix   Key prefix, e.g. 'plugins/akismet/'.
+	 * @return array<string,string> Key => sha256.
+	 */
+	private static function hash_tree( $base_dir, $prefix ) {
+		$hashes = array();
+
+		if ( ! is_dir( $base_dir ) ) {
+			return $hashes;
+		}
+
+		$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', self::MONITOR_EXTENSIONS ) ) . ')$/i';
+		$iterator    = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator( $base_dir, RecursiveDirectoryIterator::SKIP_DOTS ),
+			RecursiveIteratorIterator::SELF_FIRST
+		);
+
+		foreach ( $iterator as $file ) {
+			if ( ! $file->isFile() || ! preg_match( $ext_pattern, $file->getFilename() ) ) {
+				continue;
+			}
+
+			$full_path = $file->getPathname();
+			$relative  = $prefix . ltrim( str_replace( '\\', '/', substr( $full_path, strlen( $base_dir ) ) ), '/' );
+
+			$hashes[ $relative ] = hash_file( 'sha256', $full_path );
+		}
+
+		return $hashes;
+	}
+
+	/**
+	 * Current hashes of every monitored file in plugins/ and uploads/.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function current_file_hashes() {
+		$hashes = self::hash_tree( WP_CONTENT_DIR . '/plugins', 'plugins/' );
+		$uploads = wp_upload_dir();
+
+		if ( isset( $uploads['basedir'] ) ) {
+			$hashes = array_merge( $hashes, self::hash_tree( $uploads['basedir'], 'uploads/' ) );
+		}
+
+		return $hashes;
+	}
+
+	/**
+	 * Current hashes of one plugin's monitored files.
+	 *
+	 * @param string $slug Plugin directory (or root file) name.
+	 * @return array<string,string>
+	 */
+	private static function plugin_file_hashes( $slug ) {
+		$base = WP_CONTENT_DIR . '/plugins/' . $slug;
+
+		if ( is_file( $base ) ) {
+			$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', self::MONITOR_EXTENSIONS ) ) . ')$/i';
+
+			return preg_match( $ext_pattern, $slug ) ? array( 'plugins/' . $slug => hash_file( 'sha256', $base ) ) : array();
+		}
+
+		return self::hash_tree( $base, 'plugins/' . $slug . '/' );
+	}
+
+	/**
+	 * Scan plugins/ and uploads/, auto-accept whatever an update package or
+	 * wordpress.org checksums verify, and record the rest as pending.
+	 *
+	 * Never moves the baseline for anything unverified — that is what keeps a
+	 * tampered file reported until a person looks at it, instead of becoming
+	 * "known good" the moment anyone clicks Scan. The one exception is the
+	 * very first scan, which has nothing to compare against and records the
+	 * site as found.
+	 *
+	 * The returned `added`/`modified`/`removed` are everything still
+	 * outstanding (unexplained plus unverified updates); `unexplained` and
+	 * `updates` split them; `auto_verified` lists plugins accepted this scan.
+	 *
+	 * @return array{added:string[],modified:string[],removed:string[],unexplained:array,updates:array,auto_verified:array,updated_plugins:array,snapshot_time:int,initial:bool,signatures:array,verified:array}
+	 */
+	public function scan_wp_content() {
+		$current  = self::current_file_hashes();
+		$versions = $this->plugin_versions();
+		$store    = self::get_file_snapshot();
+		$now      = time();
+
+		if ( 0 === $store['time'] && array() === $store['entries'] ) {
+			$state = self::store_file_state(
+				array(
+					'time'       => $now,
+					'entries'    => $current,
+					'versions'   => $versions,
+					'verified'   => array(
+						'time'    => $now,
+						'user_id' => 0,
+						'source'  => 'initial',
+					),
+					'pending'    => self::normalize_pending( array() ),
+					'notified'   => array(),
+					'signatures' => array(),
+				)
+			);
+
+			return $this->scan_result( $state, $current, array(), array(), true, array_keys( $current ) );
+		}
+
+		$classified = $this->classify_changes( $current, $versions, $store );
+		$entries    = $store['entries'];
+		$base_vers  = $store['versions'];
+
+		// Splice verified plugins into the baseline.
+		foreach ( $classified['auto_verified'] as $slug => $source ) {
+			foreach ( array_keys( $entries ) as $path ) {
+				if ( self::plugin_slug_for_path( $path ) === $slug ) {
+					unset( $entries[ $path ] );
+				}
+			}
+
+			foreach ( $current as $path => $hash ) {
+				if ( self::plugin_slug_for_path( $path ) === $slug ) {
+					$entries[ $path ] = $hash;
+				}
+			}
+		}
+
+		// Inert uploads stubs are accepted as found; they execute nothing.
+		foreach ( $classified['stubs'] as $path ) {
+			$entries[ $path ] = $current[ $path ];
+		}
+
+		// A plugin with nothing outstanding is in step with its baseline, so
+		// its recorded version follows the installed one; a plugin that is
+		// gone and has nothing outstanding is forgotten.
+		$outstanding = array();
+
+		foreach ( self::pending_paths( $classified['pending'] ) as $path ) {
+			$outstanding[ self::plugin_slug_for_path( $path ) ] = true;
+		}
+
+		foreach ( array_keys( $classified['pending']['updates'] ) as $slug ) {
+			$outstanding[ $slug ] = true;
+		}
+
+		foreach ( $versions as $slug => $version ) {
+			if ( ! isset( $outstanding[ $slug ] ) ) {
+				$base_vers[ $slug ] = $version;
+			}
+		}
+
+		foreach ( array_keys( $base_vers ) as $slug ) {
+			if ( ! isset( $versions[ $slug ] ) && ! isset( $outstanding[ $slug ] ) ) {
+				unset( $base_vers[ $slug ] );
+			}
+		}
+
+		$patch = array(
+			'time'       => $now,
+			'entries'    => $entries,
+			'versions'   => $base_vers,
+			'pending'    => $classified['pending'],
+			'notified'   => self::prune_notified( $store['notified'], $classified['pending'], $current ),
+			'signatures' => self::pending_signatures( $classified['pending'], $current ),
+		);
+
+		if ( array() !== $classified['auto_verified'] ) {
+			$patch['verified'] = array(
+				'time'    => $now,
+				'user_id' => 0,
+				'source'  => in_array( 'wporg', $classified['auto_verified'], true ) ? 'wporg' : 'package',
+			);
+		}
+
+		$state = self::store_file_state( $patch );
+
+		return $this->scan_result( $state, $current, $classified['auto_verified'], $classified['changed_versions'], false, array() );
+	}
+
+	/**
+	 * Shape a scan result for callers (cron routing, the REST endpoint).
+	 *
+	 * @param array    $state            Stored state after the scan.
+	 * @param array    $current          Current hashes.
+	 * @param array    $auto_verified    Slug => source accepted this scan.
+	 * @param array    $changed_versions Slug => {from,to} for every version move.
+	 * @param bool     $initial          Whether this scan recorded the first baseline.
+	 * @param string[] $initial_added    Files recorded by the first scan.
+	 * @return array
+	 */
+	private function scan_result( array $state, array $current, array $auto_verified, array $changed_versions, $initial, array $initial_added ) {
+		$pending = $state['pending'];
+		$out     = $pending['unexplained'];
+
+		foreach ( $pending['updates'] as $group ) {
+			foreach ( $group['paths'] as $type => $paths ) {
+				$out[ $type ] = array_merge( $out[ $type ], $paths );
+			}
+		}
+
+		if ( $initial ) {
+			$out['added'] = $initial_added;
+		}
+
+		return array(
+			'added'           => array_values( $out['added'] ),
+			'modified'        => array_values( $out['modified'] ),
+			'removed'         => array_values( $out['removed'] ),
+			'unexplained'     => $pending['unexplained'],
+			'updates'         => $pending['updates'],
+			'auto_verified'   => $auto_verified,
+			'updated_plugins' => $changed_versions,
+			'snapshot_time'   => $state['time'],
+			'initial'         => (bool) $initial,
+			'signatures'      => self::pending_signatures( $pending, $current ),
+			'verified'        => $state['verified'],
+		);
+	}
+
+	/**
+	 * Sort every difference between disk and the verified baseline.
+	 *
+	 * Per plugin, in order: the files match the update package WordPress just
+	 * downloaded (premium plugins included), or wordpress.org's checksums for
+	 * the installed version — verified, accepted. Otherwise, if the version
+	 * moved, it is an update nothing could check. Otherwise it is
+	 * unexplained. Uploads have no versions: an inert stub is accepted, any
+	 * other change is unexplained.
+	 *
+	 * @param array $current  Current hashes.
+	 * @param array $versions Installed plugin versions.
+	 * @param array $store    Stored state.
+	 * @return array{pending:array,auto_verified:array<string,string>,stubs:string[],changed_versions:array}
+	 */
+	protected function classify_changes( array $current, array $versions, array $store ) {
+		$baseline = $store['entries'];
+		$diff     = array(
+			'added'    => array_diff( array_keys( $current ), array_keys( $baseline ) ),
+			'removed'  => array_diff( array_keys( $baseline ), array_keys( $current ) ),
+			'modified' => array(),
+		);
+
+		foreach ( $current as $path => $hash ) {
+			if ( isset( $baseline[ $path ] ) && $baseline[ $path ] !== $hash ) {
+				$diff['modified'][] = $path;
+			}
+		}
+
+		$pending = self::normalize_pending( array() );
+		$stubs   = array();
+		$plugins = array();
+		$uploads = wp_upload_dir();
+		$basedir = isset( $uploads['basedir'] ) ? $uploads['basedir'] : '';
+
+		foreach ( $diff as $type => $paths ) {
+			foreach ( $paths as $path ) {
+				if ( 0 === strpos( $path, 'uploads/' ) ) {
+					if ( 'removed' !== $type && '' !== $basedir && self::is_inert_stub( $basedir . '/' . substr( $path, strlen( 'uploads/' ) ) ) ) {
+						$stubs[] = $path;
+					} else {
+						$pending['unexplained'][ $type ][] = $path;
+					}
+
+					continue;
+				}
+
+				$plugins[ self::plugin_slug_for_path( $path ) ][ $type ][] = $path;
+			}
+		}
+
+		$changed_versions = array();
+
+		foreach ( $versions as $slug => $version ) {
+			if ( isset( $store['versions'][ $slug ] ) && $store['versions'][ $slug ] !== $version ) {
+				$changed_versions[ $slug ] = array(
+					'from' => $store['versions'][ $slug ],
+					'to'   => $version,
+				);
+			}
+		}
+
+		// A baseline with entries but no versions was written before 2.19.0;
+		// this plugin's own update is the one change known to have happened.
+		$own_slug = defined( 'SPFW_BASENAME' ) ? self::plugin_slug( SPFW_BASENAME ) : '';
+
+		if ( '' !== $own_slug && array() === $store['versions'] && isset( $versions[ $own_slug ] ) ) {
+			$changed_versions[ $own_slug ] = array(
+				'from' => '',
+				'to'   => $versions[ $own_slug ],
+			);
+		}
+
+		$auto_verified = array();
+
+		foreach ( $plugins as $slug => $paths ) {
+			$paths = array_merge(
+				array(
+					'added'    => array(),
+					'modified' => array(),
+					'removed'  => array(),
+				),
+				$paths
+			);
+
+			$version = isset( $versions[ $slug ] ) ? $versions[ $slug ] : '';
+			$source  = $this->verify_plugin_files( $slug, $version, $current );
+
+			if ( '' !== $source ) {
+				$auto_verified[ $slug ] = $source;
+				continue;
+			}
+
+			if ( isset( $changed_versions[ $slug ] ) ) {
+				$pending['updates'][ $slug ] = array(
+					'from'  => $changed_versions[ $slug ]['from'],
+					'to'    => $changed_versions[ $slug ]['to'],
+					'paths' => $paths,
+				);
+				continue;
+			}
+
+			foreach ( $paths as $type => $list ) {
+				$pending['unexplained'][ $type ] = array_merge( $pending['unexplained'][ $type ], $list );
+			}
+		}
+
+		return array(
+			'pending'          => $pending,
+			'auto_verified'    => $auto_verified,
+			'stubs'            => $stubs,
+			'changed_versions' => $changed_versions,
+		);
+	}
+
+	/**
+	 * Whether a plugin's monitored files on disk are exactly what a trusted
+	 * source says they should be.
+	 *
+	 * @param string $slug    Plugin slug.
+	 * @param string $version Installed version ('' when unknown).
+	 * @param array  $current Current hashes (all paths).
+	 * @return string 'package', 'wporg', or '' when nothing verified them.
+	 */
+	protected function verify_plugin_files( $slug, $version, array $current ) {
+		$files = array();
+
+		foreach ( $current as $path => $hash ) {
+			if ( self::plugin_slug_for_path( $path ) === $slug ) {
+				$files[ $path ] = $hash;
+			}
+		}
+
+		if ( isset( $this->package_manifests[ $slug ] ) && $this->package_manifests[ $slug ] == $files ) { // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual -- key order is irrelevant.
+			return 'package';
+		}
+
+		// wordpress.org only publishes checksums for directory plugins.
+		if ( '' === $version || array() === $files || is_file( WP_CONTENT_DIR . '/plugins/' . $slug ) ) {
+			return '';
+		}
+
+		$checksums = self::wporg_checksums( $slug, $version );
+
+		if ( null === $checksums ) {
+			return '';
+		}
+
+		$prefix = 'plugins/' . $slug . '/';
+
+		foreach ( $files as $path => $hash ) {
+			$relative = substr( $path, strlen( $prefix ) );
+
+			if ( 0 !== strpos( $path, $prefix ) || ! isset( $checksums[ $relative ] ) || ! in_array( $hash, $checksums[ $relative ], true ) ) {
+				return '';
+			}
+		}
+
+		// Every monitored file the release ships must be present too; a
+		// missing one is a change the checksums do not explain.
+		$ext_pattern = '/\.(' . implode( '|', array_map( 'preg_quote', self::MONITOR_EXTENSIONS ) ) . ')$/i';
+
+		foreach ( array_keys( $checksums ) as $relative ) {
+			if ( preg_match( $ext_pattern, $relative ) && ! isset( $files[ $prefix . $relative ] ) ) {
+				return '';
+			}
+		}
+
+		return 'wporg';
+	}
+
+	/**
+	 * Published sha256 checksums for a wordpress.org plugin release, keyed by
+	 * path relative to the plugin directory, each a list of accepted hashes.
+	 *
+	 * Cached (a week for a hit, a day for a miss) so a scan costs at most one
+	 * request per plugin version. The request names only the plugin slug and
+	 * version — what WordPress already sends wordpress.org on every update
+	 * check. Turn it off with the `spfw_file_monitor_wporg_checksums` filter.
+	 *
+	 * @param string $slug    Plugin directory name.
+	 * @param string $version Installed version.
+	 * @return array<string,string[]>|null Null when unavailable.
+	 */
+	public static function wporg_checksums( $slug, $version ) {
+		if ( ! apply_filters( 'spfw_file_monitor_wporg_checksums', true ) ) {
+			return null;
+		}
+
+		if ( ! preg_match( '/^[a-z0-9._-]+$/i', $slug ) || ! preg_match( '/^[a-z0-9._+-]+$/i', $version ) || false !== strpos( $slug, '.php' ) ) {
+			return null;
+		}
+
+		$key    = self::WPORG_CHECKSUM_TRANSIENT_PREFIX . md5( $slug . '@' . $version );
+		$cached = get_transient( $key );
+
+		if ( is_array( $cached ) ) {
+			return isset( $cached['files'] ) && is_array( $cached['files'] ) ? $cached['files'] : null;
+		}
+
+		$response = wp_remote_get(
+			'https://downloads.wordpress.org/plugin-checksums/' . rawurlencode( $slug ) . '/' . rawurlencode( $version ) . '.json',
+			array( 'timeout' => 5 )
+		);
+
+		$code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+
+		if ( 200 !== $code ) {
+			// A transport error is not a verdict; only cache a real miss.
+			if ( 404 === $code ) {
+				set_transient( $key, array( 'files' => null ), DAY_IN_SECONDS );
+			}
+
+			return null;
+		}
+
+		$body  = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$files = array();
+
+		if ( is_array( $body ) && isset( $body['files'] ) && is_array( $body['files'] ) ) {
+			foreach ( $body['files'] as $relative => $sums ) {
+				if ( ! is_array( $sums ) || ! isset( $sums['sha256'] ) ) {
+					continue;
+				}
+
+				$files[ (string) $relative ] = array_values( array_map( 'strval', (array) $sums['sha256'] ) );
+			}
+		}
+
+		$files = array() !== $files ? $files : null;
+
+		set_transient( $key, array( 'files' => $files ), null === $files ? DAY_IN_SECONDS : WEEK_IN_SECONDS );
+
+		return $files;
+	}
+
+	/**
+	 * Every path in a pending set (unexplained and updates).
+	 *
+	 * @param array $pending Normalized pending set.
+	 * @return string[]
+	 */
+	private static function pending_paths( array $pending ) {
+		$paths = array_merge( $pending['unexplained']['added'], $pending['unexplained']['modified'], $pending['unexplained']['removed'] );
+
+		foreach ( $pending['updates'] as $group ) {
+			foreach ( $group['paths'] as $list ) {
+				$paths = array_merge( $paths, $list );
+			}
+		}
+
+		return $paths;
+	}
+
+	/**
+	 * Drop notification records for changes no longer pending, so a file that
+	 * changes again after being verified is reported again.
+	 *
+	 * @param array $notified Stored notification map.
+	 * @param array $pending  Normalized pending set.
+	 * @param array $current  Current hashes.
+	 * @return array
+	 */
+	private static function prune_notified( array $notified, array $pending, array $current ) {
+		$keep = array();
+
+		foreach ( self::pending_paths( $pending ) as $path ) {
+			$keep[ $path ] = true;
+		}
+
+		foreach ( $pending['updates'] as $slug => $group ) {
+			$keep[ 'update:' . $slug ] = true;
+		}
+
+		return array_intersect_key( $notified, $keep );
+	}
+
+	/**
+	 * Canonical fingerprints of what is pending, per verification scope, so a
+	 * Mark as verified request can prove the admin saw exactly the set it is
+	 * accepting. Each entry hashes the path and its current content, so a
+	 * further edit after the review changes the signature.
+	 *
+	 * @param array $pending Normalized pending set.
+	 * @param array $current Current hashes.
+	 * @return array{all:string,uploads:string,plugins:array<string,string>}
+	 */
+	private static function pending_signatures( array $pending, array $current ) {
+		$lines = array();
+
+		foreach ( $pending['unexplained'] as $type => $paths ) {
+			foreach ( $paths as $path ) {
+				$lines[] = array( $path, $type . ':' . $path . ':' . ( isset( $current[ $path ] ) ? $current[ $path ] : '-' ) );
+			}
+		}
+
+		foreach ( $pending['updates'] as $slug => $group ) {
+			$lines[] = array( 'plugins/' . $slug . '/', 'update:' . $slug . ':' . $group['from'] . ':' . $group['to'] );
+
+			foreach ( $group['paths'] as $type => $paths ) {
+				foreach ( $paths as $path ) {
+					$lines[] = array( $path, $type . ':' . $path . ':' . ( isset( $current[ $path ] ) ? $current[ $path ] : '-' ) );
+				}
+			}
+		}
+
+		$sign = static function ( array $set ) {
+			sort( $set );
+
+			return sha1( implode( "\n", $set ) );
+		};
+
+		$all     = array();
+		$uploads = array();
+		$plugins = array();
+
+		foreach ( $lines as $line ) {
+			list( $path, $text ) = $line;
+			$all[]               = $text;
+
+			if ( 0 === strpos( $path, 'uploads/' ) ) {
+				$uploads[] = $text;
+			} else {
+				$plugins[ self::plugin_slug_for_path( $path ) ][] = $text;
+			}
+		}
+
+		return array(
+			'all'     => $sign( $all ),
+			'uploads' => $sign( $uploads ),
+			'plugins' => array_map( $sign, $plugins ),
+		);
+	}
+
+	/**
+	 * Mark as verified: accept what is on disk now into the baseline for a
+	 * scope, provided it is exactly what the admin reviewed.
+	 *
+	 * Rescans first and compares the scope's signature with the one the
+	 * reviewed scan returned. A mismatch means the files changed after the
+	 * review, and accepting them would vouch for something nobody saw.
+	 *
+	 * @param string $signature Signature from the reviewed scan.
+	 * @param string $scope     'all', 'uploads', or a plugin slug.
+	 * @param int    $user_id   Who is verifying.
+	 * @return array|WP_Error Fresh scan result, or an error.
+	 */
+	public function verify_files( $signature, $scope, $user_id ) {
+		$scan = $this->scan_wp_content();
+		$sigs = $scan['signatures'];
+
+		if ( 'all' === $scope ) {
+			$expected = $sigs['all'];
+		} elseif ( 'uploads' === $scope ) {
+			$expected = $sigs['uploads'];
+		} elseif ( isset( $sigs['plugins'][ $scope ] ) ) {
+			$expected = $sigs['plugins'][ $scope ];
+		} else {
+			$expected = null;
+		}
+
+		if ( null === $expected || ! hash_equals( $expected, (string) $signature ) ) {
+			return new WP_Error(
+				'spfw_files_changed',
+				__( 'The files changed since you reviewed them. Scan again and review the new list before marking it verified.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$this->accept_into_baseline( $scope, 'manual', $user_id );
+		$this->clear_pending_alerts_for_scope( $scope );
+
+		return $this->scan_wp_content();
+	}
+
+	/**
+	 * Splice what is on disk now into the verified baseline for a scope, and
+	 * drop that scope's pending and notification records.
+	 *
+	 * @param string $scope   'all', 'uploads', or a plugin slug.
+	 * @param string $source  manual|package|delete.
+	 * @param int    $user_id Who verified (0 for automatic).
+	 */
+	protected function accept_into_baseline( $scope, $source, $user_id = 0 ) {
+		$store   = self::get_file_snapshot();
+		$current = 'all' === $scope || 'uploads' === $scope ? self::current_file_hashes() : self::plugin_file_hashes( $scope );
+		$entries = $store['entries'];
+
+		foreach ( array_keys( $entries ) as $path ) {
+			if ( self::path_in_scope( $path, $scope ) ) {
+				unset( $entries[ $path ] );
+			}
+		}
+
+		foreach ( $current as $path => $hash ) {
+			if ( self::path_in_scope( $path, $scope ) ) {
+				$entries[ $path ] = $hash;
+			}
+		}
+
+		$versions = $store['versions'];
+
+		if ( 'uploads' !== $scope ) {
+			$installed = $this->plugin_versions();
+
+			if ( 'all' === $scope ) {
+				$versions = $installed;
+			} elseif ( isset( $installed[ $scope ] ) ) {
+				$versions[ $scope ] = $installed[ $scope ];
+			} else {
+				unset( $versions[ $scope ] );
+			}
+		}
+
+		$pending = $store['pending'];
+
+		foreach ( $pending['unexplained'] as $type => $paths ) {
+			$pending['unexplained'][ $type ] = array_values(
+				array_filter(
+					$paths,
+					static function ( $path ) use ( $scope ) {
+						return ! self::path_in_scope( $path, $scope );
+					}
+				)
+			);
+		}
+
+		foreach ( array_keys( $pending['updates'] ) as $slug ) {
+			if ( 'all' === $scope || $slug === $scope ) {
+				unset( $pending['updates'][ $slug ] );
+			}
+		}
+
+		$notified = array();
+
+		foreach ( $store['notified'] as $key => $value ) {
+			$in_scope = 0 === strpos( $key, 'update:' )
+				? ( 'all' === $scope || 'update:' . $scope === $key )
+				: self::path_in_scope( $key, $scope );
+
+			if ( ! $in_scope ) {
+				$notified[ $key ] = $value;
+			}
+		}
+
+		$patch = array(
+			'entries'    => $entries,
+			'versions'   => $versions,
+			'pending'    => $pending,
+			'notified'   => $notified,
+			'signatures' => array(),
+		);
+
+		if ( 'delete' !== $source ) {
+			$patch['verified'] = array(
+				'time'    => time(),
+				'user_id' => absint( $user_id ),
+				'source'  => $source,
+			);
+		}
+
+		self::store_file_state( $patch );
+	}
+
+	/**
+	 * Whether a PHP file in uploads is an inert directory-listing stub — the
+	 * `<?php // Silence is golden.` index.php that plugins drop into every
+	 * folder they create. It executes nothing, so emailing about one is noise;
+	 * a file with a single real statement in it is not a stub.
+	 *
+	 * @param string $full_path Absolute path.
+	 * @return bool
+	 */
+	private static function is_inert_stub( $full_path ) {
+		if ( ! is_file( $full_path ) || filesize( $full_path ) > 1024 ) {
+			return false;
+		}
+
+		$code = file_get_contents( $full_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		if ( ! is_string( $code ) ) {
+			return false;
+		}
+
+		foreach ( token_get_all( $code ) as $token ) {
+			if ( ! is_array( $token ) ) {
+				return false;
+			}
+
+			if ( in_array( $token[0], array( T_OPEN_TAG, T_CLOSE_TAG, T_COMMENT, T_DOC_COMMENT, T_WHITESPACE ), true ) ) {
+				continue;
+			}
+
+			if ( T_INLINE_HTML === $token[0] && '' === trim( $token[1] ) ) {
+				continue;
+			}
+
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Send a consolidated email alert for unexplained file changes.
+	 * Rate-limits to one alert per hour per cooldown key via a transient.
+	 *
+	 * @param array  $changes      added/modified/removed path lists.
+	 * @param string $cooldown_key Transient key for the one-per-hour rate limit.
+	 *                             Strict (uploads) and queued (plugins) alerts
+	 *                             use separate keys so one never suppresses the
+	 *                             other.
+	 * @return bool Whether an email went out.
+	 */
+	public function maybe_send_file_alert( $changes, $cooldown_key = self::FILE_MONITOR_COOLDOWN ) {
 		$h = SPFW_Settings::group( 'hardening' );
 
 		if ( empty( $h['file_monitor_enabled'] ) ) {
-			return;
+			return false;
 		}
 
 		$total = count( $changes['added'] ) + count( $changes['modified'] ) + count( $changes['removed'] );
 
 		if ( 0 === $total ) {
-			return;
+			return false;
 		}
 
 		// Rate-limit: one alert per hour.
-		if ( get_transient( self::FILE_MONITOR_COOLDOWN ) ) {
-			return;
+		if ( get_transient( $cooldown_key ) ) {
+			return false;
 		}
 
-		$email = ! empty( $h['file_monitor_email'] ) ? $h['file_monitor_email'] : get_option( 'admin_email' );
+		$email = self::alert_recipient( $h );
 
-		if ( ! is_email( $email ) ) {
-			return;
+		if ( '' === $email ) {
+			return false;
 		}
 
-		$whitelist  = isset( $h['php_whitelist'] ) && is_array( $h['php_whitelist'] ) ? $h['php_whitelist'] : array();
 		$site_name  = wp_specialchars_decode( get_option( 'blogname' ), ENT_QUOTES );
 		$subject    = sprintf(
 			/* translators: %s: site name */
@@ -2680,8 +3840,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= __( "NEW FILES:\n", 'simple-performance-for-wordpress' );
 
 			foreach ( $changes['added'] as $path ) {
-				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
-				$body .= "  + {$path}{$flag}\n";
+				$body .= "  + {$path}\n";
 			}
 
 			$body .= "\n";
@@ -2691,8 +3850,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= __( "MODIFIED FILES:\n", 'simple-performance-for-wordpress' );
 
 			foreach ( $changes['modified'] as $path ) {
-				$flag = in_array( $path, $whitelist, true ) ? '' : ' [NOT ON WHITELIST]';
-				$body .= "  ~ {$path}{$flag}\n";
+				$body .= "  ~ {$path}\n";
 			}
 
 			$body .= "\n";
@@ -2708,20 +3866,409 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			$body .= "\n";
 		}
 
-		$body .= __( "Review these files immediately if the changes were not expected.\n", 'simple-performance-for-wordpress' );
+		$body .= __( "None of these changes is explained by a plugin update: the plugins they belong to report the same version as at the last verified scan. Plugin updates are recognized automatically and never trigger this alert.\n\n", 'simple-performance-for-wordpress' );
+		$body .= __( "Review these files immediately if the changes were not expected. They stay listed on the Hardening tab until you mark them as verified.\n", 'simple-performance-for-wordpress' );
 
 		wp_mail( $email, $subject, $body );
 
-		set_transient( self::FILE_MONITOR_COOLDOWN, 1, HOUR_IN_SECONDS );
+		set_transient( $cooldown_key, 1, HOUR_IN_SECONDS );
+
+		return true;
 	}
 
 	/**
-	 * Cron callback: run the file-integrity scan and send an alert email
-	 * when changes are detected.
+	 * The low-key notice for an update nothing could verify — a premium plugin
+	 * copied in by SFTP or git, say. Not a tamper alert, but not silent either:
+	 * a version header is just text, and changing it is not proof of anything.
+	 *
+	 * @param array $updates Slug => {from,to,paths} not yet notified.
+	 * @return bool Whether an email went out.
+	 */
+	protected function send_unverified_update_email( array $updates ) {
+		$h     = SPFW_Settings::group( 'hardening' );
+		$email = self::alert_recipient( $h );
+
+		if ( empty( $h['file_monitor_enabled'] ) || '' === $email || array() === $updates ) {
+			return false;
+		}
+
+		$site_name = wp_specialchars_decode( get_option( 'blogname' ), ENT_QUOTES );
+		$subject   = sprintf(
+			/* translators: %s: site name */
+			__( '[%s] Plugin update could not be verified', 'simple-performance-for-wordpress' ),
+			$site_name
+		);
+
+		$body = sprintf(
+			/* translators: %s: site name */
+			__( "These plugins on %s changed version, but their files could not be checked against the update package or wordpress.org:\n\n", 'simple-performance-for-wordpress' ),
+			$site_name
+		);
+
+		foreach ( $updates as $slug => $group ) {
+			$body .= sprintf( "  %s: %s -> %s\n", $slug, '' !== $group['from'] ? $group['from'] : '?', $group['to'] );
+		}
+
+		$body .= "\n" . __( "This usually means the update was copied in outside WordPress' updater (SFTP, git, a backup restore). If you made that change, mark it as verified on the Hardening tab. If you did not, treat it as a file integrity alert.\n", 'simple-performance-for-wordpress' );
+
+		wp_mail( $email, $subject, $body );
+
+		return true;
+	}
+
+	/**
+	 * Where alerts go: the configured address, else the site admin.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return string Valid email or ''.
+	 */
+	private static function alert_recipient( array $h ) {
+		$email = ! empty( $h['file_monitor_email'] ) ? $h['file_monitor_email'] : get_option( 'admin_email' );
+
+		return is_email( $email ) ? (string) $email : '';
+	}
+
+	/**
+	 * Cron callback: run the file-integrity scan, then report what is new.
 	 */
 	public function run_file_monitor_scan() {
 		$changes = $this->scan_wp_content();
-		$this->maybe_send_file_alert( $changes );
+
+		// With no baseline there was nothing to compare against: the first
+		// scan only records.
+		if ( ! empty( $changes['initial'] ) ) {
+			return;
+		}
+
+		$this->route_file_changes( $changes );
 	}
 
+	/**
+	 * Report what a scan left pending, each change once.
+	 *
+	 * Unexplained uploads changes email immediately (Strict Mode — legitimate
+	 * code almost never puts PHP there); unexplained plugin changes wait out
+	 * the debounce window (Smart Mode) so an update finishing mid-scan can
+	 * clear them; unverified updates get their own low-key email. Anything
+	 * already reported at its current hash is skipped, so a pending change is
+	 * not re-sent every twelve hours while it waits for review.
+	 *
+	 * @param array $changes Result from scan_wp_content().
+	 */
+	protected function route_file_changes( $changes ) {
+		$store    = self::get_file_snapshot();
+		$notified = $store['notified'];
+		$current  = self::current_file_hashes();
+		$strict   = array(
+			'added'    => array(),
+			'modified' => array(),
+			'removed'  => array(),
+		);
+		$smart    = $strict;
+
+		$unexplained = isset( $changes['unexplained'] ) && is_array( $changes['unexplained'] ) ? $changes['unexplained'] : $strict;
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			$paths = isset( $unexplained[ $type ] ) && is_array( $unexplained[ $type ] ) ? $unexplained[ $type ] : array();
+
+			foreach ( $paths as $path ) {
+				$hash = isset( $current[ $path ] ) ? $current[ $path ] : '-';
+
+				if ( isset( $notified[ $path ] ) && $notified[ $path ] === $hash ) {
+					continue;
+				}
+
+				if ( 0 === strpos( $path, 'uploads/' ) ) {
+					$strict[ $type ][] = $path;
+				} else {
+					$smart[ $type ][] = $path;
+				}
+			}
+		}
+
+		if ( count( $strict['added'] ) + count( $strict['modified'] ) + count( $strict['removed'] ) > 0 ) {
+			if ( $this->maybe_send_file_alert( $strict ) ) {
+				$this->mark_notified( $strict, $current );
+			}
+		}
+
+		if ( count( $smart['added'] ) + count( $smart['modified'] ) + count( $smart['removed'] ) > 0 ) {
+			$this->queue_pending_alerts( $smart );
+		}
+
+		$updates = array();
+
+		foreach ( isset( $changes['updates'] ) && is_array( $changes['updates'] ) ? $changes['updates'] : array() as $slug => $group ) {
+			if ( ! isset( $notified[ 'update:' . $slug ] ) || $notified[ 'update:' . $slug ] !== $group['to'] ) {
+				$updates[ $slug ] = $group;
+			}
+		}
+
+		if ( array() !== $updates && $this->send_unverified_update_email( $updates ) ) {
+			$notified = self::get_file_snapshot()['notified'];
+
+			foreach ( $updates as $slug => $group ) {
+				$notified[ 'update:' . $slug ] = $group['to'];
+			}
+
+			self::store_file_state( array( 'notified' => $notified ) );
+		}
+	}
+
+	/**
+	 * Record paths as reported at their current hashes.
+	 *
+	 * @param array $changes added/modified/removed path lists.
+	 * @param array $current Current hashes.
+	 */
+	private function mark_notified( array $changes, array $current ) {
+		$notified = self::get_file_snapshot()['notified'];
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			foreach ( $changes[ $type ] as $path ) {
+				$notified[ $path ] = isset( $current[ $path ] ) ? $current[ $path ] : '-';
+			}
+		}
+
+		self::store_file_state( array( 'notified' => $notified ) );
+	}
+
+	/**
+	 * Phase 3: add plugins-directory changes to the pending queue and arm a
+	 * single one-off dispatch event at the end of the debounce window. The
+	 * alert is NOT emailed here — dispatch_queued_alerts() does that later,
+	 * unless a legitimate update clears the entry first.
+	 *
+	 * @param array $smart Smart-Mode diff (plugins/ changes only).
+	 */
+	protected function queue_pending_alerts( $smart ) {
+		$pending = get_transient( self::FILE_MONITOR_PENDING );
+		$pending = is_array( $pending ) ? $pending : array();
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			$existing = isset( $pending[ $type ] ) && is_array( $pending[ $type ] ) ? $pending[ $type ] : array();
+			$incoming = isset( $smart[ $type ] ) && is_array( $smart[ $type ] ) ? $smart[ $type ] : array();
+
+			$pending[ $type ] = array_values( array_unique( array_merge( $existing, $incoming ) ) );
+		}
+
+		set_transient( self::FILE_MONITOR_PENDING, $pending, DAY_IN_SECONDS );
+
+		if ( ! wp_next_scheduled( self::FILE_MONITOR_DISPATCH_CRON ) ) {
+			wp_schedule_single_event( time() + self::FILE_MONITOR_DEBOUNCE, self::FILE_MONITOR_DISPATCH_CRON );
+		}
+	}
+
+	/**
+	 * Phase 3: one-off cron callback. Emails whatever is still queued after the
+	 * debounce window AND still unexplained in the stored state — an update or
+	 * a Mark as verified since the queueing has already cleared it.
+	 */
+	public function dispatch_queued_alerts() {
+		$queued = get_transient( self::FILE_MONITOR_PENDING );
+
+		delete_transient( self::FILE_MONITOR_PENDING );
+
+		if ( ! is_array( $queued ) ) {
+			return;
+		}
+
+		$still   = self::get_file_snapshot()['pending']['unexplained'];
+		$pending = array();
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			$list             = isset( $queued[ $type ] ) && is_array( $queued[ $type ] ) ? $queued[ $type ] : array();
+			$pending[ $type ] = array_values( array_intersect( $list, $still[ $type ] ) );
+		}
+
+		if ( count( $pending['added'] ) + count( $pending['modified'] ) + count( $pending['removed'] ) === 0 ) {
+			return;
+		}
+
+		if ( $this->maybe_send_file_alert( $pending, self::FILE_MONITOR_DISPATCH_COOLDOWN ) ) {
+			$this->mark_notified( $pending, self::current_file_hashes() );
+		}
+	}
+
+	/**
+	 * Filter on upgrader_source_selection: fingerprint the update package
+	 * WordPress just unpacked, before it is moved into place.
+	 *
+	 * This is the record of what the vendor actually shipped, and it exists
+	 * for premium plugins as much as for wordpress.org ones — they update
+	 * through the same upgrader, from their own download URL. After the
+	 * install, the files on disk must equal it exactly.
+	 *
+	 * @param string|WP_Error $source        Unpacked package directory.
+	 * @param string          $remote_source Download working directory (unused).
+	 * @param object|null     $upgrader      The upgrader instance.
+	 * @param array           $hook_extra    Upgrade context.
+	 * @return string|WP_Error $source, unchanged.
+	 */
+	public function capture_package_manifest( $source, $remote_source = '', $upgrader = null, $hook_extra = array() ) {
+		if ( is_wp_error( $source ) || ! is_string( $source ) || ! is_dir( $source ) ) {
+			return $source;
+		}
+
+		$hook_extra = is_array( $hook_extra ) ? $hook_extra : array();
+		$is_plugin  = isset( $hook_extra['plugin'] )
+			|| ( isset( $hook_extra['type'] ) && 'plugin' === $hook_extra['type'] )
+			|| ( is_object( $upgrader ) && is_a( $upgrader, 'Plugin_Upgrader' ) );
+
+		if ( ! $is_plugin ) {
+			return $source;
+		}
+
+		$slug = basename( untrailingslashit( $source ) );
+
+		if ( '' !== $slug && '.' !== $slug ) {
+			$this->package_manifests[ $slug ] = self::hash_tree( untrailingslashit( $source ), 'plugins/' . $slug . '/' );
+		}
+
+		return $source;
+	}
+
+	/**
+	 * Phase 2: upgrader_process_complete callback. For each plugin WordPress
+	 * just updated or installed, compare the files on disk with the package
+	 * manifest captured on the way in: equal, and the plugin is accepted into
+	 * the baseline as package-verified; different, and the difference is an
+	 * immediate integrity alert. No manifest (an upgrade we did not see
+	 * unpack) leaves the plugin for the next scan to classify.
+	 *
+	 * The plugin list arrives in three shapes: bulk updates pass `plugins`
+	 * (array); a single Plugin_Upgrader::upgrade() — WordPress auto-updates —
+	 * passes `plugin` (string); an install passes neither, and the upgrader
+	 * knows the result only through plugin_info().
+	 *
+	 * @param \WP_Upgrader $upgrader_object The upgrader instance.
+	 * @param array        $options         Hook options: action, type, plugin(s).
+	 */
+	public function handle_upgrader_complete( $upgrader_object, $options ) {
+		if ( ! is_array( $options ) || ! isset( $options['action'], $options['type'] ) ) {
+			return;
+		}
+
+		if ( 'plugin' !== $options['type'] || ! in_array( $options['action'], array( 'update', 'install' ), true ) ) {
+			return;
+		}
+
+		$plugin_files = array();
+
+		if ( ! empty( $options['plugins'] ) && is_array( $options['plugins'] ) ) {
+			$plugin_files = $options['plugins'];
+		} elseif ( ! empty( $options['plugin'] ) && is_string( $options['plugin'] ) ) {
+			$plugin_files = array( $options['plugin'] );
+		} elseif ( is_object( $upgrader_object ) && method_exists( $upgrader_object, 'plugin_info' ) ) {
+			$installed = $upgrader_object->plugin_info();
+
+			if ( is_string( $installed ) && '' !== $installed ) {
+				$plugin_files = array( $installed );
+			}
+		}
+
+		foreach ( $plugin_files as $plugin_file ) {
+			$slug = self::plugin_slug( $plugin_file );
+
+			if ( '' === $slug || ! isset( $this->package_manifests[ $slug ] ) ) {
+				continue;
+			}
+
+			$manifest = $this->package_manifests[ $slug ];
+			$on_disk  = self::plugin_file_hashes( $slug );
+
+			if ( $manifest == $on_disk ) { // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual -- key order is irrelevant.
+				$this->accept_into_baseline( $slug, 'package' );
+				$this->clear_pending_alerts_for_scope( $slug );
+				continue;
+			}
+
+			$mismatch = array(
+				'added'    => array_values( array_diff( array_keys( $on_disk ), array_keys( $manifest ) ) ),
+				'removed'  => array_values( array_diff( array_keys( $manifest ), array_keys( $on_disk ) ) ),
+				'modified' => array(),
+			);
+
+			foreach ( $on_disk as $path => $hash ) {
+				if ( isset( $manifest[ $path ] ) && $manifest[ $path ] !== $hash ) {
+					$mismatch['modified'][] = $path;
+				}
+			}
+
+			$this->maybe_send_file_alert( $mismatch );
+		}
+	}
+
+	/**
+	 * Callback for deleted_plugin: forget a plugin WordPress just deleted, so
+	 * its files do not come back as a REMOVED FILES alert at the next scan.
+	 *
+	 * @param string $plugin_file Plugin basename, e.g. 'akismet/akismet.php'.
+	 * @param bool   $deleted     Whether the deletion succeeded.
+	 */
+	public function handle_plugin_deleted( $plugin_file, $deleted ) {
+		if ( ! $deleted ) {
+			return;
+		}
+
+		$slug = self::plugin_slug( $plugin_file );
+
+		if ( '' === $slug ) {
+			return;
+		}
+
+		$this->accept_into_baseline( $slug, 'delete' );
+		$this->clear_pending_alerts_for_scope( $slug );
+	}
+
+	/**
+	 * Drop queued (debounced) alerts inside a scope. If nothing remains
+	 * queued, delete the transient and cancel the pending dispatch event.
+	 *
+	 * @param string $scope 'all', 'uploads', or a plugin slug.
+	 */
+	protected function clear_pending_alerts_for_scope( $scope ) {
+		$pending = get_transient( self::FILE_MONITOR_PENDING );
+
+		if ( ! is_array( $pending ) ) {
+			return;
+		}
+
+		$changed = false;
+
+		foreach ( array( 'added', 'modified', 'removed' ) as $type ) {
+			if ( empty( $pending[ $type ] ) || ! is_array( $pending[ $type ] ) ) {
+				$pending[ $type ] = array();
+				continue;
+			}
+
+			$before = count( $pending[ $type ] );
+
+			$pending[ $type ] = array_values(
+				array_filter(
+					$pending[ $type ],
+					static function ( $path ) use ( $scope ) {
+						return ! self::path_in_scope( $path, $scope );
+					}
+				)
+			);
+
+			if ( count( $pending[ $type ] ) !== $before ) {
+				$changed = true;
+			}
+		}
+
+		if ( ! $changed ) {
+			return;
+		}
+
+		$remaining = count( $pending['added'] ) + count( $pending['modified'] ) + count( $pending['removed'] );
+
+		if ( 0 === $remaining ) {
+			delete_transient( self::FILE_MONITOR_PENDING );
+			wp_clear_scheduled_hook( self::FILE_MONITOR_DISPATCH_CRON );
+		} else {
+			set_transient( self::FILE_MONITOR_PENDING, $pending, DAY_IN_SECONDS );
+		}
+	}
 }

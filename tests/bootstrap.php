@@ -278,6 +278,58 @@ function current_user_can( $capability ) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin-post / notice-dismiss stubs.
+//
+// wp_verify_nonce() reads a controllable map so a test can arm exactly one
+// valid nonce; wp_die() throws so the bail paths are assertable instead of
+// killing the runner.
+// ---------------------------------------------------------------------------
+global $spfw_test_nonces, $spfw_test_redirects, $spfw_test_referer;
+$spfw_test_nonces    = array();
+$spfw_test_redirects = array();
+$spfw_test_referer   = false;
+
+function admin_url( $path = '' ) {
+	return 'http://example.com/wp-admin/' . ltrim( $path, '/' );
+}
+
+function wp_verify_nonce( $nonce, $action = -1 ) {
+	global $spfw_test_nonces;
+	return isset( $spfw_test_nonces[ $action ] ) && hash_equals( (string) $spfw_test_nonces[ $action ], (string) $nonce );
+}
+
+function wp_nonce_field( $action = -1, $name = '_wpnonce', $referer_field = true, $display = true ) {
+	$field = '<input type="hidden" name="' . esc_attr( $name ) . '" value="nonce" />';
+
+	if ( $display ) {
+		echo $field;
+	}
+
+	return $field;
+}
+
+function wp_get_referer() {
+	global $spfw_test_referer;
+	return $spfw_test_referer;
+}
+
+function wp_safe_redirect( $location, $status = 302, $x_redirect_by = 'WordPress' ) {
+	global $spfw_test_redirects;
+	$spfw_test_redirects[] = $location;
+	return true;
+}
+
+/**
+ * Stand-in for wp_die(): throws so tests can expect the bail paths.
+ */
+class SPFW_Test_WP_Die_Exception extends Exception {
+}
+
+function wp_die( $message = '', $title = '', $args = array() ) {
+	throw new SPFW_Test_WP_Die_Exception( is_string( $message ) ? $message : 'wp_die' );
+}
+
+// ---------------------------------------------------------------------------
 // Template conditionals and cron, for the CSP collection-coverage tests.
 //
 // $spfw_test_page holds the page type the next request should look like;
@@ -562,19 +614,80 @@ function sanitize_file_name( $name ) {
 }
 
 // ---------------------------------------------------------------------------
-// Load plugin classes under test.
+// Plugin headers + mail capture for the file monitor. get_plugins() reads the
+// Version header of every top-level PHP file one directory deep, the way core
+// does, from the bootstrap's temp plugins dir.
 // ---------------------------------------------------------------------------
-require_once SPFW_PATH . 'includes/class-spfw-settings.php';
-require_once SPFW_PATH . 'includes/class-spfw-server.php';
-require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
-require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
-require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
-require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
-require_once SPFW_PATH . 'includes/interface-spfw-module.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-fonts.php';
-require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
-require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
+function get_plugins() {
+	$root    = WP_CONTENT_DIR . '/plugins';
+	$plugins = array();
+
+	if ( ! is_dir( $root ) ) {
+		return $plugins;
+	}
+
+	$candidates = glob( $root . '/*.php' ) ?: array();
+
+	foreach ( glob( $root . '/*', GLOB_ONLYDIR ) ?: array() as $dir ) {
+		$candidates = array_merge( $candidates, glob( $dir . '/*.php' ) ?: array() );
+	}
+
+	foreach ( $candidates as $file ) {
+		$head = (string) file_get_contents( $file, false, null, 0, 8192 );
+
+		if ( ! preg_match( '/^[ \t\/*#@]*Plugin Name:(.*)$/mi', $head ) ) {
+			continue;
+		}
+
+		$version = preg_match( '/^[ \t\/*#@]*Version:(.*)$/mi', $head, $m ) ? trim( $m[1] ) : '';
+
+		$plugins[ ltrim( substr( $file, strlen( $root ) ), '/' ) ] = array( 'Version' => $version );
+	}
+
+	return $plugins;
+}
+
+function wp_clean_plugins_cache( $clear_update_cache = true ) {
+}
+
+function wp_specialchars_decode( $text, $quote_style = ENT_NOQUOTES ) {
+	return htmlspecialchars_decode( (string) $text, $quote_style );
+}
+
+global $spfw_test_mail;
+$spfw_test_mail = array();
+
+function wp_mail( $to, $subject, $message ) {
+	global $spfw_test_mail;
+	$spfw_test_mail[] = compact( 'to', 'subject', 'message' );
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Load plugin classes under test.
+//
+// Every class is required up front here, which is convenient for the unit
+// tests but deliberately hides one failure mode: SPFW_Settings is loaded by
+// boot() (and by activate()/deactivate()) at points where the module classes
+// do not exist yet, so an executable reference to e.g. SPFW_Module_Hardening
+// from this file fatals the whole site on deploy while every test here still
+// passes. Boot_Order_Test reproduces that require order in a subprocess; it
+// defines SPFW_TEST_NO_AUTOLOAD_CLASSES first so it inherits the WP stubs
+// above but loads no SPFW class, then requires them itself in boot() order.
+// ---------------------------------------------------------------------------
+if ( ! defined( 'SPFW_TEST_NO_AUTOLOAD_CLASSES' ) ) {
+	require_once SPFW_PATH . 'includes/class-spfw-settings.php';
+	require_once SPFW_PATH . 'includes/class-spfw-server.php';
+	require_once SPFW_PATH . 'includes/class-spfw-htaccess.php';
+	require_once SPFW_PATH . 'includes/interface-spfw-hardening-strategy.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-htaccess.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-user-ini.php';
+	require_once SPFW_PATH . 'includes/strategies/class-spfw-strategy-snippet.php';
+	require_once SPFW_PATH . 'includes/class-spfw-hardening-strategies.php';
+	require_once SPFW_PATH . 'includes/interface-spfw-module.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-core.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-hardening.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-fonts.php';
+	require_once SPFW_PATH . 'includes/modules/class-spfw-module-woocommerce.php';
+	require_once SPFW_PATH . 'includes/class-spfw-rest-settings.php';
+}
