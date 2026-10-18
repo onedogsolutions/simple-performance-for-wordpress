@@ -3575,7 +3575,9 @@ checks are carried in Open questions as owed.
   production or fix the staging cert, then confirm the notice clears on 2.19.0.
 
 - **Cross-site comparison through MainWP — child side shipped in 2.21.0;
-  live QA owed.** Needs dashboard extension 1.6.0 and at least three child
+  live QA done on test.onedog.solutions 2026-10-18 (one real child plus
+  synthetic dashboard-side sites; see the dashboard extension's STATE.md
+  Phase 9). Still owed with three real children:** Needs dashboard extension 1.6.0 and at least three child
   sites on 2.21.0: plant a one-line edit on one site's copy and confirm it is
   the outlier with exactly that file in the diff; SFTP-copy a premium plugin to
   three sites and confirm consensus verify clears all three with source
