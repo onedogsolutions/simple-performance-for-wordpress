@@ -227,6 +227,14 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	const FILE_MONITOR_DEBOUNCE = 900;
 
 	/**
+	 * Seconds a stored scan stays fresh enough for a MainWP sync to reuse it
+	 * instead of hashing the disk again (see sync_scan()).
+	 *
+	 * @var int
+	 */
+	const SYNC_SCAN_INTERVAL = 300;
+
+	/**
 	 * PHP file extensions the monitor scans for (same set the .htaccess blocks).
 	 *
 	 * @var string[]
@@ -3146,17 +3154,45 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * outstanding (unexplained plus unverified updates); `unexplained` and
 	 * `updates` split them; `auto_verified` lists plugins accepted this scan.
 	 *
+	 * @param array<string,string>|null $current Current hashes when the caller
+	 *                                          already has them; null hashes
+	 *                                          the disk now.
 	 * @return array{added:string[],modified:string[],removed:string[],unexplained:array,updates:array,auto_verified:array,updated_plugins:array,snapshot_time:int,initial:bool,signatures:array,verified:array}
 	 */
-	public function scan_wp_content() {
-		$current  = self::current_file_hashes();
+	public function scan_wp_content( ?array $current = null ) {
+		$plan  = $this->plan_scan( $current );
+		$state = self::store_file_state( $plan['patch'] );
+
+		return $this->scan_result(
+			$state,
+			$plan['current'],
+			$plan['auto_verified'],
+			$plan['changed_versions'],
+			$plan['initial'],
+			$plan['initial'] ? array_keys( $plan['current'] ) : array()
+		);
+	}
+
+	/**
+	 * Work out what a scan would store, without storing it.
+	 *
+	 * The caller decides whether to persist the patch: scan_wp_content() always
+	 * does, while verify_files() checks the reviewed signature against it
+	 * first, so a refused verification leaves the stored state exactly as it
+	 * was.
+	 *
+	 * @param array<string,string>|null $current Current hashes; null hashes the disk now.
+	 * @return array{patch:array,current:array<string,string>,auto_verified:array,changed_versions:array,initial:bool}
+	 */
+	protected function plan_scan( ?array $current = null ) {
+		$current  = null === $current ? self::current_file_hashes() : $current;
 		$versions = $this->plugin_versions();
 		$store    = self::get_file_snapshot();
 		$now      = time();
 
 		if ( 0 === $store['time'] && array() === $store['entries'] ) {
-			$state = self::store_file_state(
-				array(
+			return array(
+				'patch'            => array(
 					'time'       => $now,
 					'entries'    => $current,
 					'versions'   => $versions,
@@ -3168,10 +3204,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 					'pending'    => self::normalize_pending( array() ),
 					'notified'   => array(),
 					'signatures' => array(),
-				)
+				),
+				'current'          => $current,
+				'auto_verified'    => array(),
+				'changed_versions' => array(),
+				'initial'          => true,
 			);
-
-			return $this->scan_result( $state, $current, array(), array(), true, array_keys( $current ) );
 		}
 
 		$classified = $this->classify_changes( $current, $versions, $store );
@@ -3240,9 +3278,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
-		$state = self::store_file_state( $patch );
-
-		return $this->scan_result( $state, $current, $classified['auto_verified'], $classified['changed_versions'], false, array() );
+		return array(
+			'patch'            => $patch,
+			'current'          => $current,
+			'auto_verified'    => $classified['auto_verified'],
+			'changed_versions' => $classified['changed_versions'],
+			'initial'          => false,
+		);
 	}
 
 	/**
@@ -3623,9 +3665,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * Mark as verified: accept what is on disk now into the baseline for a
 	 * scope, provided it is exactly what the admin reviewed.
 	 *
-	 * Rescans first and compares the scope's signature with the one the
-	 * reviewed scan returned. A mismatch means the files changed after the
-	 * review, and accepting them would vouch for something nobody saw.
+	 * Re-hashes the disk first and compares the scope's signature with the one
+	 * the reviewed scan returned. A mismatch means the files changed after the
+	 * review, and accepting them would vouch for something nobody saw. The
+	 * fresh scan is only stored once the signature matches: a refusal writes
+	 * nothing, so a stale click leaves the review state exactly as it was.
 	 *
 	 * @param string $signature Signature from the reviewed scan.
 	 * @param string $scope     'all', 'uploads', or a plugin slug.
@@ -3635,8 +3679,8 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @return array|WP_Error Fresh scan result, or an error.
 	 */
 	public function verify_files( $signature, $scope, $user_id, $source = 'manual' ) {
-		$scan = $this->scan_wp_content();
-		$sigs = $scan['signatures'];
+		$plan = $this->plan_scan();
+		$sigs = self::pending_signatures( $plan['patch']['pending'], $plan['current'] );
 
 		if ( 'all' === $scope ) {
 			$expected = $sigs['all'];
@@ -3656,6 +3700,10 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
+		// What the package or wordpress.org verified this scan is accepted
+		// before the reviewed scope, exactly as a plain scan would have.
+		self::store_file_state( $plan['patch'] );
+
 		$this->accept_into_baseline( $scope, 'mainwp' === $source ? 'mainwp' : 'manual', $user_id );
 		$this->clear_pending_alerts_for_scope( $scope );
 
@@ -3674,9 +3722,19 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @return array{fingerprint:string,count:int}
 	 */
 	public static function plugin_fingerprint( $slug ) {
+		return self::fingerprint_of( self::plugin_relative_hashes( $slug ) );
+	}
+
+	/**
+	 * Reduce relative path => sha256 pairs to one fingerprint.
+	 *
+	 * @param array<string,string> $relative_hashes Relative path => sha256.
+	 * @return array{fingerprint:string,count:int}
+	 */
+	private static function fingerprint_of( array $relative_hashes ) {
 		$lines = array();
 
-		foreach ( self::plugin_relative_hashes( $slug ) as $relative => $hash ) {
+		foreach ( $relative_hashes as $relative => $hash ) {
 			$lines[] = $relative . ':' . $hash;
 		}
 
@@ -3686,6 +3744,32 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			'fingerprint' => hash( 'sha256', implode( "\n", $lines ) ),
 			'count'       => count( $lines ),
 		);
+	}
+
+	/**
+	 * Split a full current-hash map into each plugin's relative hashes, the
+	 * same keys plugin_relative_hashes() reads from disk.
+	 *
+	 * @param array<string,string> $current Snapshot path => sha256.
+	 * @return array<string,array<string,string>> Slug => relative path => sha256.
+	 */
+	private static function relative_hashes_by_plugin( array $current ) {
+		$out = array();
+
+		foreach ( $current as $path => $hash ) {
+			$slug = self::plugin_slug_for_path( $path );
+
+			if ( '' === $slug ) {
+				continue;
+			}
+
+			$prefix   = 'plugins/' . $slug . '/';
+			$relative = 0 === strpos( $path, $prefix ) ? substr( $path, strlen( $prefix ) ) : basename( $path );
+
+			$out[ $slug ][ $relative ] = $hash;
+		}
+
+		return $out;
 	}
 
 	/**
@@ -3718,11 +3802,15 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * Fingerprint every installed plugin, and say which ones have changes
 	 * waiting for review.
 	 *
+	 * @param array<string,string>|null $current Current hashes from a scan that
+	 *                                          just ran, so the disk is read
+	 *                                          once; null re-hashes each plugin.
 	 * @return array<string,array{version:string,fingerprint:string,count:int,pending:bool}>
 	 */
-	public function plugin_fingerprints() {
-		$store   = self::get_file_snapshot();
-		$pending = array();
+	public function plugin_fingerprints( ?array $current = null ) {
+		$by_plugin = null === $current ? null : self::relative_hashes_by_plugin( $current );
+		$store     = self::get_file_snapshot();
+		$pending   = array();
 
 		foreach ( self::pending_paths( $store['pending'] ) as $path ) {
 			$slug = self::plugin_slug_for_path( $path );
@@ -3741,7 +3829,9 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		foreach ( $this->plugin_versions() as $slug => $version ) {
 			$out[ $slug ] = array_merge(
 				array( 'version' => $version ),
-				self::plugin_fingerprint( $slug ),
+				null === $by_plugin
+					? self::plugin_fingerprint( $slug )
+					: self::fingerprint_of( isset( $by_plugin[ $slug ] ) ? $by_plugin[ $slug ] : array() ),
 				array( 'pending' => isset( $pending[ $slug ] ) )
 			);
 		}
@@ -3749,6 +3839,33 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		ksort( $out );
 
 		return $out;
+	}
+
+	/**
+	 * Scan for a MainWP sync: the same scan the twice-daily cron runs, alerts
+	 * included, plus every plugin's fingerprint, from one pass over the disk.
+	 *
+	 * A scan stored less than $min_interval seconds ago is not repeated, so a
+	 * "Sync all" straight after another sync, a Scan now or a cron run costs
+	 * one option read. Callers check that the monitor is on.
+	 *
+	 * @param int $min_interval Seconds a stored scan stays fresh enough.
+	 * @return array{scan_result:array,plugins:array}|null Null when the stored
+	 *         scan was recent enough to reuse.
+	 */
+	public function sync_scan( $min_interval = self::SYNC_SCAN_INTERVAL ) {
+		$last = self::get_file_snapshot()['time'];
+
+		if ( $last > 0 && time() - $last < (int) $min_interval ) {
+			return null;
+		}
+
+		$current = self::current_file_hashes();
+
+		return array(
+			'scan_result' => $this->scan_and_route( $current ),
+			'plugins'     => $this->plugin_fingerprints( $current ),
+		);
 	}
 
 	/**
@@ -4067,15 +4184,26 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * Cron callback: run the file-integrity scan, then report what is new.
 	 */
 	public function run_file_monitor_scan() {
-		$changes = $this->scan_wp_content();
+		$this->scan_and_route();
+	}
+
+	/**
+	 * Scan, then report what is new. Shared by the cron and the MainWP sync.
+	 *
+	 * @param array<string,string>|null $current Current hashes; null hashes the disk now.
+	 * @return array Result from scan_wp_content().
+	 */
+	protected function scan_and_route( ?array $current = null ) {
+		$current = null === $current ? self::current_file_hashes() : $current;
+		$changes = $this->scan_wp_content( $current );
 
 		// With no baseline there was nothing to compare against: the first
 		// scan only records.
-		if ( ! empty( $changes['initial'] ) ) {
-			return;
+		if ( empty( $changes['initial'] ) ) {
+			$this->route_file_changes( $changes, $current );
 		}
 
-		$this->route_file_changes( $changes );
+		return $changes;
 	}
 
 	/**
@@ -4088,12 +4216,13 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * already reported at its current hash is skipped, so a pending change is
 	 * not re-sent every twelve hours while it waits for review.
 	 *
-	 * @param array $changes Result from scan_wp_content().
+	 * @param array                     $changes Result from scan_wp_content().
+	 * @param array<string,string>|null $current Hashes that scan read; null re-hashes.
 	 */
-	protected function route_file_changes( $changes ) {
+	protected function route_file_changes( $changes, ?array $current = null ) {
 		$store    = self::get_file_snapshot();
 		$notified = $store['notified'];
-		$current  = self::current_file_hashes();
+		$current  = null === $current ? self::current_file_hashes() : $current;
 		$strict   = array(
 			'added'    => array(),
 			'modified' => array(),

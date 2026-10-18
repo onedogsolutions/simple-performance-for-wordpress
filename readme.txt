@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.21.0
+Stable tag: 2.21.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,10 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.21.1 =
+* Added: when the site syncs with a MainWP Dashboard running the companion extension (1.6.2 or later), the file integrity monitor runs its scan and sends the review state and one fingerprint per plugin with the sync, all from a single pass over the files. It is the same scan the twice-daily schedule runs, alerts included, and a scan stored in the last five minutes is reused instead of repeated (`spfw_mainwp_sync_scan_interval` filter). Nothing is scanned when the file monitor is off.
+* Fixed: a Mark as verified that was refused because the files changed since the review no longer rewrites the stored scan. The files are still re-hashed before anything is accepted; the result is only stored once the check passes.
 
 = 2.21.0 =
 * Added: the MainWP bridge can now review the file integrity monitor from the companion dashboard extension: read what is waiting for review, run a scan, and Mark as verified (recorded as "from the MainWP dashboard").

@@ -1,6 +1,7 @@
 <?php
 /**
- * Tests for the MainWP bridge's file-monitor actions (2.21.0).
+ * Tests for the MainWP bridge's file-monitor actions (2.21.0) and the
+ * sync-time scan (2.21.1).
  *
  * The dashboard extension compares a plugin version's files across every
  * managed site to find the one that differs, and can verify the copies that
@@ -350,5 +351,229 @@ class MainWP_Bridge_Test extends TestCase {
 		$this->assertTrue( $env['success'] );
 		$this->assertTrue( $env['data']['scan_result']['initial'] );
 		$this->assertSame( 2, $env['data']['file_monitor']['snapshot_count'] );
+	}
+
+	/**
+	 * The stored snapshot exactly as it sits in the option store.
+	 *
+	 * @return string
+	 */
+	private function snapshot_bytes() {
+		global $spfw_test_options;
+
+		return serialize( $spfw_test_options[ SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION ] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+	}
+
+	/**
+	 * Push the stored scan time into the past, so any write a call makes
+	 * (a scan stamps `time`) shows up in snapshot_bytes().
+	 */
+	private function age_snapshot() {
+		global $spfw_test_options;
+
+		$spfw_test_options[ SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION ]['time'] = 1000;
+	}
+
+	/**
+	 * Run the sync filter the way MainWP Child does.
+	 *
+	 * @param array $others The dashboard's decoded othersData.
+	 * @return array Sync response.
+	 */
+	private function sync( array $others = array( SPFW_MainWP_Child::SYNC_KEY => 1 ) ) {
+		return ( new SPFW_MainWP_Child() )->sync( array( 'version' => '6.3' ), $others );
+	}
+
+	/**
+	 * A stale signature is refused and the snapshot option is left
+	 * byte-identical: no new time, signatures, pending, or entries. The
+	 * refusal still re-hashed the disk, which is what caught the edit.
+	 */
+	public function test_refused_verify_files_writes_nothing() {
+		$module = $this->pending_update();
+		$sig    = $module->scan_wp_content()['signatures']['plugins']['premium'];
+
+		// Edited after the review: the fresh re-hash must refuse.
+		$this->put( WP_CONTENT_DIR . '/plugins/premium/includes/core.php', "<?php // edited after review\n" );
+		$this->age_snapshot();
+		$before = $this->snapshot_bytes();
+
+		foreach ( array( 'premium' => $sig, 'all' => $sig, 'uploads' => $sig, 'nosuch' => $sig ) as $scope => $signature ) {
+			$env = $this->call( array( 'spfw_action' => 'verify_files', 'scope' => $scope, 'signature' => $signature ) );
+			$this->assertFalse( $env['success'], $scope );
+			$this->assertSame( 'spfw_files_changed', $env['code'], $scope );
+			$this->assertSame( $before, $this->snapshot_bytes(), $scope );
+		}
+
+		$env = $this->call( array( 'spfw_action' => 'verify_files', 'scope' => '../x', 'signature' => $sig ) );
+		$this->assertSame( 'spfw_bad_scope', $env['code'] );
+		$this->assertSame( $before, $this->snapshot_bytes() );
+
+		// Directly, without the bridge.
+		$this->assertInstanceOf( 'WP_Error', $module->verify_files( $sig, 'premium', 3 ) );
+		$this->assertSame( $before, $this->snapshot_bytes() );
+	}
+
+	/**
+	 * The signature is checked against a fresh re-hash, not the stored one:
+	 * after a refusal the reviewer rescans, and the new signature verifies.
+	 */
+	public function test_verify_files_after_refusal_and_rescan_succeeds() {
+		$module = $this->pending_update();
+		$sig    = $module->scan_wp_content()['signatures']['plugins']['premium'];
+
+		$this->put( WP_CONTENT_DIR . '/plugins/premium/includes/core.php', "<?php // edited after review\n" );
+		$this->assertInstanceOf( 'WP_Error', $module->verify_files( $sig, 'premium', 3 ) );
+
+		$fresh = $module->scan_wp_content()['signatures']['plugins']['premium'];
+		$this->assertNotSame( $sig, $fresh );
+
+		$result = $module->verify_files( $fresh, 'premium', 3 );
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'premium', $result['updates'] );
+
+		$store = SPFW_Module_Hardening::get_file_snapshot();
+		$this->assertSame( hash_file( 'sha256', WP_CONTENT_DIR . '/plugins/premium/includes/core.php' ), $store['entries']['plugins/premium/includes/core.php'] );
+		$this->assertSame( '1.1', $store['versions']['premium'] );
+	}
+
+	/**
+	 * Every consensus refusal leaves the snapshot option byte-identical.
+	 */
+	public function test_refused_consensus_writes_nothing() {
+		$this->pending_update();
+		$fp = SPFW_Module_Hardening::plugin_fingerprint( 'premium' )['fingerprint'];
+		$this->age_snapshot();
+		$before = $this->snapshot_bytes();
+
+		$cases = array(
+			'fingerprint' => array( 'premium', '1.1', hash( 'sha256', 'other' ), 3, 'spfw_files_changed' ),
+			'version'     => array( 'premium', '1.0', $fp, 3, 'spfw_files_changed' ),
+			'quorum'      => array( 'premium', '1.1', $fp, 1, 'spfw_consensus_too_small' ),
+			'missing'     => array( 'nosuch', '1.1', $fp, 3, 'spfw_files_changed' ),
+			'bad slug'    => array( '../x', '1.1', $fp, 3, 'spfw_bad_scope' ),
+		);
+
+		foreach ( $cases as $label => $case ) {
+			$env = $this->call(
+				array(
+					'spfw_action' => 'verify_consensus',
+					'slug'        => $case[0],
+					'version'     => $case[1],
+					'fingerprint' => $case[2],
+					'agreeing'    => $case[3],
+				)
+			);
+
+			$this->assertFalse( $env['success'], $label );
+			$this->assertSame( $case[4], $env['code'], $label );
+			$this->assertSame( $before, $this->snapshot_bytes(), $label );
+		}
+	}
+
+	/**
+	 * Sync only answers when the dashboard asks, and only to an admin.
+	 */
+	public function test_sync_needs_the_flag_and_an_admin() {
+		global $spfw_test_options, $spfw_test_capabilities;
+
+		$this->make_plugin( 'alpha', '1.0' );
+
+		$this->assertSame( array( 'version' => '6.3' ), $this->sync( array() ) );
+		$this->assertSame( array( 'version' => '6.3' ), $this->sync( array( SPFW_MainWP_Child::SYNC_KEY => 0 ) ) );
+
+		$spfw_test_capabilities = array();
+		$this->assertSame( array( 'version' => '6.3' ), $this->sync() );
+
+		$this->assertArrayNotHasKey( SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION, $spfw_test_options );
+	}
+
+	/**
+	 * With the monitor off, sync reports that and scans nothing.
+	 */
+	public function test_sync_with_monitor_off_does_not_scan() {
+		global $spfw_test_options;
+
+		$spfw_test_options['spfw_settings']['hardening']['file_monitor_enabled'] = false;
+		$ref = new ReflectionProperty( 'SPFW_Settings', 'cache' );
+		$ref->setValue( null, null );
+
+		$this->make_plugin( 'alpha', '1.0' );
+
+		$out    = $this->sync();
+		$report = $out[ SPFW_MainWP_Child::SYNC_KEY ];
+
+		$this->assertSame( '6.3', $out['version'] );
+		$this->assertFalse( $report['enabled'] );
+		$this->assertFalse( $report['scanned'] );
+		$this->assertArrayNotHasKey( 'plugins', $report );
+		$this->assertSame( 0, $report['file_monitor']['last_scan'] );
+		$this->assertSame( 0, $report['file_monitor']['snapshot_count'] );
+	}
+
+	/**
+	 * Sync scans and fingerprints from one pass; the fingerprints match the
+	 * ones plugin_fingerprints() computes by re-hashing each plugin.
+	 */
+	public function test_sync_scans_and_fingerprints() {
+		$this->make_plugin( 'alpha', '1.0' );
+		$this->make_plugin( 'beta', '2.0' );
+		$this->put( WP_CONTENT_DIR . '/plugins/hello.php', "<?php\n/*\nPlugin Name: Hello\nVersion: 1.7\n*/\n" );
+
+		$report = $this->sync()[ SPFW_MainWP_Child::SYNC_KEY ];
+
+		$this->assertTrue( $report['enabled'] );
+		$this->assertTrue( $report['scanned'] );
+		$this->assertSame( SPFW_VERSION, $report['version'] );
+		$this->assertSame( ( new SPFW_Module_Hardening() )->plugin_fingerprints(), $report['plugins'] );
+		$this->assertSame( array( 'alpha', 'beta', 'hello.php' ), array_keys( $report['plugins'] ) );
+		$this->assertSame( 0, $report['uploads_pending'] );
+		$this->assertSame( 5, $report['file_monitor']['snapshot_count'] );
+		$this->assertGreaterThan( 0, $report['file_monitor']['last_scan'] );
+	}
+
+	/**
+	 * A scan stored a moment ago is reused: no re-hash, no write, no
+	 * fingerprints. Once it ages past the interval, sync scans again.
+	 */
+	public function test_sync_reuses_a_recent_scan() {
+		$this->pending_update();
+		$before = $this->snapshot_bytes();
+
+		$report = $this->sync()[ SPFW_MainWP_Child::SYNC_KEY ];
+		$this->assertFalse( $report['scanned'] );
+		$this->assertArrayNotHasKey( 'plugins', $report );
+		$this->assertArrayHasKey( 'premium', $report['file_monitor']['pending']['updates'] );
+		$this->assertSame( $before, $this->snapshot_bytes() );
+
+		$this->age_snapshot();
+		$report = $this->sync()[ SPFW_MainWP_Child::SYNC_KEY ];
+		$this->assertTrue( $report['scanned'] );
+		$this->assertTrue( $report['plugins']['premium']['pending'] );
+		$this->assertGreaterThan( 1000, $report['file_monitor']['last_scan'] );
+	}
+
+	/**
+	 * A sync scan alerts like the cron scan: an unexplained uploads PHP file
+	 * is emailed once, and a second sync does not send it again.
+	 */
+	public function test_sync_scan_routes_alerts_once() {
+		global $spfw_test_mail, $spfw_test_transients;
+
+		$this->make_plugin( 'alpha', '1.0' );
+		$this->sync();
+		$this->assertSame( array(), $spfw_test_mail );
+
+		$this->put( WP_CONTENT_DIR . '/uploads/2026/10/shell.php', "<?php system( \$_GET['c'] );\n" );
+		$this->age_snapshot();
+		$report = $this->sync()[ SPFW_MainWP_Child::SYNC_KEY ];
+
+		$this->assertSame( 1, $report['uploads_pending'] );
+		$this->assertCount( 1, $spfw_test_mail );
+
+		$spfw_test_transients = array();
+		$this->age_snapshot();
+		$this->sync();
+		$this->assertCount( 1, $spfw_test_mail );
 	}
 }
