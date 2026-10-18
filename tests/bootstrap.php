@@ -277,6 +277,11 @@ function current_user_can( $capability ) {
 	return ! empty( $spfw_test_capabilities[ $capability ] );
 }
 
+function get_current_user_id() {
+	global $spfw_test_user_id;
+	return isset( $spfw_test_user_id ) ? (int) $spfw_test_user_id : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Admin-post / notice-dismiss stubs.
 //

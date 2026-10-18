@@ -3630,9 +3630,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @param string $signature Signature from the reviewed scan.
 	 * @param string $scope     'all', 'uploads', or a plugin slug.
 	 * @param int    $user_id   Who is verifying.
+	 * @param string $source    'manual' (this site's admin) or 'mainwp' (the
+	 *                          MainWP dashboard extension, via the bridge).
 	 * @return array|WP_Error Fresh scan result, or an error.
 	 */
-	public function verify_files( $signature, $scope, $user_id ) {
+	public function verify_files( $signature, $scope, $user_id, $source = 'manual' ) {
 		$scan = $this->scan_wp_content();
 		$sigs = $scan['signatures'];
 
@@ -3654,8 +3656,141 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
-		$this->accept_into_baseline( $scope, 'manual', $user_id );
+		$this->accept_into_baseline( $scope, 'mainwp' === $source ? 'mainwp' : 'manual', $user_id );
 		$this->clear_pending_alerts_for_scope( $scope );
+
+		return $this->scan_wp_content();
+	}
+
+	/**
+	 * One plugin's monitored files reduced to a single fingerprint, so a
+	 * dashboard can compare the same plugin version across sites without
+	 * shipping every hash.
+	 *
+	 * Paths are relative to the plugin directory and sorted, so the value is
+	 * the same on every site that holds byte-identical files.
+	 *
+	 * @param string $slug Plugin directory (or root file) name.
+	 * @return array{fingerprint:string,count:int}
+	 */
+	public static function plugin_fingerprint( $slug ) {
+		$lines = array();
+
+		foreach ( self::plugin_relative_hashes( $slug ) as $relative => $hash ) {
+			$lines[] = $relative . ':' . $hash;
+		}
+
+		sort( $lines );
+
+		return array(
+			'fingerprint' => hash( 'sha256', implode( "\n", $lines ) ),
+			'count'       => count( $lines ),
+		);
+	}
+
+	/**
+	 * One plugin's monitored files keyed by path relative to the plugin
+	 * directory ('akismet.php', not 'plugins/akismet/akismet.php').
+	 *
+	 * @param string $slug Plugin directory (or root file) name.
+	 * @return array<string,string> Relative path => sha256.
+	 */
+	public static function plugin_relative_hashes( $slug ) {
+		// Reachable from the MainWP bridge: never let a slug walk out of plugins/.
+		if ( ! is_string( $slug ) || ! preg_match( '/^[A-Za-z0-9._-]+$/', $slug ) || '.' === $slug || '..' === $slug ) {
+			return array();
+		}
+
+		$prefix = 'plugins/' . $slug . '/';
+		$out    = array();
+
+		foreach ( self::plugin_file_hashes( $slug ) as $path => $hash ) {
+			$relative         = 0 === strpos( $path, $prefix ) ? substr( $path, strlen( $prefix ) ) : basename( $path );
+			$out[ $relative ] = $hash;
+		}
+
+		ksort( $out );
+
+		return $out;
+	}
+
+	/**
+	 * Fingerprint every installed plugin, and say which ones have changes
+	 * waiting for review.
+	 *
+	 * @return array<string,array{version:string,fingerprint:string,count:int,pending:bool}>
+	 */
+	public function plugin_fingerprints() {
+		$store   = self::get_file_snapshot();
+		$pending = array();
+
+		foreach ( self::pending_paths( $store['pending'] ) as $path ) {
+			$slug = self::plugin_slug_for_path( $path );
+
+			if ( '' !== $slug ) {
+				$pending[ $slug ] = true;
+			}
+		}
+
+		foreach ( array_keys( $store['pending']['updates'] ) as $slug ) {
+			$pending[ $slug ] = true;
+		}
+
+		$out = array();
+
+		foreach ( $this->plugin_versions() as $slug => $version ) {
+			$out[ $slug ] = array_merge(
+				array( 'version' => $version ),
+				self::plugin_fingerprint( $slug ),
+				array( 'pending' => isset( $pending[ $slug ] ) )
+			);
+		}
+
+		ksort( $out );
+
+		return $out;
+	}
+
+	/**
+	 * Consensus verification: accept one plugin into the baseline because its
+	 * files match the copy most of the other managed sites run.
+	 *
+	 * The dashboard only says which fingerprint the majority reported. This
+	 * site recomputes its own from disk and refuses unless it is that
+	 * fingerprint at that version, so a file edited after the comparison is
+	 * never vouched for. A majority shows the copies match, not that they are
+	 * clean, which is why a person confirms this on the dashboard.
+	 *
+	 * @param string $slug        Plugin slug.
+	 * @param string $version     Version the majority runs.
+	 * @param string $fingerprint Majority fingerprint.
+	 * @param int    $agreeing    Number of other sites that agreed.
+	 * @param int    $user_id     Who confirmed it.
+	 * @return array|WP_Error Fresh scan result, or an error.
+	 */
+	public function verify_consensus( $slug, $version, $fingerprint, $agreeing, $user_id ) {
+		$versions = $this->plugin_versions();
+
+		if ( (int) $agreeing < 2 ) {
+			return new WP_Error(
+				'spfw_consensus_too_small',
+				__( 'At least two other sites must run the same files before they can verify each other.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$mine = self::plugin_fingerprint( $slug );
+
+		if ( ! isset( $versions[ $slug ] ) || (string) $versions[ $slug ] !== (string) $version || 0 === $mine['count'] || ! hash_equals( $mine['fingerprint'], (string) $fingerprint ) ) {
+			return new WP_Error(
+				'spfw_files_changed',
+				__( 'This site\'s copy of the plugin no longer matches the one the other sites run. Compare again before verifying.', 'simple-performance-for-wordpress' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$this->accept_into_baseline( $slug, 'consensus', $user_id );
+		$this->clear_pending_alerts_for_scope( $slug );
 
 		return $this->scan_wp_content();
 	}

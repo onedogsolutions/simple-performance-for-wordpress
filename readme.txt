@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.20.1
+Stable tag: 2.21.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -104,6 +104,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.21.0 =
+* Added: the MainWP bridge can now review the file integrity monitor from the companion dashboard extension: read what is waiting for review, run a scan, and Mark as verified (recorded as "from the MainWP dashboard").
+* Added: cross-site comparison. The dashboard can fingerprint each plugin's files and compare the same version across every managed site, so the one site whose copy differs stands out. Only a fingerprint per plugin is sent; full file hashes are sent only for a plugin the dashboard is drilling into.
+* Added: consensus verification. When at least two other managed sites run byte-identical copies of a plugin version, an administrator on the dashboard can verify a site's pending copy against them (recorded as "matched the same version on other managed sites"). Each site recomputes its own fingerprint and refuses if its files no longer match. File-monitor bridge actions require an administrator connection.
+* Changed: the bridge's settings read now includes the root .htaccess status and the file monitor's review state.
 
 = 2.20.1 =
 * Changed: the minimum supported PHP version is now 8.1, up from 8.0. No functional change from 2.20.0 — the plugin's committed dependency lock has required 8.1 since PHPUnit 10 landed, so "Requires PHP: 8.0" was a claim nothing verified. WordPress will not offer this update to a site still on PHP 8.0; such a site keeps 2.20.0. PHP 8.0 reached end of security support in November 2023.

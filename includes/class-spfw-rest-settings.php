@@ -349,25 +349,21 @@ class SPFW_Rest_Settings {
 		// SPFW_Module_Hardening::FILE_MONITOR_SNAPSHOT_OPTION) and injected
 		// into both the top level and the hardening group, because the UI
 		// reads the group copy while older code read the top level.
-		$fm_snapshot                             = SPFW_Module_Hardening::get_file_snapshot();
-		$settings['file_monitor_last_scan']      = $fm_snapshot['time'];
-		$settings['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
+		$fm_state                                = self::file_monitor_state();
+		$settings['file_monitor_last_scan']      = $fm_state['last_scan'];
+		$settings['file_monitor_snapshot_count'] = $fm_state['snapshot_count'];
 
 		if ( ! isset( $settings['hardening'] ) || ! is_array( $settings['hardening'] ) ) {
 			$settings['hardening'] = array();
 		}
 
-		$settings['hardening']['file_monitor_last_scan']      = $fm_snapshot['time'];
-		$settings['hardening']['file_monitor_snapshot_count'] = count( $fm_snapshot['entries'] );
+		$settings['hardening']['file_monitor_last_scan']      = $fm_state['last_scan'];
+		$settings['hardening']['file_monitor_snapshot_count'] = $fm_state['snapshot_count'];
 
 		// What the last scan left for review, and who last verified, so the
 		// tab shows outstanding changes without anyone running a scan.
-		$settings['hardening']['file_monitor_pending']  = array(
-			'unexplained' => $fm_snapshot['pending']['unexplained'],
-			'updates'     => $fm_snapshot['pending']['updates'],
-			'signatures'  => $fm_snapshot['signatures'],
-		);
-		$settings['hardening']['file_monitor_verified'] = self::describe_verification( $fm_snapshot['verified'] );
+		$settings['hardening']['file_monitor_pending']  = $fm_state['pending'];
+		$settings['hardening']['file_monitor_verified'] = $fm_state['verified'];
 
 		// Enforcement is a separate dimension from the integrity status() above:
 		// status() proves a file is present and matches the hash we stored,
@@ -1850,6 +1846,29 @@ class SPFW_Rest_Settings {
 		$response->set_data( $data );
 
 		return $response;
+	}
+
+	/**
+	 * The file monitor's review state: last scan, baseline size, what is
+	 * pending (with the per-scope signatures Mark as verified sends back), and
+	 * the last verification. Shared by the REST settings response and the
+	 * MainWP bridge so both report the same thing.
+	 *
+	 * @return array{last_scan:int,snapshot_count:int,pending:array,verified:array}
+	 */
+	public static function file_monitor_state() {
+		$snapshot = SPFW_Module_Hardening::get_file_snapshot();
+
+		return array(
+			'last_scan'      => $snapshot['time'],
+			'snapshot_count' => count( $snapshot['entries'] ),
+			'pending'        => array(
+				'unexplained' => $snapshot['pending']['unexplained'],
+				'updates'     => $snapshot['pending']['updates'],
+				'signatures'  => $snapshot['signatures'],
+			),
+			'verified'       => self::describe_verification( $snapshot['verified'] ),
+		);
 	}
 
 	/**

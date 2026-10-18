@@ -14,6 +14,14 @@ const SOURCE_LABELS = {
 		'simple-performance-for-wordpress'
 	),
 	initial: __( 'first scan', 'simple-performance-for-wordpress' ),
+	mainwp: __(
+		'marked as verified from the MainWP dashboard',
+		'simple-performance-for-wordpress'
+	),
+	consensus: __(
+		'matched the same version on other managed sites',
+		'simple-performance-for-wordpress'
+	),
 };
 
 const BUTTON =
