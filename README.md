@@ -4,25 +4,41 @@
 [![License](https://img.shields.io/badge/License-GPLv2+-blue.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 [![MainWP Compatible](https://img.shields.io/badge/MainWP-Compatible-brightgreen.svg)](https://mainwp.com/)
 
-**Simple Performance for WordPress** by [One Dog Solutions](https://github.com/onedogsolutions) is a lightweight, bloat-free optimization plugin. Designed for developers and agency owners, it strips out unnecessary WordPress overhead and gives you fine-grained control over core performance settings. 
+**Simple Performance for WordPress** by [One Dog Solutions](https://github.com/onedogsolutions) is a lightweight, efficient optimization plugin built for developers, agencies, and site owners who want maximum speed without heavy, bloated optimization suites. 
 
-Instead of overwhelming you with complex caching rules, this plugin focuses on the essential core tweaks that make a measurable difference—while integrating seamlessly with **MainWP** for multi-site management.
+It targets hidden performance bottlenecks in WordPress core, cleans up unnecessary overhead, and integrates directly with **MainWP** for effortless multi-site management.
 
-## ✨ Key Features
+---
 
-* **Core WordPress Optimizations:** Clean up your site's `<head>`, remove unnecessary meta tags, and disable heavy default assets (like WP emojis and dashicons) that slow down front-end rendering.
-* **REST API Management:** Take control of your WordPress REST API. Easily manage endpoints, restrict access for unauthenticated users, and stop third-party requests from draining your server resources.
-* **MainWP Integration:** Managing multiple websites? Configure *Simple Performance* on all of your connected child sites directly from your centralized MainWP Dashboard. Deploy performance tweaks at scale in just a few clicks.
-* **Zero Bloat Codebase:** Built to be exceptionally lightweight. It won't slow down your admin panel or conflict with server-level caching (like Redis or Varnish).
+## ✨ Key Features & Optimizations
+
+### 1. Core & Asset Cleanups
+* **Remove Emojis & Dashicons:** Strip out front-end emoji scripts and unneeded dashicons for guest visitors to reduce HTTP requests.
+* **Disable Embeds & XML-RPC:** Turn off WordPress auto-embeds and block legacy XML-RPC requests to enhance site performance and security.
+* **Meta Tag Cleanup:** Remove unnecessary headers from your site's `<head>` (such as RSD links, Windows Live Writer manifests, shortlinks, and generator versions).
+
+### 2. Resource & Heartbeat Control
+* **WordPress Heartbeat API Control:** Modify or restrict the frequency of the WordPress Heartbeat API in both the backend and frontend to save server CPU resources and minimize database writes.
+* **Post Revisions Management:** Limit or completely control post revisions to keep your database lean and performant.
+* **Database & Autoloaded Options Cleanup:** Streamline transient data and clean up leftover autoloaded options from uninstalled plugins.
+
+### 3. REST API Management
+* **Endpoint Control:** Fine-tune access to the WordPress REST API.
+* **Authentication & User Protection:** Restrict unauthenticated REST API access or hide user endpoints to protect against user enumeration attacks.
+
+### 4. MainWP Integration
+* **Centralized Dashboard Management:** Configure performance toggles across all connected child sites directly from your MainWP dashboard.
+* **Bulk Configuration & Syncing:** Push speed and optimization settings to dozens or hundreds of client sites with a single click.
+
+---
 
 ## 📦 Installation
 
-1. Download the latest release from the [Releases](../../releases) page.
-2. Log in to your WordPress dashboard.
+1. Download the latest release `.zip` file from the [Releases](../../releases) page.
+2. Log in to your WordPress admin dashboard.
 3. Navigate to **Plugins > Add New > Upload Plugin**.
-4. Upload the downloaded `.zip` file and click **Install Now**.
-5. Click **Activate**.
+4. Choose the downloaded `.zip` file, click **Install Now**, and then **Activate**.
 
-*To install via WP-CLI:*
+Alternatively, install and activate via WP-CLI:
 ```bash
 wp plugin install [https://github.com/onedogsolutions/simple-performance-for-wordpress/archive/refs/heads/main.zip](https://github.com/onedogsolutions/simple-performance-for-wordpress/archive/refs/heads/main.zip) --activate
