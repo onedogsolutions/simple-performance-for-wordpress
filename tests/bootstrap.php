@@ -164,12 +164,34 @@ function add_filter( $tag, $callback = null, $priority = 10, $accepted_args = 1 
 	);
 }
 
-function remove_action() {}
+global $spfw_test_removed_hooks;
+$spfw_test_removed_hooks = array();
+
+function remove_action( $tag = '', $callback = null, $priority = 10, $accepted_args = 1 ) {
+	global $spfw_test_removed_hooks;
+	$spfw_test_removed_hooks[] = array(
+		'tag'      => $tag,
+		'callback' => $callback,
+		'priority' => $priority,
+	);
+}
 
 function remove_filter() {}
 
+global $spfw_test_is_admin;
+$spfw_test_is_admin = false;
+
 function is_admin() {
-	return false;
+	global $spfw_test_is_admin;
+	return (bool) $spfw_test_is_admin;
+}
+
+global $spfw_test_screen;
+$spfw_test_screen = null;
+
+function get_current_screen() {
+	global $spfw_test_screen;
+	return $spfw_test_screen;
 }
 
 // ---------------------------------------------------------------------------

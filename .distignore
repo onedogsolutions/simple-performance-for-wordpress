@@ -5,6 +5,7 @@
 
 .git
 .github
+.claude
 .gitattributes
 .gitignore
 .distignore

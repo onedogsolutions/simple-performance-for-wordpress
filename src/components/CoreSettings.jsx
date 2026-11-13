@@ -629,6 +629,17 @@ export default function CoreSettings( { settings, onChange } ) {
 						'simple-performance-for-wordpress'
 					)
 				) }
+				{ toggleRow(
+					'disable_command_palette',
+					__(
+						'Disable Command Palette (admin)',
+						'simple-performance-for-wordpress'
+					),
+					__(
+						'Removes the Ctrl/Cmd+K Command Palette and its ~40 block-editor scripts from classic admin screens (WordPress 6.9+). The post editor and site editor keep the palette. Speeds up every other wp-admin page.',
+						'simple-performance-for-wordpress'
+					)
+				) }
 
 				<SettingsRow
 					title={ __(

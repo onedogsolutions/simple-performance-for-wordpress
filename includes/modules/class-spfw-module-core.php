@@ -166,6 +166,10 @@ class SPFW_Module_Core implements SPFW_Module {
 			add_action( 'wp_dashboard_setup', array( $this, 'remove_dashboard_widgets' ) );
 		}
 
+		if ( ! empty( $c['disable_command_palette'] ) && is_admin() ) {
+			add_action( 'admin_init', array( $this, 'remove_command_palette' ) );
+		}
+
 		// C4: WP-Cron control. DISABLE_WP_CRON is read by wp-cron.php at
 		// runtime, well after plugins_loaded, so defining it here (guarded,
 		// so wp-config.php always wins) is the same proven pattern used for
@@ -692,6 +696,68 @@ class SPFW_Module_Core implements SPFW_Module {
 		remove_meta_box( 'dashboard_activity', 'dashboard', 'normal' );
 		remove_meta_box( 'dashboard_site_health', 'dashboard', 'normal' );
 		remove_meta_box( 'dashboard_right_now', 'dashboard', 'normal' );
+	}
+
+	/**
+	 * Unhook the Command Palette from classic admin screens.
+	 *
+	 * Since WordPress 6.9 every admin screen enqueues the Command Palette
+	 * (Ctrl/Cmd+K) via `wp_enqueue_command_palette_assets()` on
+	 * `admin_enqueue_scripts`, which pulls in ~40 block-editor scripts
+	 * (React, the component library, the data layer) whether or not the
+	 * palette is ever opened. Removing the core callback skips the scripts,
+	 * the inline initializer, and the per-load menu-command computation.
+	 *
+	 * Block-editor screens are skipped on purpose: `wp-commands` is a
+	 * declared dependency of the editor packages, but `wp-core-commands`
+	 * (the palette itself) is not, so removing the callback there would
+	 * strip the post/site editor's own palette. Runs on `admin_init`, which
+	 * fires after set_current_screen() in wp-admin.
+	 */
+	public function remove_command_palette() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+		if ( $screen ) {
+			if ( method_exists( $screen, 'is_block_editor' ) && $screen->is_block_editor() ) {
+				return;
+			}
+
+			$block_screens = array(
+				'site-editor',
+				'widgets',
+				'customize',
+				'appearance_page_gutenberg-edit-site',
+				'toplevel_page_gutenberg-edit-site',
+			);
+
+			if ( isset( $screen->id ) && in_array( $screen->id, $block_screens, true ) ) {
+				return;
+			}
+		}
+
+		remove_action( 'admin_enqueue_scripts', 'wp_enqueue_command_palette_assets' );
+		// Alternate callback name used in early 6.9 development; a no-op when
+		// it was never hooked, kept so the removal survives a core rename.
+		remove_action( 'admin_enqueue_scripts', 'wp_enqueue_command_palette' );
+
+		// Fallback for plugins that enqueue the handles directly rather than
+		// through the core callback. Runs last so it wins over any enqueue.
+		add_action( 'admin_enqueue_scripts', array( $this, 'dequeue_command_palette' ), PHP_INT_MAX );
+	}
+
+	/**
+	 * Dequeue the Command Palette script and style handles.
+	 *
+	 * Dequeues rather than deregisters — the same contract as
+	 * maybe_dequeue_dashicons(): deregistering a shared handle removes it
+	 * from the registry, and WP_Dependencies::all_deps() then silently
+	 * skips every enqueued asset that lists it as a dependency. Dequeuing
+	 * takes the same saving without that failure mode.
+	 */
+	public function dequeue_command_palette() {
+		wp_dequeue_script( 'wp-core-commands' );
+		wp_dequeue_script( 'wp-commands' );
+		wp_dequeue_style( 'wp-commands' );
 	}
 
 	/**

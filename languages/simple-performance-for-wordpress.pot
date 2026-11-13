@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Simple Performance for WordPress 2.21.0\n"
+"Project-Id-Version: Simple Performance for WordPress 2.22.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/simple-performance-for-wordpress\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-18T18:00:35+00:00\n"
+"POT-Creation-Date: 2026-11-13T03:36:55+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: SPFW make-pot 1.0\n"
 "X-Domain: simple-performance-for-wordpress\n"
@@ -80,31 +80,31 @@ msgstr ""
 msgid "Could not write the hardening file. The web server may not have direct write access to this directory."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1469
+#: includes/class-spfw-settings.php:1471
 msgid "Balanced"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1470
+#: includes/class-spfw-settings.php:1472
 msgid "Safe on any site. Removes head bloat, disables emojis/embeds, hides the WP version, and enables security headers."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1490
+#: includes/class-spfw-settings.php:1492
 msgid "Aggressive"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1491
+#: includes/class-spfw-settings.php:1493
 msgid "For classic themes with no block editor and no public search. Adds block CSS removal, search disable, and image size control."
 msgstr ""
 
-#: includes/class-spfw-settings.php:1519
+#: includes/class-spfw-settings.php:1522
 msgid "Locked Down"
 msgstr ""
 
-#: includes/class-spfw-settings.php:1520
+#: includes/class-spfw-settings.php:1523
 msgid "Maximum hardening. Everything in Aggressive plus all directory hardening, app passwords off, author enumeration blocked, and generic login errors."
 msgstr ""
 
-#: includes/modules/class-spfw-module-core.php:355
+#: includes/modules/class-spfw-module-core.php:359
 msgid "Feeds are disabled on this site."
 msgstr ""
 
@@ -188,112 +188,112 @@ msgstr ""
 msgid "[%1$d/%2$d pages loaded · %3$d Google stylesheets on the site · %4$d of %5$d manual declarations used · %6$d @font-face blocks · %7$d files downloaded, %8$d failed]"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1040
+#: includes/modules/class-spfw-module-hardening.php:1048
 msgid "Simple Performance: re-synced your root .htaccess to match your current hardening toggles."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:1790
-#: includes/modules/class-spfw-module-hardening.php:1822
+#: includes/modules/class-spfw-module-hardening.php:1798
+#: includes/modules/class-spfw-module-hardening.php:1830
 msgid "Invalid username or password."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3654
+#: includes/modules/class-spfw-module-hardening.php:3698
 msgid "The files changed since you reviewed them. Scan again and review the new list before marking it verified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3777
+#: includes/modules/class-spfw-module-hardening.php:3894
 msgid "At least two other sites must run the same files before they can verify each other."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3787
+#: includes/modules/class-spfw-module-hardening.php:3904
 msgid "This site's copy of the plugin no longer matches the one the other sites run. Compare again before verifying."
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:3964
+#: includes/modules/class-spfw-module-hardening.php:4081
 #, php-format
 msgid "[%s] File integrity alert"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:3970
+#: includes/modules/class-spfw-module-hardening.php:4087
 #, php-format
 msgid "File integrity scan detected changes on %s:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3975
+#: includes/modules/class-spfw-module-hardening.php:4092
 msgid "NEW FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3985
+#: includes/modules/class-spfw-module-hardening.php:4102
 msgid "MODIFIED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:3995
+#: includes/modules/class-spfw-module-hardening.php:4112
 msgid "REMOVED FILES:\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:4004
+#: includes/modules/class-spfw-module-hardening.php:4121
 msgid "None of these changes is explained by a plugin update: the plugins they belong to report the same version as at the last verified scan. Plugin updates are recognized automatically and never trigger this alert.\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:4005
+#: includes/modules/class-spfw-module-hardening.php:4122
 msgid "Review these files immediately if the changes were not expected. They stay listed on the Hardening tab until you mark them as verified.\n"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:4033
+#: includes/modules/class-spfw-module-hardening.php:4150
 #, php-format
 msgid "[%s] Plugin update could not be verified"
 msgstr ""
 
 #. translators: %s: site name
-#: includes/modules/class-spfw-module-hardening.php:4039
+#: includes/modules/class-spfw-module-hardening.php:4156
 #, php-format
 msgid "These plugins on %s changed version, but their files could not be checked against the update package or wordpress.org:\n\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:4047
+#: includes/modules/class-spfw-module-hardening.php:4164
 msgid "This usually means the update was copied in outside WordPress' updater (SFTP, git, a backup restore). If you made that change, mark it as verified on the Hardening tab. If you did not, treat it as a file integrity alert.\n"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:548
+#: includes/modules/class-spfw-module-hardening.php:556
 msgid "Simple Performance: the uploads PHP guard (.user.ini) made that directory return server errors, so it was removed automatically. Uploads hardening is still switched on — see the server configuration snippet on the Hardening tab for a way to enforce it that does not depend on PHP."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:659
+#: includes/modules/class-spfw-module-hardening.php:667
 msgid "Simple Performance: a directory hardening file is missing or has been modified."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:670
+#: includes/modules/class-spfw-module-hardening.php:678
 msgid "Go to the Hardening tab to restore it."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:678
+#: includes/modules/class-spfw-module-hardening.php:686
 msgid "missing"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:679
+#: includes/modules/class-spfw-module-hardening.php:687
 msgid "modified"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:693
+#: includes/modules/class-spfw-module-hardening.php:701
 msgid "Another security plugin or your hosting provider may also manage these files — restore only a change you do not recognize."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:714
+#: includes/modules/class-spfw-module-hardening.php:722
 msgid "Dismiss for a few days"
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:730
+#: includes/modules/class-spfw-module-hardening.php:738
 msgid "Sorry, you are not allowed to manage this notice."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:740
+#: includes/modules/class-spfw-module-hardening.php:748
 msgid "The link you followed has expired."
 msgstr ""
 
-#: includes/modules/class-spfw-module-hardening.php:969
+#: includes/modules/class-spfw-module-hardening.php:977
 msgid "Simple Performance: the root .htaccess rules caused a server error and were automatically removed. Your site is back to normal."
 msgstr ""
 
@@ -753,135 +753,139 @@ msgid "Dequeues the zxcvbn password-strength scripts on front-end forms (e.g. re
 msgstr ""
 
 #: src/components/CoreSettings.jsx:634
-msgid "Heartbeat API"
+msgid "Disable Command Palette (admin)"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:638
+msgid "Removes the Ctrl/Cmd+K Command Palette and its ~40 block-editor scripts from classic admin screens (WordPress 6.9+). The post editor and site editor keep the palette. Speeds up every other wp-admin page."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:645
+msgid "Heartbeat API"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:649
 msgid "Controls the WordPress Heartbeat API, which drives autosave, post locking, and admin notifications."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:663
+#: src/components/CoreSettings.jsx:674
 msgid "Frequency"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:694
+#: src/components/CoreSettings.jsx:705
 msgid "Comments"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:695
+#: src/components/CoreSettings.jsx:706
 msgid "Reduce comment-related bloat and spam surface."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:702
+#: src/components/CoreSettings.jsx:713
 msgid "Disable comments"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:706
+#: src/components/CoreSettings.jsx:717
 msgid "Turns off comments site-wide: closes comment/ping status, hides existing comments, and removes the Comments admin menu, toolbar item, and dashboard widget."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:713
+#: src/components/CoreSettings.jsx:724
 msgid "Remove comment author URLs"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:717
+#: src/components/CoreSettings.jsx:728
 msgid "Removes the website field from the comment form to cut spam incentive."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:725
-msgid "Database & Misc"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:729
-msgid "Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:73
 msgid "Default (1 minute)"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:735
-msgid "Limit post revisions"
+#: src/components/CoreSettings.jsx:736
+msgid "Database & Misc"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:739
-msgid "Caps how many revisions WordPress stores per post. Applies going forward; does not delete existing revisions."
+#: src/components/CoreSettings.jsx:740
+msgid "Tune post revisions and autosave, silence favicon 404s, and streamline the dashboard."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:746
+msgid "Limit post revisions"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:75
 msgid "1 minute"
 msgstr ""
 
+#: src/components/CoreSettings.jsx:750
+msgid "Caps how many revisions WordPress stores per post. Applies going forward; does not delete existing revisions."
+msgstr ""
+
 #: src/components/CoreSettings.jsx:76
 msgid "2 minutes"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:760
-msgid "Autosave interval"
-msgstr ""
-
-#: src/components/CoreSettings.jsx:764
-msgid "How often the editor autosaves a draft."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:77
 msgid "3 minutes"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:78
-msgid "4 minutes"
+#: src/components/CoreSettings.jsx:771
+msgid "Autosave interval"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:789
-msgid "Add blank favicon"
+#: src/components/CoreSettings.jsx:775
+msgid "How often the editor autosaves a draft."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:78
+msgid "4 minutes"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:79
 msgid "5 minutes"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:793
-msgid "Outputs an empty favicon link to stop /favicon.ico 404s, unless a Site Icon is set."
-msgstr ""
-
 #: src/components/CoreSettings.jsx:800
-msgid "Streamline dashboard"
+msgid "Add blank favicon"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:804
+msgid "Outputs an empty favicon link to stop /favicon.ico 404s, unless a Site Icon is set."
+msgstr ""
+
+#: src/components/CoreSettings.jsx:811
+msgid "Streamline dashboard"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:815
 msgid "Removes the Events & News, Quick Draft, Activity, Site Health, and At a Glance widgets. Eliminates the blocking outbound HTTP request to wordpress.org on every dashboard load."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:812
+#: src/components/CoreSettings.jsx:823
 msgid "Cron & Search"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:816
+#: src/components/CoreSettings.jsx:827
 msgid "Control WP-Cron behavior and disable public site search."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:822
+#: src/components/CoreSettings.jsx:833
 msgid "Disable WP-Cron"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:826
+#: src/components/CoreSettings.jsx:837
 msgid "Stops WordPress from spawning virtual cron jobs on every page load. Use only if you have a real system cron (e.g. `wp cron event run --due-now` every minute) configured on the server."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:845
+#: src/components/CoreSettings.jsx:856
 msgid "Cron lock timeout"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:876
+#: src/components/CoreSettings.jsx:887
 msgid "Disable site search"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:880
+#: src/components/CoreSettings.jsx:891
 msgid "Blocks public ?s= search queries on the frontend. Useful for sites where search is not needed and the query is an abuse vector."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:912
-msgid "Redirect search requests to the homepage (otherwise returns 404)"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:92
@@ -889,47 +893,51 @@ msgid "Conservative (prefetch only, no prerender)"
 msgstr ""
 
 #: src/components/CoreSettings.jsx:923
+msgid "Redirect search requests to the homepage (otherwise returns 404)"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:934
 msgid "Speculation Rules"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:927
+#: src/components/CoreSettings.jsx:938
 msgid "Control the WordPress Speculative Loading API (prefetch/prerender). Prerendering can waste bandwidth on high-traffic sites."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:933
+#: src/components/CoreSettings.jsx:944
 msgid "Speculation Rules mode"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:937
+#: src/components/CoreSettings.jsx:948
 msgid "WordPress 6.5+ injects a speculation-rules JSON script that prefetches and prerenders likely next pages. Conservative mode keeps prefetch but removes prerender. Disable removes the script entirely."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:959
+#: src/components/CoreSettings.jsx:970
 msgid "Image Sizes"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:963
+#: src/components/CoreSettings.jsx:974
 msgid "Reduce disk usage and upload time by preventing generation of rarely-used intermediate image sizes."
 msgstr ""
 
-#: src/components/CoreSettings.jsx:970
+#: src/components/CoreSettings.jsx:981
 msgid "Disable scaled image generation"
 msgstr ""
 
-#: src/components/CoreSettings.jsx:974
-msgid "Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites."
-msgstr ""
-
-#: src/components/CoreSettings.jsx:981
-msgid "Disable intermediate sizes"
-msgstr ""
-
 #: src/components/CoreSettings.jsx:985
-msgid "Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted."
+msgid "Prevents WordPress from creating the -scaled copy of images larger than 2560px. Saves significant disk space for photography or portfolio sites."
 msgstr ""
 
 #: src/components/CoreSettings.jsx:99
 msgid "Disable entirely"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:992
+msgid "Disable intermediate sizes"
+msgstr ""
+
+#: src/components/CoreSettings.jsx:996
+msgid "Select sizes to skip generating on upload. Applies going forward only; existing files are not deleted."
 msgstr ""
 
 #: src/components/CspPolicyCard.jsx:100

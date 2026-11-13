@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.21.1
+Stable tag: 2.22.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -31,6 +31,7 @@ Simple Performance for WordPress consolidates highest-value performance, REST AP
 * Remove the max-image-preview:large directive from the robots meta tag
 * Disable block editor frontend CSS (wp-block-library, global-styles) with smart mode for mixed sites
 * Streamline the dashboard by removing bloated widgets (eliminates the blocking outbound HTTP request to wordpress.org)
+* Disable the admin Command Palette (Ctrl/Cmd+K) and its block-editor scripts on classic admin screens (WordPress 6.9+); the post and site editors keep it
 * Preload localized font files for faster text rendering
 * Disable WP-Cron (for sites with a real system cron) and tune the cron lock timeout
 * Control the Speculative Loading API (prefetch/prerender) — disable or run in conservative mode
@@ -104,6 +105,9 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.22.0 =
+* Added: Disable Command Palette (admin) core toggle. Since WordPress 6.9 every admin screen loads the Ctrl/Cmd+K Command Palette and roughly 40 block-editor scripts whether or not the palette is ever opened. The toggle removes it from classic admin screens (Settings, Dashboard, list tables, and so on), speeding up every wp-admin page. The post editor and site editor keep the palette. Opt-in; enabled by the Aggressive and Locked Down presets.
 
 = 2.21.1 =
 * Added: when the site syncs with a MainWP Dashboard running the companion extension (1.6.2 or later), the file integrity monitor runs its scan and sends the review state and one fingerprint per plugin with the sync, all from a single pass over the files. It is the same scan the twice-daily schedule runs, alerts included, and a scan stored in the last five minutes is reused instead of repeated (`spfw_mainwp_sync_scan_interval` filter). Nothing is scanned when the file monitor is off.
