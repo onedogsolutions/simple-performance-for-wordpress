@@ -143,6 +143,7 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		'csp_tighten_script_src',
 		'csp_strict_dynamic',
 		'csp_collect_until',
+		'csp_discovery_mode',
 		'hsts_enabled',
 		'hsts_max_age',
 		'hsts_include_subdomains',
@@ -559,6 +560,11 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			);
 		}
 
+		// Registered before the offender early-return below: a lapsed CSP
+		// collection window is exactly the kind of problem that return would
+		// swallow.
+		$this->maybe_show_collection_notice();
+
 		$offenders = self::collect_offenders();
 
 		if ( empty( $offenders ) ) {
@@ -586,6 +592,60 @@ class SPFW_Module_Hardening implements SPFW_Module {
 				$this->render_notice( $offenders );
 			}
 		);
+	}
+
+	/**
+	 * Register the "collection is off" notice when the admin has a report-only
+	 * policy that is collecting nothing.
+	 *
+	 * An empty violation log has two completely different meanings — the policy
+	 * is clean, or nothing was ever collected — and the admin screen renders
+	 * both as an empty list. Every path into that state is silent: the window
+	 * was never opened, or it lapsed 24 hours after it was, after which the
+	 * endpoint answers 403 and no `report-uri` is emitted at all. This notice is
+	 * the only thing that distinguishes the two, and its absence is why
+	 * "detection stopped working" is discovered weeks later.
+	 *
+	 * Only while the policy is report-only: an enforcing site has already made
+	 * its choice, and nagging it about a diagnostic window would be noise.
+	 */
+	private function maybe_show_collection_notice() {
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( empty( $h['csp_enabled'] ) || empty( $h['csp_report_only'] ) ) {
+			return;
+		}
+
+		if ( self::collection_open( $h ) ) {
+			return;
+		}
+
+		add_action( 'admin_notices', array( $this, 'render_collection_notice' ) );
+	}
+
+	/**
+	 * Render the "violation collection is off" notice, pointing at the CSP card
+	 * where the Start collecting control lives.
+	 */
+	public function render_collection_notice() {
+		$url = add_query_arg(
+			array(
+				'page' => 'spfw-settings',
+				'tab'  => 'hardening',
+			),
+			admin_url( 'options-general.php' )
+		);
+
+		echo '<div class="notice notice-warning"><p>';
+		printf(
+			'%1$s <a href="%2$s">%3$s</a>',
+			esc_html( __( 'Simple Performance: Content-Security-Policy is in Report-Only mode but violation collection is off.', 'simple-performance-for-wordpress' ) ),
+			esc_url( $url ),
+			esc_html__( 'Start a collection window on the Hardening tab.', 'simple-performance-for-wordpress' )
+		);
+		echo '</p><p>';
+		esc_html_e( 'Nothing is being collected right now, so an empty violation log is not evidence that the policy is safe — no browser is being asked to report anything.', 'simple-performance-for-wordpress' );
+		echo '</p></div>';
 	}
 
 	/**
@@ -1936,26 +1996,12 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			return;
 		}
 
-		$mode = isset( $h['csp_mode'] ) ? $h['csp_mode'] : 'builder';
-
-		if ( 'custom' === $mode ) {
-			$policy = isset( $h['csp_policy'] ) ? trim( (string) $h['csp_policy'] ) : '';
-		} else {
-			$directives = isset( $h['csp_directives'] ) && is_array( $h['csp_directives'] ) ? $h['csp_directives'] : array();
-			$policy     = self::build_policy_from_directives( $directives );
-		}
-
-		if ( '' === $policy ) {
-			$policy = self::DEFAULT_CSP;
-		}
-
-		// Phase E: when script-src tightening is enabled and we have collected
-		// hashes, replace 'unsafe-inline' in script-src with the hash list plus
-		// 'strict-dynamic'. Hashes are stable across cache hits (unlike nonces),
-		// so this is correct under full-page caching.
-		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
-			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
-		}
+		// The saved policy, derived exactly as both previews derive it. Phase E's
+		// script-src tightening lives inside saved_policy_string(): when hashes
+		// are collected, 'unsafe-inline' is replaced by the hash list (plus
+		// 'strict-dynamic' if separately opted in). Hashes are stable across
+		// cache hits, unlike nonces, so this is correct under full-page caching.
+		$policy = self::saved_policy_string( $h );
 
 		// Violation collection is a time-boxed diagnostic window, not a
 		// permanent behavior. Emitting `report-uri` on every response makes
@@ -1977,11 +2023,22 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		// needs.
 		$report_only = ! empty( $h['csp_report_only'] );
 
+		// While a window is open, the admin is running a discovery probe rather
+		// than previewing the saved policy: see discovery_active(). The saved
+		// policy is never rewritten — $policy stays the policy that is saved and
+		// that will be enforcing when the window closes.
+		$discovery = self::discovery_active( $h );
+		$wire      = $discovery ? self::discovery_policy( $policy ) : $policy;
+
+		if ( '' === $wire ) {
+			$wire = $policy;
+		}
+
 		// Drop the directives a report-only policy ignores (see
 		// REPORT_ONLY_IGNORED) before anything is appended, so the header we
 		// send carries only directives the browser will actually act on.
 		if ( $report_only ) {
-			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+			$wire = self::remove_directives( $wire, self::REPORT_ONLY_IGNORED );
 		}
 
 		// The admin's own page views are never sampled away: a sample rate is
@@ -2023,14 +2080,45 @@ class SPFW_Module_Hardening implements SPFW_Module {
 			// from the page's own origin ('self'), the browser would block the
 			// report POST under connect-src. Inject the report origin into the
 			// policy's connect-src so reports are never silently dropped.
-			$policy = self::ensure_connect_src_allows( $policy, $report_url );
+			$wire = self::ensure_connect_src_allows( $wire, $report_url );
 
-			$policy  = rtrim( $policy );
-			$policy .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
-			$policy .= ' report-uri ' . $report_url . ';';
+			$wire  = rtrim( $wire );
+			$wire .= ( '' === $wire || ';' === substr( $wire, -1 ) ) ? '' : ';';
+			$wire .= ' report-uri ' . $report_url . ';';
 		}
 
-		header( self::csp_header_name( $h ) . ': ' . $policy );
+		// report-uri rides on $wire, which is the probe while a window is open.
+		// Under enforcement both headers otherwise ask for reports and the
+		// browser reports the same blocked resource twice, once per policy —
+		// and the duplicate adds nothing, because a resource the enforcing
+		// policy refuses is by definition also refused by the narrower probe.
+		if ( $report_only ) {
+			// The probe is the report-only header: there is nothing to preview.
+			header( self::csp_header_name( $h ) . ': ' . $wire );
+
+			return;
+		}
+
+		// The real policy, byte for byte — it is what will enforce when the
+		// window closes, and discovery must not change what it blocks.
+		header( 'Content-Security-Policy: ' . $policy );
+
+		// Enforcing plus discovery: the probe rides alongside as a second,
+		// report-only policy. Two CSP headers on one response is legal — each is
+		// evaluated independently — and it is the only way to keep blocking
+		// exactly what the saved policy blocks while still inventorying
+		// everything the page loads.
+		if ( $discovery ) {
+			header( 'Content-Security-Policy-Report-Only: ' . $wire, false );
+
+			return;
+		}
+
+		// Discovery off: report-uri, when a window is open, belongs on the
+		// enforcing header itself, as it always has.
+		if ( '' !== $report_url ) {
+			header( 'Content-Security-Policy: ' . $wire, false );
+		}
 	}
 
 	/**
@@ -2043,7 +2131,86 @@ class SPFW_Module_Hardening implements SPFW_Module {
 	 * @return string
 	 */
 	public static function get_emitted_policy_preview() {
-		$h    = SPFW_Settings::group( 'hardening' );
+		$h      = SPFW_Settings::group( 'hardening' );
+		$policy = self::saved_policy_string( $h );
+
+		// Mirror add_csp_header()'s report-only strip, or the admin would be
+		// shown directives that are not in the header on the wire.
+		if ( ! empty( $h['csp_report_only'] ) ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+		}
+
+		// Append the report-uri if a collection window is open, mirroring
+		// add_csp_header() so the preview is accurate. Skipped while discovery
+		// is active: the probe is the only header carrying report-uri then, so
+		// showing it here would claim the saved policy reports when it does not.
+		if ( self::collection_open( $h ) && ! self::discovery_active( $h ) ) {
+			$report_url = self::csp_report_url_public();
+			$policy     = self::ensure_connect_src_allows( $policy, $report_url );
+			$policy     = rtrim( $policy );
+			$policy    .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
+			$policy    .= ' report-uri ' . $report_url . ';';
+		}
+
+		return $policy;
+	}
+
+	/**
+	 * The discovery probe add_csp_header() is currently sending, or '' when no
+	 * probe is active.
+	 *
+	 * Deliberately separate from get_emitted_policy_preview(), which keeps its
+	 * meaning: the policy the admin SAVED, in the shape it will enforce. The
+	 * probe is a different string sent under a different header name, and
+	 * collapsing the two would hide the saved policy from the admin for the
+	 * duration of every window — including the one they are meant to compare
+	 * against.
+	 *
+	 * Mirrors add_csp_header() step for step so the two cannot drift.
+	 *
+	 * @return string
+	 */
+	public static function get_discovery_policy_preview() {
+		$h = SPFW_Settings::group( 'hardening' );
+
+		if ( ! self::discovery_active( $h ) ) {
+			return '';
+		}
+
+		$policy = self::discovery_policy( self::saved_policy_string( $h ) );
+
+		if ( '' === $policy ) {
+			return '';
+		}
+
+		if ( ! empty( $h['csp_report_only'] ) ) {
+			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
+		}
+
+		if ( self::collection_open( $h ) ) {
+			$report_url = self::csp_report_url_public();
+			$policy     = self::ensure_connect_src_allows( $policy, $report_url );
+			$policy     = rtrim( $policy );
+			$policy    .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
+			$policy    .= ' report-uri ' . $report_url . ';';
+		}
+
+		return $policy;
+	}
+
+	/**
+	 * The saved policy as a string, before report-only stripping, probe
+	 * narrowing and report-uri — builder mode or raw mode, with the script-hash
+	 * transform applied when configured.
+	 *
+	 * Extracted so add_csp_header() and both previews derive the policy the same
+	 * way; three copies of this derivation is how a preview starts disagreeing
+	 * with the wire.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return string
+	 */
+	private static function saved_policy_string( array $h ) {
 		$mode = isset( $h['csp_mode'] ) ? $h['csp_mode'] : 'builder';
 
 		if ( 'custom' === $mode ) {
@@ -2059,22 +2226,6 @@ class SPFW_Module_Hardening implements SPFW_Module {
 
 		if ( ! empty( $h['csp_tighten_script_src'] ) && ! empty( $h['csp_script_hashes'] ) && is_array( $h['csp_script_hashes'] ) ) {
 			$policy = self::inject_script_hashes( $policy, $h['csp_script_hashes'], ! empty( $h['csp_strict_dynamic'] ) );
-		}
-
-		// Mirror add_csp_header()'s report-only strip, or the admin would be
-		// shown directives that are not in the header on the wire.
-		if ( ! empty( $h['csp_report_only'] ) ) {
-			$policy = self::remove_directives( $policy, self::REPORT_ONLY_IGNORED );
-		}
-
-		// Append the report-uri if a collection window is open, mirroring
-		// add_csp_header() so the preview is accurate.
-		if ( self::collection_open( $h ) ) {
-			$report_url = self::csp_report_url_public();
-			$policy     = self::ensure_connect_src_allows( $policy, $report_url );
-			$policy     = rtrim( $policy );
-			$policy    .= ( '' === $policy || ';' === substr( $policy, -1 ) ) ? '' : ';';
-			$policy    .= ' report-uri ' . $report_url . ';';
 		}
 
 		return $policy;
@@ -2200,6 +2351,107 @@ class SPFW_Module_Hardening implements SPFW_Module {
 		$until = isset( $h['csp_collect_until'] ) ? (int) $h['csp_collect_until'] : 0;
 
 		return $until > time();
+	}
+
+	/**
+	 * Whether a collection window should probe rather than preview.
+	 *
+	 * A violation log can only list what the browser refused. A policy that
+	 * permits a whole scheme — `https:` in script-src, connect-src, frame-src —
+	 * permits every third-party origin by construction, so Stripe, an analytics
+	 * tag and the site's own assets are all allowed and nothing is ever
+	 * reported. The log then stays empty for exactly the origins the builder
+	 * exists to discover, and an empty log is indistinguishable from a clean
+	 * policy.
+	 *
+	 * So while a window is open the report-only header carries a narrowed probe
+	 * instead (see discovery_policy()): what the page LOADS is reported, not
+	 * what the saved policy happens to block. The saved policy is never
+	 * rewritten, and under enforcement the real policy is still sent unchanged
+	 * alongside the probe.
+	 *
+	 * `'strict-dynamic'` opts out because supporting browsers already ignore
+	 * every host and scheme source under it — the collected hashes alone decide
+	 * what may run, so narrowing further would only add noise without revealing
+	 * anything.
+	 *
+	 * @param array $h Hardening settings group.
+	 * @return bool
+	 */
+	public static function discovery_active( array $h ) {
+		if ( empty( $h['csp_enabled'] ) || empty( $h['csp_discovery_mode'] ) ) {
+			return false;
+		}
+
+		if ( ! empty( $h['csp_strict_dynamic'] ) ) {
+			return false;
+		}
+
+		return self::collection_open( $h );
+	}
+
+	/**
+	 * Narrow a policy into a discovery probe.
+	 *
+	 * Strips the sources that permit a whole class of request without naming
+	 * any of it — scheme sources (`https:`, `wss:`, `data:`, `blob:`, ...), the
+	 * bare `*` wildcard, and the `'unsafe-inline'` / `'unsafe-eval'` keywords —
+	 * while keeping `'self'`, host tokens, wildcard hosts, hashes and nonces.
+	 * What survives is the part of the policy the admin actually named;
+	 * everything else the page requests is reported so it can be allowed
+	 * deliberately.
+	 *
+	 * A directive stripped to nothing becomes `'none'` rather than disappearing.
+	 * build_policy_from_directives() drops empty token lists, which would leave
+	 * the directive out of the header entirely and let `default-src` cover it
+	 * invisibly — an implicit fallback in the one header whose whole purpose is
+	 * to be read.
+	 *
+	 * Idempotent, because parse_policy_to_directives() already drops the
+	 * `report-uri` / `report-to` directives that add_csp_header() appends.
+	 *
+	 * @param string $policy Policy string (may be empty).
+	 * @return string Probe policy string.
+	 */
+	public static function discovery_policy( $policy ) {
+		$directives = self::parse_policy_to_directives( $policy );
+
+		if ( empty( $directives ) ) {
+			return '';
+		}
+
+		foreach ( $directives as $directive => $tokens ) {
+			$kept = array();
+
+			foreach ( $tokens as $token ) {
+				$token = trim( (string) $token );
+
+				if ( '' === $token ) {
+					continue;
+				}
+
+				// Scheme source: permits every host on that scheme.
+				if ( preg_match( '#^[a-z][a-z0-9+.-]*:$#i', $token ) ) {
+					continue;
+				}
+
+				// Bare wildcard: permits every host.
+				if ( '*' === $token ) {
+					continue;
+				}
+
+				// Keywords that permit code the policy never names.
+				if ( "'unsafe-inline'" === $token || "'unsafe-eval'" === $token ) {
+					continue;
+				}
+
+				$kept[] = $token;
+			}
+
+			$directives[ $directive ] = empty( $kept ) ? array( "'none'" ) : $kept;
+		}
+
+		return self::build_policy_from_directives( $directives );
 	}
 
 	/**

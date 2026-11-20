@@ -249,4 +249,161 @@ class Csp_Header_Emission_Test extends TestCase {
 			SPFW_Module_Hardening::default_csp_directives()['script-src']
 		);
 	}
+
+	/**
+	 * The probe must strip every source that permits a class of request
+	 * without naming any of it.
+	 *
+	 * This is the whole fix in one assertion. The shipped default carries
+	 * `https:` in script-src, connect-src, frame-src, img-src, style-src and
+	 * font-src, so Stripe, an analytics tag and the site's own assets are all
+	 * permitted by construction and the browser has nothing to report — which
+	 * is why the violation log stayed empty however long the window ran. Under
+	 * the probe only the sources the admin actually named survive.
+	 */
+	public function test_discovery_policy_strips_scheme_sources_and_unsafe_keywords() {
+		$probe  = SPFW_Module_Hardening::discovery_policy( SPFW_Module_Hardening::DEFAULT_CSP );
+		$parsed = SPFW_Module_Hardening::parse_policy_to_directives( $probe );
+
+		$this->assertNotSame( '', $probe, 'The probe must still be a policy.' );
+
+		foreach ( array( 'default-src', 'img-src', 'style-src', 'script-src', 'font-src', 'connect-src', 'frame-src' ) as $directive ) {
+			$this->assertArrayHasKey( $directive, $parsed, 'The probe must keep every directive the saved policy has.' );
+			$this->assertNotContains( 'https:', $parsed[ $directive ], $directive . ' must not permit a whole scheme.' );
+			$this->assertNotContains( 'data:', $parsed[ $directive ], $directive . ' must not permit a whole scheme.' );
+			$this->assertNotContains( 'blob:', $parsed[ $directive ], $directive . ' must not permit a whole scheme.' );
+			$this->assertNotContains( "'unsafe-inline'", $parsed[ $directive ] );
+			$this->assertNotContains( "'unsafe-eval'", $parsed[ $directive ] );
+		}
+	}
+
+	/**
+	 * What the admin named by hand survives — otherwise the probe reports
+	 * resources that are already allowed, and the log fills with noise the
+	 * admin has to dismiss one entry at a time.
+	 */
+	public function test_discovery_policy_keeps_self_hosts_and_wildcards() {
+		$policy = "default-src 'self'; script-src 'self' https://js.stripe.com 'sha256-abc123' https:; connect-src 'self' https://*.stripe.com; img-src 'self' data:;";
+
+		$parsed = SPFW_Module_Hardening::parse_policy_to_directives(
+			SPFW_Module_Hardening::discovery_policy( $policy )
+		);
+
+		$this->assertContains( "'self'", $parsed['default-src'] );
+		$this->assertContains( "'self'", $parsed['script-src'] );
+		$this->assertContains( 'https://js.stripe.com', $parsed['script-src'] );
+		$this->assertContains( "'sha256-abc123'", $parsed['script-src'] );
+		$this->assertNotContains( 'https:', $parsed['script-src'] );
+		$this->assertContains( 'https://*.stripe.com', $parsed['connect-src'] );
+		$this->assertSame( array( "'self'" ), $parsed['img-src'] );
+	}
+
+	/**
+	 * A directive stripped to nothing becomes `'none'`, not a vanishing
+	 * directive.
+	 *
+	 * build_policy_from_directives() skips empty token lists, so letting an
+	 * emptied directive disappear would make it inherit default-src silently —
+	 * an implicit fallback inside the one header whose purpose is to be read.
+	 */
+	public function test_discovery_policy_emits_none_when_everything_is_stripped() {
+		$probe  = SPFW_Module_Hardening::discovery_policy( "default-src 'self'; media-src https:; object-src 'none';" );
+		$parsed = SPFW_Module_Hardening::parse_policy_to_directives( $probe );
+
+		$this->assertArrayHasKey( 'media-src', $parsed, 'An emptied directive must not disappear.' );
+		$this->assertSame( array( "'none'" ), $parsed['media-src'] );
+		$this->assertSame( array( "'none'" ), $parsed['object-src'] );
+	}
+
+	/**
+	 * Discovery needs three things at once: CSP on, the setting on, and a
+	 * window open. Any one missing leaves the header exactly as it was.
+	 */
+	public function test_discovery_is_inert_outside_a_window() {
+		$closed = array(
+			'csp_enabled'        => true,
+			'csp_discovery_mode' => true,
+			'csp_collect_until'  => 0,
+		);
+
+		$this->assertFalse( SPFW_Module_Hardening::discovery_active( $closed ) );
+
+		$open = array_merge( $closed, array( 'csp_collect_until' => time() + 3600 ) );
+
+		$this->assertTrue( SPFW_Module_Hardening::discovery_active( $open ) );
+		$this->assertFalse(
+			SPFW_Module_Hardening::discovery_active( array_merge( $open, array( 'csp_discovery_mode' => false ) ) ),
+			'Switching discovery off must leave the window alone but the probe unsent.'
+		);
+		$this->assertFalse(
+			SPFW_Module_Hardening::discovery_active( array_merge( $open, array( 'csp_enabled' => false ) ) )
+		);
+	}
+
+	/**
+	 * `'strict-dynamic'` already makes browsers ignore every host and scheme
+	 * source, so the hashes alone decide what runs. Narrowing further would add
+	 * noise and reveal nothing, so discovery stands down.
+	 */
+	public function test_discovery_is_inert_under_strict_dynamic() {
+		$this->assertFalse(
+			SPFW_Module_Hardening::discovery_active(
+				array(
+					'csp_enabled'        => true,
+					'csp_discovery_mode' => true,
+					'csp_strict_dynamic' => true,
+					'csp_collect_until'  => time() + 3600,
+				)
+			)
+		);
+	}
+
+	/**
+	 * While a window is open the probe preview appears and the saved-policy
+	 * preview is left exactly as it was — the admin can compare the two, which
+	 * is the point of sending both.
+	 */
+	public function test_preview_switches_to_the_probe_while_collecting() {
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_enabled'        => true,
+					'csp_report_only'    => true,
+					'csp_discovery_mode' => true,
+					'csp_strict_dynamic' => false,
+					'csp_collect_until'  => 0,
+				),
+			)
+		);
+
+		$this->assertSame(
+			'',
+			SPFW_Module_Hardening::get_discovery_policy_preview(),
+			'No window, no probe.'
+		);
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array( 'csp_collect_until' => time() + 3600 ),
+			)
+		);
+
+		$probe = SPFW_Module_Hardening::get_discovery_policy_preview();
+
+		$this->assertNotSame( '', $probe );
+		$this->assertStringContainsString( 'report-uri', $probe, 'The probe is what the browser reports against.' );
+		$this->assertNotContains(
+			'https:',
+			SPFW_Module_Hardening::parse_policy_to_directives( $probe )['script-src']
+		);
+
+		// The saved policy's preview is unchanged, and does not claim to report:
+		// report-uri rides on the probe only, so a duplicate would make every
+		// blocked resource appear twice in the log.
+		$saved = SPFW_Module_Hardening::get_emitted_policy_preview();
+
+		$this->assertStringNotContainsString( 'report-uri', $saved );
+		$this->assertStringContainsString( 'https:', $saved );
+		$this->assertStringContainsString( "'unsafe-inline'", $saved );
+	}
 }

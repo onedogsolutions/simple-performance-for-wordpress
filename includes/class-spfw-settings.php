@@ -192,6 +192,18 @@ class SPFW_Settings {
 				// happened to regenerate — and the sampling coin-flip is stored
 				// in the cache entry rather than evaluated per visitor.
 				'csp_collect_nocache'     => true,
+				// Discovery probe. A policy that permits a whole scheme (`https:`
+				// in script-src, connect-src, frame-src) permits every third-party
+				// origin by construction, so the browser has nothing to report and
+				// the violation log stays empty however long the window runs —
+				// which is indistinguishable from a clean policy. While a window
+				// is open, the report-only header therefore carries a narrowed
+				// probe (scheme sources and the unsafe keywords stripped, 'self'
+				// kept) so every third-party request is reported and can be
+				// allowed deliberately. It never rewrites the saved policy, and
+				// under enforcement the real policy is sent unchanged alongside
+				// it. See SPFW_Module_Hardening::discovery_policy().
+				'csp_discovery_mode'      => true,
 				// PHP execution whitelist: wp-content-relative paths that are
 				// allowed to execute PHP even when directory hardening is on
 				// (e.g. plugins/shortpixel-ai/shortpixel-ai.php). Used by the
@@ -774,6 +786,7 @@ class SPFW_Settings {
 
 		$clean['hardening']['csp_collect_admin']        = self::to_bool( $hardening, 'csp_collect_admin', $defaults['hardening']['csp_collect_admin'] );
 		$clean['hardening']['csp_collect_nocache'] = self::to_bool( $hardening, 'csp_collect_nocache', $defaults['hardening']['csp_collect_nocache'] );
+		$clean['hardening']['csp_discovery_mode']  = self::to_bool( $hardening, 'csp_discovery_mode', $defaults['hardening']['csp_discovery_mode'] );
 
 		// PHP execution whitelist: paths within wp-content allowed to run PHP
 		// even when directory hardening is active.

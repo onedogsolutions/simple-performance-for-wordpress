@@ -523,6 +523,20 @@ class Csp_Collection_Test extends TestCase {
 	}
 
 	/**
+	 * Drive the report-only window helper directly, the same way
+	 * enforce_transition() drives the enforcing one.
+	 *
+	 * @param array $before Settings before the save.
+	 * @param array $after  Settings after the save.
+	 */
+	private function report_only_transition( array $before, array $after ) {
+		$rest = new SPFW_Rest_Settings();
+		$ref  = new ReflectionMethod( 'SPFW_Rest_Settings', 'maybe_open_report_only_window' );
+		$ref->setAccessible( true );
+		$ref->invokeArgs( $rest, array( $before, $after ) );
+	}
+
+	/**
 	 * Leaving Report-Only opens a short window, so a policy that breaks
 	 * something records what it broke.
 	 *
@@ -626,6 +640,115 @@ class Csp_Collection_Test extends TestCase {
 			array(
 				'csp_report_only'   => false,
 				'csp_enabled'       => false,
+				'csp_collect_until' => 0,
+			)
+		);
+
+		$this->assertSame(
+			0,
+			(int) SPFW_Settings::value( 'hardening', 'csp_collect_until', 0 )
+		);
+	}
+
+	/**
+	 * Switching CSP on in report-only mode starts collecting.
+	 *
+	 * Report-only exists to be watched, and the way this feature appears to
+	 * stop working is that no window was ever opened: no window means no
+	 * report-uri, the endpoint answers 403, and the log cannot fill. An empty
+	 * log then reads as a clean policy. Turning the policy on is the clearest
+	 * signal that collection is wanted, so it opens one — for a day, not the
+	 * seven days the control allows, because collection makes every response
+	 * uncacheable for as long as it runs.
+	 */
+	public function test_report_only_enable_opens_a_collection_window() {
+		$this->report_only_transition(
+			array(
+				'csp_enabled'       => false,
+				'csp_report_only'   => false,
+				'csp_collect_until' => 0,
+			),
+			array(
+				'csp_enabled'       => true,
+				'csp_report_only'   => true,
+				'csp_collect_until' => 0,
+			)
+		);
+
+		$h = SPFW_Settings::group( 'hardening' );
+
+		$this->assertGreaterThan( time(), (int) $h['csp_collect_until'] );
+		$this->assertLessThanOrEqual(
+			time() + SPFW_Rest_Settings::CSP_REPORT_ONLY_WINDOW,
+			(int) $h['csp_collect_until']
+		);
+	}
+
+	/**
+	 * Switching a live policy from enforcing back to report-only also starts
+	 * collecting — that is the other way an admin asks to watch rather than
+	 * block, and it is the transition where a previously-clean log is most
+	 * likely to be mistaken for permission to enforce again.
+	 */
+	public function test_returning_to_report_only_opens_a_collection_window() {
+		$this->report_only_transition(
+			array(
+				'csp_enabled'       => true,
+				'csp_report_only'   => false,
+				'csp_collect_until' => 0,
+			),
+			array(
+				'csp_enabled'       => true,
+				'csp_report_only'   => true,
+				'csp_collect_until' => 0,
+			)
+		);
+
+		$this->assertGreaterThan(
+			time(),
+			(int) SPFW_Settings::value( 'hardening', 'csp_collect_until', 0 )
+		);
+	}
+
+	/**
+	 * A window the admin already has open is theirs — reopening must not
+	 * shorten (or extend) it, or Stop collecting silently fails on the next
+	 * save.
+	 */
+	public function test_an_open_window_is_not_shortened_by_report_only_enable() {
+		$existing = time() + 40000;
+
+		SPFW_Settings::update( array( 'hardening' => array( 'csp_collect_until' => $existing ) ) );
+
+		$this->report_only_transition(
+			array(
+				'csp_enabled'       => false,
+				'csp_report_only'   => false,
+				'csp_collect_until' => $existing,
+			),
+			array(
+				'csp_enabled'       => true,
+				'csp_report_only'   => true,
+				'csp_collect_until' => $existing,
+			)
+		);
+
+		$this->assertSame(
+			$existing,
+			(int) SPFW_Settings::value( 'hardening', 'csp_collect_until', 0 )
+		);
+	}
+
+	/**
+	 * Nothing opens when CSP itself is off: there is no header for a visitor to
+	 * violate, so a window would only make the site uncacheable for nothing.
+	 */
+	public function test_report_only_enable_opens_nothing_when_csp_is_disabled() {
+		$this->report_only_transition(
+			array( 'csp_enabled' => false, 'csp_report_only' => false ),
+			array(
+				'csp_enabled'       => false,
+				'csp_report_only'   => true,
 				'csp_collect_until' => 0,
 			)
 		);

@@ -258,6 +258,35 @@ export default function CspPolicyCard( {
 	const directives = hardening.csp_directives || {};
 	const collecting = !! cspReportStats.collecting;
 
+	// Whether the report-only header is currently a discovery probe rather than
+	// a preview of the saved policy. While it is, the browser is reporting what
+	// the pages LOAD, not what the policy blocks — which is the only way a policy
+	// that permits `https:` wholesale can discover anything at all.
+	const discoveryActive = !! settings.csp_discovery_active;
+	const discoveryEnabled = !! hardening.csp_discovery_mode;
+	const showProbe = discoveryActive && !! settings.csp_discovery_policy;
+
+	// The saved policy's label changes meaning during a window: under enforcement
+	// it is still the header on the wire, in report-only mode it is what enforces
+	// once the window closes. Hoisted out of the JSX so the two labels are not a
+	// nested ternary.
+	let savedPolicyLabel = __(
+		'Actual emitted header',
+		'simple-performance-for-wordpress'
+	);
+
+	if ( discoveryActive ) {
+		savedPolicyLabel = enforcingNow
+			? __(
+					'Your policy — enforced now, alongside the probe',
+					'simple-performance-for-wordpress'
+			  )
+			: __(
+					'Your policy — applied when the window closes',
+					'simple-performance-for-wordpress'
+			  );
+	}
+
 	// Providers the policy already uses somewhere, with origins missing from
 	// the other directives their SDK needs. Nothing reports these until a
 	// visitor reaches the step that requests them — the payment form, the
@@ -1498,11 +1527,36 @@ export default function CspPolicyCard( {
 
 					{ settings.csp_emitted_policy && (
 						<div className="mt-4 border-t border-gray-100 pt-4">
+							{ showProbe && (
+								<>
+									<p className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+										{ __(
+											'Discovery probe — what the browser evaluates during this window',
+											'simple-performance-for-wordpress'
+										) }
+										<span className="rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-700 ring-1 ring-inset ring-indigo-200">
+											{ __(
+												'Report-only — collects only',
+												'simple-performance-for-wordpress'
+											) }
+										</span>
+									</p>
+									<pre className="whitespace-pre-wrap break-words rounded-md bg-indigo-50 p-3 text-xs font-mono text-indigo-900 ring-1 ring-inset ring-indigo-200">
+										<span className="font-semibold">
+											Content-Security-Policy-Report-Only:
+										</span>{ ' ' }
+										{ settings.csp_discovery_policy }
+									</pre>
+									<p className="mt-1 mb-4 text-xs text-gray-500">
+										{ __(
+											'Scheme sources (https:, data:, wss:) and the unsafe keywords are stripped for the duration of the window, so every third-party request a page makes is reported instead of being silently permitted. This header blocks nothing, and your saved policy is not changed by it.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+								</>
+							) }
 							<p className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-								{ __(
-									'Actual emitted header',
-									'simple-performance-for-wordpress'
-								) }
+								{ savedPolicyLabel }
 								{ enforcingNow ? (
 									<span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700 ring-1 ring-inset ring-red-200">
 										{ __(
@@ -1664,6 +1718,12 @@ export default function CspPolicyCard( {
 													'simple-performance-for-wordpress'
 												) }
 											</option>
+											<option value={ 168 }>
+												{ __(
+													'for 7 days',
+													'simple-performance-for-wordpress'
+												) }
+											</option>
 										</select>
 										{ onSetCspCollection && (
 											<button
@@ -1740,6 +1800,40 @@ export default function CspPolicyCard( {
 									'simple-performance-for-wordpress'
 								) }
 							</p>
+
+							{ /* Discovery probe. A policy that permits `https:` wholesale permits
+							     every third-party origin by construction, so the browser has nothing
+							     to report and the log stays empty however long the window runs. */ }
+							<div className="mt-3 flex items-start gap-x-3 border-t border-gray-200 pt-3">
+								<Toggle
+									checked={ discoveryEnabled }
+									onChange={ ( v ) =>
+										onChange( 'csp_discovery_mode', v )
+									}
+								/>
+								<div>
+									<p className="text-xs font-semibold text-gray-900">
+										{ __(
+											'Discover what pages load, not just what the policy blocks',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									<p className="mt-1 text-xs text-gray-600">
+										{ __(
+											'While a window is open, send a narrowed report-only probe instead of your policy. Scheme sources like https: and the unsafe keywords are stripped, so Stripe, analytics, font hosts and your own inline scripts are reported rather than silently permitted. Your saved policy is never changed, and under enforcement it is still sent unchanged alongside the probe.',
+											'simple-performance-for-wordpress'
+										) }
+									</p>
+									{ collecting && ! discoveryActive && (
+										<p className="mt-1 text-xs text-amber-800">
+											{ __(
+												'Inactive for this window — either strict-dynamic is on, or the toggle is off in the saved settings.',
+												'simple-performance-for-wordpress'
+											) }
+										</p>
+									) }
+								</div>
+							</div>
 
 							{ collecting && (
 								<p className="mt-2 text-xs text-gray-500">
@@ -2059,6 +2153,18 @@ export default function CspPolicyCard( {
 								) }
 							</p>
 						) }
+
+						{ /* Closed window: an empty list here means nothing was ever
+						     collected, not that the policy is clean. Rendering nothing at all
+						     is what made a dead log look like a passing one. */ }
+						{ 0 === visibleReports.length && ! collecting && (
+							<p className="mt-2 text-sm text-gray-500">
+								{ __(
+									'Collection is off, so this list cannot fill. Start a collection window to detect what your pages load.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						) }
 						
 						{ 0 === visibleReports.length &&
 							collecting &&
@@ -2070,6 +2176,18 @@ export default function CspPolicyCard( {
 									) }
 								</p>
 							) }
+
+						{ /* Discovery wording: while the probe is what the browser evaluates,
+						     every entry is something the page asked for — not something the
+						     saved policy refuses. */ }
+						{ discoveryActive && visibleReports.length > 0 && (
+							<p className="mt-2 text-xs text-gray-500">
+								{ __(
+									'Discovery is on: these are resources your pages load, not resources your saved policy blocks.',
+									'simple-performance-for-wordpress'
+								) }
+							</p>
+						) }
 
 						{ otherReports.length > 0 && (
 							<div className="mt-2">

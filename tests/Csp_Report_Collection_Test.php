@@ -206,11 +206,20 @@ class Csp_Report_Collection_Test extends TestCase {
 	}
 
 	/**
-	 * A scheme-source token like 'https:' covers any origin whose scheme
-	 * matches — a report for https://anything.example must not be relisted if
-	 * 'https:' is already in the directive.
+	 * A bare scheme source (`https:`) is a pre-existing blanket default, not
+	 * something the admin chose — so a report under it is real information and
+	 * must be listed, not suppressed.
+	 *
+	 * The suppression used to read the other way: `https:` covers every https
+	 * origin, so any origin under it could never enter the log. That made the
+	 * default policy (which permits `https:` in script-src, connect-src,
+	 * frame-src, img-src and style-src) structurally undetectable — Stripe, an
+	 * analytics tag and the site's own host were all dropped on arrival, and
+	 * the log stayed empty however long the collection window ran. A report
+	 * under a scheme source can only ever be a genuine gap between what the
+	 * policy permits and what the page asks for.
 	 */
-	public function test_scheme_source_covers_matching_origin() {
+	public function test_scheme_source_does_not_suppress_a_report() {
 		$h = array(
 			'csp_mode'       => 'builder',
 			'csp_directives' => array(
@@ -220,17 +229,18 @@ class Csp_Report_Collection_Test extends TestCase {
 
 		$this->report( 'connect-src', 'https://f.clarity.ms/collect', $h );
 
-		$this->assertSame(
-			array(),
+		$this->assertArrayHasKey(
+			'connect-src|https://f.clarity.ms',
 			$this->items(),
-			"'https:' scheme token should suppress an https:// violation."
+			"'https:' must not act as a blanket suppression of every https origin."
 		);
 	}
 
 	/**
-	 * A wss: scheme-source must cover a WebSocket violation.
+	 * Same for a `wss:` scheme source: a WebSocket report is information, not
+	 * something a blanket token is allowed to swallow.
 	 */
-	public function test_wss_scheme_source_covers_websocket_origin() {
+	public function test_wss_scheme_source_does_not_suppress_a_report() {
 		$h = array(
 			'csp_mode'       => 'builder',
 			'csp_directives' => array(
@@ -240,10 +250,10 @@ class Csp_Report_Collection_Test extends TestCase {
 
 		$this->report( 'connect-src', 'wss://chat.example.com/ws', $h );
 
-		$this->assertSame(
-			array(),
+		$this->assertArrayHasKey(
+			'connect-src|wss://chat.example.com',
 			$this->items(),
-			"'wss:' scheme token should suppress a wss:// violation."
+			"'wss:' must not act as a blanket suppression of every websocket origin."
 		);
 	}
 

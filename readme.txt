@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.22.0
+Stable tag: 2.23.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -105,6 +105,12 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.23.0 =
+* Fixed: violation collection could not detect anything when the policy permitted a whole scheme. The recommended policy carries `https:` in script-src, connect-src, frame-src, img-src, style-src and font-src, which allows Stripe, analytics, font hosts and your own assets by construction — so no browser ever had a violation to report, and the log stayed empty however long the window ran. Collection windows now send a narrowed **discovery probe** in the report-only header instead: scheme sources, the bare `*` and the `unsafe-inline`/`unsafe-eval` keywords are stripped for the duration of the window, so every third-party request a page makes is reported. Your saved policy is never rewritten, and when CSP is enforcing the enforcing header is sent byte-for-byte unchanged with the probe riding alongside it as a second report-only header. Both headers are shown separately in the admin, labelled with which one the browser evaluates. Turn it off with the new "Discover what pages load" toggle.
+* Fixed: reports that did arrive could be discarded. A bare `https:` scheme source was treated as covering every https origin, so any origin already permitted by a scheme token could never enter the log. Only a named host, a keyword, a wildcard or a `default-src` fallback counts as already allowed now — an origin the policy names is still not re-listed after you Allow it.
+* Fixed: the collection window lapsed silently, and an empty violation log renders identically whether the policy is clean or nothing was ever collected. Switching CSP on in Report-Only mode now opens a 24-hour collection window automatically (an already-open window is left alone), and a warning notice appears whenever Report-Only is on and collection is off. The violations panel now says so directly instead of rendering nothing.
+* Added: a "for 7 days" collection window option.
 
 = 2.22.0 =
 * Added: Disable Command Palette (admin) core toggle. Since WordPress 6.9 every admin screen loads the Ctrl/Cmd+K Command Palette and roughly 40 block-editor scripts whether or not the palette is ever opened. The toggle removes it from classic admin screens (Settings, Dashboard, list tables, and so on), speeding up every wp-admin page. The post editor and site editor keep the palette. Opt-in; enabled by the Aggressive and Locked Down presets.

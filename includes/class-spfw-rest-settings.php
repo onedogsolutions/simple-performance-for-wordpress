@@ -334,6 +334,12 @@ class SPFW_Rest_Settings {
 		// (including report-uri when collecting), so the admin can compare
 		// directly against DevTools without guessing.
 		$settings['csp_emitted_policy']       = SPFW_Module_Hardening::get_emitted_policy_preview();
+		// The narrowed probe the browser evaluates for the duration of a window,
+		// or '' when no probe is active. Shown separately from the saved policy
+		// above so the admin can see both — the probe is what produces the log,
+		// the saved policy is what enforces once the window closes.
+		$settings['csp_discovery_policy'] = SPFW_Module_Hardening::get_discovery_policy_preview();
+		$settings['csp_discovery_active'] = SPFW_Module_Hardening::discovery_active( SPFW_Settings::group( 'hardening' ) );
 		// The header NAME that policy is sent under, and whether the visitor
 		// population it reaches excludes logged-in users. Without both, the
 		// admin cannot tell an enforcing policy from a report-only one, or
@@ -507,6 +513,7 @@ class SPFW_Rest_Settings {
 		SPFW_Settings::update( is_array( $params ) ? $params : array() );
 
 		$this->maybe_open_enforcement_window( $before, SPFW_Settings::group( 'hardening' ) );
+		$this->maybe_open_report_only_window( $before, SPFW_Settings::group( 'hardening' ) );
 
 		// Many toggles alter cached front-end HTML (head links, favicon,
 		// Google Maps, WooCommerce assets), so purge LiteSpeed Cache. Harmless
@@ -559,6 +566,70 @@ class SPFW_Rest_Settings {
 		}
 
 		$deadline = time() + self::CSP_ENFORCE_WINDOW;
+
+		SPFW_Settings::update(
+			array(
+				'hardening' => array(
+					'csp_collect_until' => $deadline,
+				),
+			)
+		);
+
+		wp_clear_scheduled_hook( SPFW_Module_Hardening::CSP_EXPIRE_CRON );
+		wp_schedule_single_event( $deadline + MINUTE_IN_SECONDS, SPFW_Module_Hardening::CSP_EXPIRE_CRON );
+	}
+
+	/**
+	 * How long a window stays open when report-only is switched on.
+	 *
+	 * A full day, not the seven the setting allows. Collection makes every
+	 * response uncacheable for the length of the window (see csp_collect_nocache
+	 * — a cache hit never runs PHP, so a cached copy can neither carry report-uri
+	 * nor evaluate the sampling coin-flip per visitor), and that cost is the
+	 * reason the window is time-boxed at all. A day is long enough to cover a
+	 * working session of interactive paths — a login modal, a checkout step —
+	 * and short enough that forgetting about it does not leave the site
+	 * uncacheable.
+	 *
+	 * @var int
+	 */
+	const CSP_REPORT_ONLY_WINDOW = DAY_IN_SECONDS;
+
+	/**
+	 * Open a collection window when CSP is switched on in report-only mode.
+	 *
+	 * Report-only exists to be watched, and the most common way this feature
+	 * appears to stop working is that the window was never opened (or lapsed):
+	 * no window means no `report-uri`, which means the endpoint answers 403 and
+	 * the log cannot fill — and an empty log is indistinguishable from a clean
+	 * policy. Switching the builder on is the clearest possible signal that
+	 * collection is wanted, so it starts one.
+	 *
+	 * Only on the transition, never on a later save: an admin who presses Stop
+	 * collecting while staying in report-only must not have the window reopened
+	 * behind their back on the next save. An already-open window is left alone
+	 * rather than shortened.
+	 *
+	 * @param array $before Hardening group before the save.
+	 * @param array $after  Hardening group after the save.
+	 */
+	private function maybe_open_report_only_window( array $before, array $after ) {
+		if ( empty( $after['csp_enabled'] ) || empty( $after['csp_report_only'] ) ) {
+			return;
+		}
+
+		$just_enabled   = empty( $before['csp_enabled'] );
+		$just_reporting = empty( $before['csp_report_only'] );
+
+		if ( ! $just_enabled && ! $just_reporting ) {
+			return;
+		}
+
+		if ( SPFW_Module_Hardening::collection_open( $after ) ) {
+			return;
+		}
+
+		$deadline = time() + self::CSP_REPORT_ONLY_WINDOW;
 
 		SPFW_Settings::update(
 			array(
@@ -1241,12 +1312,24 @@ class SPFW_Rest_Settings {
 	 * Checks are performed in this order:
 	 *  1. Keyword token mapping (inline → 'unsafe-inline', etc.).
 	 *  2. Exact match against stored tokens.
-	 *  3. Scheme-source coverage (https:, wss:, data:, blob: cover any matching
-	 *     origin with that scheme).
-	 *  4. Host-token normalization — https://example.com stored token covers a
+	 *  3. Host-token normalization — https://example.com stored token covers a
 	 *     reported origin of https://example.com, and a bare example.com token
-	 *     covers the same.
-	 *  5. Fallback to default-src when the directive has no explicit tokens.
+	 *     covers the same. Wildcard hosts cover their subdomains.
+	 *  4. Fallback to default-src when the directive has no explicit tokens.
+	 *
+	 * Deliberately NOT a scheme-source check. A bare `https:` permits every
+	 * origin on that scheme without naming one, so it is a pre-existing blanket
+	 * default rather than something the admin decided — and treating it as an
+	 * answer lets it silence the entire log: every report for an https origin
+	 * under any directive holding `https:` was dropped as "already allowed",
+	 * including hosts the policy had never heard of. That left the log empty for
+	 * exactly the third-party origins — payment SDKs, analytics, fonts — the
+	 * builder exists to discover. A genuine violation under a scheme source can
+	 * only be a non-matching scheme (an http:// script on an https:// policy),
+	 * which this check never suppressed anyway. What the suppression is for is a
+	 * stale report from a page the visitor had cached before the admin pressed
+	 * Allow — and Allow writes an exact host or a keyword, both of which still
+	 * match.
 	 *
 	 * @param array  $h         Hardening settings group.
 	 * @param string $directive Normalized directive name.
@@ -1286,10 +1369,11 @@ class SPFW_Rest_Settings {
 			return false;
 		}
 
-		// Determine scheme from the reported origin so we can test scheme-sources.
-		$origin_parts  = wp_parse_url( $origin );
-		$origin_scheme = isset( $origin_parts['scheme'] ) ? strtolower( $origin_parts['scheme'] ) : '';
-		$origin_host   = isset( $origin_parts['host'] ) ? strtolower( $origin_parts['host'] ) : strtolower( $origin );
+		// Determine the host from the reported origin so host tokens can be
+		// compared. The scheme is deliberately not used: see the note above on
+		// why a scheme-source must never suppress a report.
+		$origin_parts = wp_parse_url( $origin );
+		$origin_host  = isset( $origin_parts['host'] ) ? strtolower( $origin_parts['host'] ) : strtolower( $origin );
 
 		foreach ( $candidates as $tokens ) {
 			foreach ( $tokens as $token ) {
@@ -1298,14 +1382,6 @@ class SPFW_Rest_Settings {
 				// Exact match.
 				if ( $token === $origin ) {
 					return true;
-				}
-
-				// Scheme-source: https:, wss:, data:, blob: etc. cover any origin
-				// whose scheme matches.
-				if ( preg_match( '#^[a-z][a-z0-9+.-]*:$#', $token ) && '' !== $origin_scheme ) {
-					if ( rtrim( $token, ':' ) === $origin_scheme ) {
-						return true;
-					}
 				}
 
 				// Host-source normalization: both stored token and reported origin may
