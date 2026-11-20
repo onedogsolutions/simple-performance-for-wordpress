@@ -1389,6 +1389,16 @@ class SPFW_Rest_Settings {
 				// comparison.
 				if ( '' !== $origin_host ) {
 					$token_parts = wp_parse_url( $token );
+
+					// Both wildcard shapes are in use: a bare '*.example.com' and
+					// the scheme-prefixed 'https://*.example.com' the bundle
+					// catalog ships. wp_parse_url() keeps the '*.' in the host for
+					// the second shape, so the shape has to be recorded before the
+					// prefix is stripped below — testing the raw token for a
+					// leading '*.' missed every scheme-prefixed wildcard, and a
+					// violation for a host the policy already allowed kept
+					// offering to allow it again.
+					$is_wildcard = 0 === strpos( $token, '*.' ) || false !== strpos( $token, '://*.' );
 					$token_host  = isset( $token_parts['host'] ) ? strtolower( $token_parts['host'] ) : '';
 
 					if ( '' === $token_host ) {
@@ -1404,7 +1414,7 @@ class SPFW_Rest_Settings {
 						}
 
 						// Wildcard subdomain: *.example.com covers sub.example.com.
-						if ( 0 === strpos( $token, '*.' ) ) {
+						if ( $is_wildcard ) {
 							$wildcard_base = ltrim( $token_host, '*.' );
 							if ( $origin_host === $wildcard_base ||
 								substr( $origin_host, -( strlen( $wildcard_base ) + 1 ) ) === '.' . $wildcard_base ) {

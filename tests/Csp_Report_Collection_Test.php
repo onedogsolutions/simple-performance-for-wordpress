@@ -322,6 +322,50 @@ class Csp_Report_Collection_Test extends TestCase {
 	}
 
 	/**
+	 * The scheme-prefixed wildcard shape is what the bundle catalog ships
+	 * (`https://*.stripe.com`, `https://*.clarity.ms`). Missing it meant a
+	 * violation for a host the policy already permitted was reported and
+	 * offered for allowing again — the log could never go clean.
+	 */
+	public function test_scheme_prefixed_wildcard_token_covers_subdomains() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( 'https://*.clarity.ms' ),
+			),
+		);
+
+		$this->report( 'connect-src', 'https://l.clarity.ms/collect', $h );
+
+		$this->assertSame(
+			array(),
+			$this->items(),
+			'Scheme-prefixed wildcard token must match a subdomain origin.'
+		);
+	}
+
+	/**
+	 * The wildcard must not swallow a host it does not cover, or the fix above
+	 * would turn the report filter into a blanket pass.
+	 */
+	public function test_scheme_prefixed_wildcard_leaves_uncovered_hosts_alone() {
+		$h = array(
+			'csp_mode'       => 'builder',
+			'csp_directives' => array(
+				'connect-src' => array( 'https://*.clarity.ms' ),
+			),
+		);
+
+		$this->report( 'connect-src', 'https://notclarity.ms.example.com/collect', $h );
+
+		$this->assertCount(
+			1,
+			$this->items(),
+			'A host outside the wildcard must still be reported.'
+		);
+	}
+
+	/**
 	 * When the violated directive has no explicit tokens, the filter must fall
 	 * back to 'default-src' before deciding the origin is new.
 	 */
