@@ -1,5 +1,5 @@
 /**
- * Third-party origin bundles, and the connect-src gap check.
+ * Third-party provider catalog, and the connect-src gap check.
  *
  * The violation collector reports one directive at a time, and the "Allow"
  * action writes the origin into exactly that directive. That is correct but
@@ -25,13 +25,131 @@
  * @typedef {Object} Bundle
  * @property {string}                   id         Stable identifier.
  * @property {string}                   label      Provider name for the UI.
+ * @property {string}                   group      UI grouping; one of PROVIDER_GROUPS.
  * @property {Object<string, string[]>} directives Origins keyed by directive.
+ * @property {string[]}                 [signal]   Origins that prove THIS provider
+ *                                                 is in use, when some of its
+ *                                                 origins are shared with
+ *                                                 another provider.
  */
+
+/**
+ * Display order of the groups in the pre-fill panel.
+ *
+ * @type {string[]}
+ */
+export const PROVIDER_GROUPS = [
+	'analytics',
+	'advertising',
+	'payment',
+	'security',
+	'fonts',
+];
 
 /** @type {Bundle[]} */
 export const THIRD_PARTY_BUNDLES = [
 	{
+		id: 'google-analytics',
+		group: 'analytics',
+		label: 'Google Analytics / Tag Manager',
+		directives: {
+			'script-src': [
+				'https://www.googletagmanager.com',
+				'https://www.google-analytics.com',
+			],
+			'connect-src': [
+				'https://www.google-analytics.com',
+				'https://analytics.google.com',
+				'https://stats.g.doubleclick.net',
+			],
+			'img-src': [
+				'https://www.google-analytics.com',
+				'https://stats.g.doubleclick.net',
+			],
+		},
+	},
+	{
+		id: 'google-maps',
+		group: 'analytics',
+		label: 'Google Maps',
+		// Embeds are served from a www.google.com iframe, which reCAPTCHA also
+		// needs — hence the signal below.
+		signal: [ 'https://maps.googleapis.com' ],
+		directives: {
+			'script-src': [ 'https://maps.googleapis.com' ],
+			'connect-src': [
+				'https://maps.googleapis.com',
+				'https://places.googleapis.com',
+			],
+			'img-src': [
+				'https://maps.googleapis.com',
+				'https://maps.gstatic.com',
+			],
+			'frame-src': [ 'https://www.google.com' ],
+		},
+	},
+	{
+		id: 'clarity',
+		group: 'analytics',
+		label: 'Microsoft Clarity',
+		// The letter-prefixed telemetry hosts (l., h., b., e., j., f.) are
+		// dynamic; the wildcard is both the documented form and six fewer
+		// tokens against the per-directive cap.
+		directives: {
+			'script-src': [ 'https://www.clarity.ms' ],
+			'connect-src': [ 'https://*.clarity.ms' ],
+			'img-src': [ 'https://*.clarity.ms' ],
+		},
+	},
+	{
+		id: 'meta-pixel',
+		group: 'analytics',
+		label: 'Meta Pixel (Facebook)',
+		directives: {
+			'script-src': [ 'https://connect.facebook.net' ],
+			'connect-src': [ 'https://www.facebook.com' ],
+			'img-src': [ 'https://www.facebook.com' ],
+		},
+	},
+	{
+		id: 'linkedin',
+		group: 'analytics',
+		label: 'LinkedIn Insight Tag',
+		directives: {
+			'script-src': [ 'https://snap.licdn.com' ],
+			'connect-src': [ 'https://px.ads.linkedin.com' ],
+			'img-src': [ 'https://px.ads.linkedin.com' ],
+		},
+	},
+	{
+		id: 'pinterest',
+		group: 'analytics',
+		label: 'Pinterest Tag',
+		directives: {
+			'script-src': [ 'https://s.pinimg.com' ],
+			'connect-src': [ 'https://ct.pinterest.com' ],
+			'img-src': [ 'https://ct.pinterest.com', 'https://s.pinimg.com' ],
+		},
+	},
+	{
+		id: 'ad-attribution',
+		group: 'advertising',
+		label: 'Ad conversion & attribution',
+		// Only needed on sites running ad conversion tracking. These used to
+		// ride along with the Meta Pixel pre-fill, so a site with a pixel and
+		// no ad campaigns still got four hosts it never contacted.
+		directives: {
+			'connect-src': [
+				'https://ad.doubleclick.net',
+				'https://www.googleadservices.com',
+				'https://mgln.ai',
+				'https://fid.agkn.com',
+			],
+		},
+	},
+	{
 		id: 'stripe',
+		group: 'payment',
 		label: 'Stripe',
 		directives: {
 			'script-src': [
@@ -56,6 +174,7 @@ export const THIRD_PARTY_BUNDLES = [
 	},
 	{
 		id: 'paypal',
+		group: 'payment',
 		label: 'PayPal',
 		directives: {
 			'script-src': [
@@ -77,6 +196,7 @@ export const THIRD_PARTY_BUNDLES = [
 	},
 	{
 		id: 'recaptcha',
+		group: 'security',
 		label: 'Google reCAPTCHA',
 		// The bundle this list exists because of. A default policy with
 		// `connect-src 'self'` and no `frame-src` blocks the widget's iframe
@@ -84,6 +204,11 @@ export const THIRD_PARTY_BUNDLES = [
 		// that refuses to submit — on a password-reset or checkout form, with
 		// no way around it. Nothing reports it either, because the widget only
 		// loads once someone opens the form.
+		//
+		// www.google.com is also what a Maps embed needs in frame-src, so it
+		// cannot be the signal here without accusing every map site of running
+		// a captcha.
+		signal: [ 'https://www.gstatic.com' ],
 		directives: {
 			'script-src': [
 				'https://www.google.com',
@@ -93,22 +218,48 @@ export const THIRD_PARTY_BUNDLES = [
 			'connect-src': [ 'https://www.google.com' ],
 		},
 	},
+	{
+		id: 'google-fonts',
+		group: 'fonts',
+		label: 'Google Fonts',
+		// Declares no connect-src because the stylesheet and the font files are
+		// not fetched by script.
+		directives: {
+			'style-src': [ 'https://fonts.googleapis.com' ],
+			'font-src': [ 'https://fonts.gstatic.com' ],
+		},
+	},
 ];
 
 /**
  * Whether a policy already carries any origin belonging to a bundle — the
  * signal that the site uses that provider and its other directives matter.
  *
+ * A bundle may narrow this to a `signal` list of origins that only it uses.
+ * Some hosts are shared: `https://www.google.com` is both the reCAPTCHA
+ * iframe and a Maps embed. Testing every origin would mean a map-only site
+ * gets told to finish its captcha setup, so the shared host is excluded from
+ * detection and the provider's distinctive origin decides instead.
+ *
  * @param {Object} directives Directive map from the builder.
  * @param {Bundle} bundle     Bundle to test.
  * @return {boolean} True when at least one of the bundle's origins is present.
  */
-export const bundleInUse = ( directives, bundle ) =>
-	Object.keys( bundle.directives ).some( ( directive ) =>
+export const bundleInUse = ( directives, bundle ) => {
+	if ( bundle.signal ) {
+		return Object.keys( bundle.directives ).some( ( directive ) =>
+			bundle.signal.some( ( origin ) =>
+				( directives[ directive ] || [] ).includes( origin )
+			)
+		);
+	}
+
+	return Object.keys( bundle.directives ).some( ( directive ) =>
 		bundle.directives[ directive ].some( ( origin ) =>
 			( directives[ directive ] || [] ).includes( origin )
 		)
 	);
+};
 
 /**
  * Whether a directive's token list already permits an origin without naming

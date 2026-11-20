@@ -120,6 +120,33 @@ describe( 'CspPolicyCard', () => {
 			renderOnce( <CspPolicyCard { ...props } /> )
 		).not.toThrow();
 	} );
+
+	// The panel is closed by default, so nothing else in this file reaches its
+	// group loop. It is the branch most likely to break while being edited:
+	// every provider, every group, rendered at once.
+	it( 'lists every provider once the pre-fill panel is opened', () => {
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+
+		act( () => root.render( <CspPolicyCard { ...baseProps } /> ) );
+
+		const trigger = Array.from(
+			container.querySelectorAll( 'button' )
+		).find( ( button ) =>
+			/Pre-fill third-party origins/.test( button.textContent )
+		);
+
+		act( () => trigger.click() );
+
+		expect( container.textContent ).toContain( 'Analytics & tracking' );
+		expect( container.textContent ).toContain( 'Pinterest Tag' );
+		expect( container.textContent ).toContain( 'Payments' );
+		expect( container.textContent ).toContain( 'Add selected' );
+
+		act( () => root.unmount() );
+		container.remove();
+	} );
 } );
 
 describe( 'FontsSettings', () => {

@@ -10,6 +10,7 @@
 
 import {
 	THIRD_PARTY_BUNDLES,
+	PROVIDER_GROUPS,
 	bundleInUse,
 	bundleGaps,
 	connectSrcGaps,
@@ -19,6 +20,17 @@ import {
 
 const stripe = THIRD_PARTY_BUNDLES.find( ( b ) => b.id === 'stripe' );
 const paypal = THIRD_PARTY_BUNDLES.find( ( b ) => b.id === 'paypal' );
+const mapsBundle = THIRD_PARTY_BUNDLES.find( ( b ) => b.id === 'google-maps' );
+const recaptchaBundle = THIRD_PARTY_BUNDLES.find(
+	( b ) => b.id === 'recaptcha'
+);
+const pinterestBundle = THIRD_PARTY_BUNDLES.find(
+	( b ) => b.id === 'pinterest'
+);
+
+// Every origin a bundle declares, as a list — used to fill a policy with one
+// provider and ask what the catalog thinks is in use.
+const allOrigins = ( bundle ) => Object.values( bundle.directives ).flat();
 
 describe( 'bundleInUse', () => {
 	it( 'is false for a policy with no provider origins', () => {
@@ -62,9 +74,17 @@ describe( 'connectSrcGaps', () => {
 		} );
 
 		expect( gaps.map( ( g ) => g.bundle.id ).sort() ).toEqual( [
+			'google-analytics',
 			'paypal',
 			'stripe',
 		] );
+		// The analytics bundles are gap-checked too now: one GA host in the
+		// allowlist is proof the site runs it, and its sibling hosts are then
+		// the same kind of invisible gap as the payment ones — a beacon to
+		// analytics.google.com fails with nothing in the log to explain it.
+		expect(
+			gaps.find( ( g ) => g.bundle.id === 'google-analytics' ).missing
+		).toContain( 'https://analytics.google.com' );
 		expect(
 			gaps.find( ( g ) => g.bundle.id === 'stripe' ).missing
 		).toContain( 'https://api.stripe.com' );
@@ -132,19 +152,39 @@ describe( 'addOrigins', () => {
 } );
 
 describe( 'bundle definitions', () => {
-	it( 'every bundle declares connect-src origins — that is the point', () => {
+	// The gap check exists for providers whose unused directives are invisible
+	// until a visitor reaches the step that needs them. Fonts are the one
+	// exception: a stylesheet and a font file are not fetched by script, so
+	// demanding a connect-src origin for them would be a gap that never was.
+	it( 'every gap-checked bundle declares connect-src origins', () => {
+		THIRD_PARTY_BUNDLES.filter( ( b ) => 'fonts' !== b.group ).forEach(
+			( bundle ) => {
+				expect(
+					bundle.directives[ 'connect-src' ].length
+				).toBeGreaterThan( 0 );
+			}
+		);
+	} );
+
+	it( 'gives every provider a label and a known group', () => {
 		THIRD_PARTY_BUNDLES.forEach( ( bundle ) => {
-			expect( bundle.directives[ 'connect-src' ].length ).toBeGreaterThan(
-				0
-			);
+			expect( bundle.label.length ).toBeGreaterThan( 0 );
+			expect( PROVIDER_GROUPS ).toContain( bundle.group );
 		} );
+	} );
+
+	it( 'keeps provider ids unique, since they key the selection state', () => {
+		const ids = THIRD_PARTY_BUNDLES.map( ( b ) => b.id );
+
+		expect( new Set( ids ).size ).toBe( ids.length );
 	} );
 
 	it( 'stays within the per-directive token cap when fully applied', () => {
 		// SPFW_Settings::CSP_MAX_TOKENS. Silently exceeding it was the reason
-		// added origins used to vanish on save.
+		// added origins used to vanish on save. Now that every provider is
+		// selectable, "apply all of them" is a reachable state.
 		const total = THIRD_PARTY_BUNDLES.reduce(
-			( n, b ) => n + b.directives[ 'connect-src' ].length,
+			( n, b ) => n + ( b.directives[ 'connect-src' ] || [] ).length,
 			1 // 'self'
 		);
 
@@ -158,6 +198,61 @@ describe( 'bundle definitions', () => {
 	} );
 } );
 
+describe( 'provider catalog', () => {
+	it( 'covers the Pinterest tag', () => {
+		expect( pinterestBundle.directives[ 'script-src' ] ).toContain(
+			'https://s.pinimg.com'
+		);
+		expect( pinterestBundle.directives[ 'connect-src' ] ).toContain(
+			'https://ct.pinterest.com'
+		);
+	} );
+
+	// These four used to ride along with the Meta Pixel pre-fill, so a site
+	// with a pixel and no ad campaigns still got hosts it never contacted.
+	it( 'keeps ad-attribution hosts out of the pixel bundle', () => {
+		const pixel = THIRD_PARTY_BUNDLES.find(
+			( b ) => b.id === 'meta-pixel'
+		);
+
+		expect( allOrigins( pixel ) ).not.toContain( 'https://mgln.ai' );
+		expect( allOrigins( pixel ) ).not.toContain(
+			'https://ad.doubleclick.net'
+		);
+	} );
+} );
+
+describe( 'shared-origin signal', () => {
+	// www.google.com is both a Maps embed and the reCAPTCHA iframe. Without
+	// a signal of its own, reCAPTCHA would claim every map site as a user and
+	// nag it about a captcha it does not run.
+	it( 'does not accuse a Maps-only policy of running reCAPTCHA', () => {
+		let directives = {};
+
+		Object.keys( mapsBundle.directives ).forEach( ( directive ) => {
+			directives = addOrigins(
+				directives,
+				directive,
+				mapsBundle.directives[ directive ]
+			);
+		} );
+
+		expect( bundleInUse( directives, recaptchaBundle ) ).toBe( false );
+		expect(
+			bundleGaps( directives ).map( ( gap ) => gap.bundle.id )
+		).not.toContain( 'recaptcha' );
+	} );
+
+	it( 'still detects reCAPTCHA from its own origin', () => {
+		expect(
+			bundleInUse(
+				{ 'script-src': [ 'https://www.gstatic.com' ] },
+				recaptchaBundle
+			)
+		).toBe( true );
+	} );
+} );
+
 describe( 'bundleGaps', () => {
 	// The connect-src-only check could not see this one at all: a policy that
 	// allows the captcha's script but neither its frame nor its token call
@@ -165,7 +260,7 @@ describe( 'bundleGaps', () => {
 	// missing API host. Both only break once a visitor opens the form.
 	it( 'reports a missing frame-src, not just connect-src', () => {
 		const gaps = bundleGaps( {
-			'script-src': [ "'self'", 'https://www.google.com' ],
+			'script-src': [ "'self'", 'https://www.gstatic.com' ],
 			'connect-src': [ "'self'" ],
 			'frame-src': [ "'self'" ],
 		} );
@@ -179,7 +274,7 @@ describe( 'bundleGaps', () => {
 			'https://www.google.com',
 		] );
 		expect( recaptcha.missing[ 'script-src' ] ).toEqual( [
-			'https://www.gstatic.com',
+			'https://www.google.com',
 		] );
 	} );
 
@@ -217,7 +312,7 @@ describe( 'bundleGaps', () => {
 
 	it( 'closes every directive gap it reported', () => {
 		let directives = {
-			'script-src': [ 'https://www.google.com' ],
+			'script-src': [ 'https://www.gstatic.com' ],
 			'connect-src': [ "'self'" ],
 			'frame-src': [ "'self'" ],
 		};

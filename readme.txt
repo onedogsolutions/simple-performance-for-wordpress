@@ -4,7 +4,7 @@ Tags: performance, security, rest-api, litespeed, fonts
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 2.23.0
+Stable tag: 2.24.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -105,6 +105,13 @@ Nothing changes. The "self-host Google Fonts" feature only takes effect once a s
 No — the compiled admin interface ships in the plugin ZIP. Node.js and npm are only needed if you're developing the plugin itself from source.
 
 == Changelog ==
+
+= 2.24.0 =
+* Changed: the CSP policy builder's two all-in-one pre-fill buttons — "Pre-fill common third-party origins" and "Pre-fill payment provider origins" — are replaced by one provider picker. Google Analytics / Tag Manager, Google Maps, Microsoft Clarity, Meta Pixel, LinkedIn Insight, Pinterest, ad conversion tracking, Stripe, PayPal, reCAPTCHA and Google Fonts are each ticked individually, so a Stripe-only shop no longer receives PayPal's hosts, and a site with a pixel but no ad campaigns no longer receives DoubleClick and Google Ads hosts it never contacts. The panel reports how many origins the selection adds, and warns before you save when the selection would go past the per-directive source limit.
+* Added: Pinterest Tag origins (`s.pinimg.com`, `ct.pinterest.com`) to the CSP pre-fill list.
+* Added: the missing-origin gap check now covers analytics, ad conversion and font providers, not just payments and reCAPTCHA. Once a policy already allows one host belonging to a provider, the card names the other directives that provider needs — the gap that only shows up when a visitor reaches the step that requests it. Providers whose hosts are shared with another provider (Google Maps and reCAPTCHA both use `www.google.com`) are detected by their own distinctive hosts instead, so a map-only site is not told to finish setting up a captcha it does not run.
+* Changed: Microsoft Clarity's six letter-prefixed telemetry hosts are consolidated into `https://*.clarity.ms`, which frees token headroom for the providers a site actually uses.
+* Changed: reCAPTCHA is now selectable in the pre-fill panel. It was previously only reachable through the gap warning.
 
 = 2.23.0 =
 * Fixed: violation collection could not detect anything when the policy permitted a whole scheme. The recommended policy carries `https:` in script-src, connect-src, frame-src, img-src, style-src and font-src, which allows Stripe, analytics, font hosts and your own assets by construction — so no browser ever had a violation to report, and the log stayed empty however long the window ran. Collection windows now send a narrowed **discovery probe** in the report-only header instead: scheme sources, the bare `*` and the `unsafe-inline`/`unsafe-eval` keywords are stripped for the duration of the window, so every third-party request a page makes is reported. Your saved policy is never rewritten, and when CSP is enforcing the enforcing header is sent byte-for-byte unchanged with the probe riding alongside it as a second report-only header. Both headers are shown separately in the admin, labelled with which one the browser evaluates. Turn it off with the new "Discover what pages load" toggle.

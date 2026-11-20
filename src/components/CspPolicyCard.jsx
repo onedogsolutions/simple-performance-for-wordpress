@@ -3,8 +3,10 @@ import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import {
 	bundleGaps,
+	bundleInUse,
 	policyRisks,
 	addOrigins,
+	PROVIDER_GROUPS,
 	THIRD_PARTY_BUNDLES,
 } from '../lib/csp-bundles';
 
@@ -117,52 +119,15 @@ const CSP_DIRECTIVES = [
 
 const NONE = "'none'";
 
-// Trusted third-party origins that are safe to pre-fill for common tracker
-// and map scripts. Keyed by directive; each entry lists origins to ADD
-// (not replace). The admin still gets a confirmation modal before anything
-// is written to the policy.
-const TRUSTED_TRACKER_ORIGINS = {
-	'script-src': [
-		'https://www.googletagmanager.com',
-		'https://www.google-analytics.com',
-		'https://maps.googleapis.com',
-		'https://www.clarity.ms',
-		'https://connect.facebook.net',
-		'https://snap.licdn.com',
-	],
-	'connect-src': [
-		'https://www.google-analytics.com',
-		'https://analytics.google.com',
-		'https://stats.g.doubleclick.net',
-		'https://maps.googleapis.com',
-		'https://places.googleapis.com',
-		'https://l.clarity.ms',
-		'https://h.clarity.ms',
-		'https://b.clarity.ms',
-		'https://e.clarity.ms',
-		'https://j.clarity.ms',
-		'https://f.clarity.ms',
-		'https://mgln.ai',
-		'https://fid.agkn.com',
-		'https://ad.doubleclick.net',
-		'https://www.googleadservices.com',
-		'https://www.facebook.com',
-	],
-	'img-src': [
-		'https://www.google-analytics.com',
-		'https://stats.g.doubleclick.net',
-		'https://maps.googleapis.com',
-		'https://maps.gstatic.com',
-		'https://www.facebook.com',
-	],
-	'frame-src': [
-		'https://www.google.com',
-		'https://www.googletagmanager.com',
-		'https://www.facebook.com',
-	],
-	'font-src': [
-		'https://fonts.gstatic.com',
-	],
+// Trusted third-party providers that are safe to pre-fill, grouped for the
+// pre-fill panel. The origin lists themselves live in the pure bundle catalog
+// so the gap check and the prefill cannot drift apart.
+const PROVIDER_GROUP_LABELS = {
+	analytics: __( 'Analytics & tracking', 'simple-performance-for-wordpress' ),
+	advertising: __( 'Ad conversion', 'simple-performance-for-wordpress' ),
+	payment: __( 'Payments', 'simple-performance-for-wordpress' ),
+	security: __( 'Security', 'simple-performance-for-wordpress' ),
+	fonts: __( 'Fonts', 'simple-performance-for-wordpress' ),
 };
 
 // Serialize the structured directive map exactly as the PHP does, for the
@@ -203,6 +168,136 @@ function Chip( { active, children, onClick } ) {
 		>
 			{ children }
 		</button>
+	);
+}
+
+// One provider row in the pre-fill panel. Extracted so the panel's group
+// loop stays readable — the checkbox markup is identical to the collection
+// options further down the card.
+function ProviderOption( { id, label, detail, checked, onChange } ) {
+	return (
+		<label
+			htmlFor={ id }
+			className="flex items-start gap-x-2 text-xs font-medium text-gray-700"
+		>
+			<input
+				id={ id }
+				type="checkbox"
+				checked={ checked }
+				onChange={ ( e ) => onChange( e.target.checked ) }
+				className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+			/>
+			<span>
+				{ label }
+				{ detail && (
+					<span className="font-normal text-gray-400">
+						{ ' ' }
+						{ detail }
+					</span>
+				) }
+			</span>
+		</label>
+	);
+}
+
+// The pre-fill panel: one checkbox per provider, grouped, with the origin
+// count and the per-directive cap warning visible before anything is written.
+function ProviderPrefillPanel( {
+	directives,
+	selection,
+	originCount,
+	overflow,
+	maxTokens,
+	onToggle,
+	onApply,
+	onCancel,
+} ) {
+	return (
+		<div className="rounded-md bg-gray-50 p-3 ring-1 ring-inset ring-gray-200">
+			<div className="space-y-3">
+				{ PROVIDER_GROUPS.map( ( group ) => (
+					<div key={ group }>
+						<p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+							{ PROVIDER_GROUP_LABELS[ group ] }
+						</p>
+						<div className="mt-1 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+							{ THIRD_PARTY_BUNDLES.filter(
+								( bundle ) => bundle.group === group
+							).map( ( bundle ) => (
+								<ProviderOption
+									key={ bundle.id }
+									id={ `spfw-csp-provider-${ bundle.id }` }
+									label={ bundle.label }
+									detail={
+										bundleInUse( directives, bundle )
+											? __(
+													'(already allowed)',
+													'simple-performance-for-wordpress'
+											  )
+											: ''
+									}
+									checked={ !! selection[ bundle.id ] }
+									onChange={ ( checked ) =>
+										onToggle( bundle.id, checked )
+									}
+								/>
+							) ) }
+						</div>
+					</div>
+				) ) }
+			</div>
+
+			<p className="mt-3 text-xs text-gray-500">
+				{ __(
+					'Each list is a starting point drawn from the provider’s own CSP guidance. Providers add hosts and integrations differ, so the violation log below stays authoritative.',
+					'simple-performance-for-wordpress'
+				) }
+			</p>
+
+			{ overflow.length > 0 && (
+				<p className="mt-2 text-xs font-medium text-amber-700">
+					{ sprintf(
+						/* translators: 1: comma-separated list of directive names, 2: maximum number of sources allowed per directive. */
+						__(
+							'This selection would take %1$s past the %2$d-source limit, and the extra sources are dropped when you save. Apply these providers one at a time, or consolidate hosts with a wildcard (https://*.example.com).',
+							'simple-performance-for-wordpress'
+						),
+						overflow.join( ', ' ),
+						maxTokens
+					) }
+				</p>
+			) }
+
+			<div className="mt-3 flex items-center gap-x-3 border-t border-gray-200 pt-2">
+				<button
+					type="button"
+					onClick={ onApply }
+					disabled={ 0 === originCount }
+					className="text-sm font-medium text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:text-gray-400"
+				>
+					{ __( 'Add selected', 'simple-performance-for-wordpress' ) }
+				</button>
+				<button
+					type="button"
+					onClick={ onCancel }
+					className="text-sm font-medium text-gray-500 hover:text-gray-700"
+				>
+					{ __( 'Cancel', 'simple-performance-for-wordpress' ) }
+				</button>
+				{ originCount > 0 && (
+					<span className="text-xs text-gray-500">
+						{ sprintf(
+							/* translators: %d: number of distinct origins that will be added. */
+							__(
+								'%d origins will be added',
+								'simple-performance-for-wordpress'
+							),
+							originCount
+						) }
+					</span>
+				) }
+			</div>
+		</div>
 	);
 }
 
@@ -355,11 +450,11 @@ export default function CspPolicyCard( {
 	// that is not something a single stray click should do.
 	const [ confirming, setConfirming ] = useState( null );
 
-	// Trusted-tracker pre-fill confirmation modal.
-	const [ showTrustedConfirm, setShowTrustedConfirm ] = useState( false );
-
-	// Payment-provider pre-fill confirmation modal.
-	const [ showPaymentConfirm, setShowPaymentConfirm ] = useState( false );
+	// Provider pre-fill panel: which providers are ticked, and whether the
+	// panel is open. Nothing reaches the policy until "Add selected" is
+	// pressed — the same explicit-click rule the old confirm prompts kept.
+	const [ showProviders, setShowProviders ] = useState( false );
+	const [ providerSelection, setProviderSelection ] = useState( {} );
 
 	// Bulk-allow confirmation state: null | 'all' | directive-name.
 	const [ bulkConfirm, setBulkConfirm ] = useState( null );
@@ -493,17 +588,64 @@ export default function CspPolicyCard( {
 		);
 	};
 
-	// Add all trusted third-party origins across every directive.
-	const applyTrustedTrackers = () => {
-		setShowTrustedConfirm( false );
-		const next = { ...directives };
-		Object.entries( TRUSTED_TRACKER_ORIGINS ).forEach( ( [ directive, origins ] ) => {
-			const current = ( next[ directive ] || [] ).filter(
-				( t ) => t !== NONE
-			);
-			const merged = [ ...new Set( [ ...current, ...origins ] ) ];
-			next[ directive ] = merged;
+	// Add every origin the selected providers need, across all their
+	// directives. Providers are picked one at a time because a Stripe-only
+	// shop has no use for PayPal's hosts, and vice versa.
+	const selectedBundles = THIRD_PARTY_BUNDLES.filter(
+		( bundle ) => providerSelection[ bundle.id ]
+	);
+
+	const selectedOriginCount = new Set(
+		selectedBundles.reduce(
+			( acc, bundle ) => [
+				...acc,
+				...Object.values( bundle.directives ).flat(),
+			],
+			[]
+		)
+	).size;
+
+	// Directives this selection would push past CSP_MAX_TOKENS. The save path
+	// drops the overflow silently, so the panel has to say so first.
+	const overflowDirectives = ( () => {
+		const sets = {};
+
+		selectedBundles.forEach( ( bundle ) => {
+			Object.keys( bundle.directives ).forEach( ( directive ) => {
+				if ( ! sets[ directive ] ) {
+					sets[ directive ] = new Set(
+						( directives[ directive ] || [] ).filter(
+							( token ) => token !== NONE
+						)
+					);
+				}
+
+				bundle.directives[ directive ].forEach( ( origin ) =>
+					sets[ directive ].add( origin )
+				);
+			} );
 		} );
+
+		return Object.keys( sets ).filter(
+			( directive ) => sets[ directive ].size > maxTokens
+		);
+	} )();
+
+	const applySelectedProviders = () => {
+		const next = selectedBundles.reduce( ( acc, bundle ) => {
+			return Object.keys( bundle.directives ).reduce(
+				( inner, directive ) =>
+					addOrigins(
+						inner,
+						directive,
+						bundle.directives[ directive ]
+					),
+				acc
+			);
+		}, directives );
+
+		setShowProviders( false );
+		setProviderSelection( {} );
 		setHostText( {} );
 		onChange( 'csp_directives', next );
 	};
@@ -550,26 +692,6 @@ export default function CspPolicyCard( {
 				directives
 			)
 		);
-	};
-
-	// Add every origin a payment provider needs, across all its directives.
-	const applyPaymentOrigins = () => {
-		setShowPaymentConfirm( false );
-
-		const next = THIRD_PARTY_BUNDLES.reduce( ( acc, bundle ) => {
-			return Object.keys( bundle.directives ).reduce(
-				( inner, directive ) =>
-					addOrigins(
-						inner,
-						directive,
-						bundle.directives[ directive ]
-					),
-				acc
-			);
-		}, directives );
-
-		setHostText( {} );
-		onChange( 'csp_directives', next );
 	};
 
 	// Allow all visible violations (bulk).
@@ -1167,84 +1289,16 @@ export default function CspPolicyCard( {
 									) }
 								</h4>
 								<div className="flex items-center gap-x-3">
-									{ showTrustedConfirm ? (
-										<span className="flex items-center gap-x-2 text-sm">
-											<span className="text-gray-700">
-												{ __(
-													'Add Google Maps, Analytics, Clarity & Facebook origins?',
-													'simple-performance-for-wordpress'
-												) }
-											</span>
-											<button
-												type="button"
-												onClick={ applyTrustedTrackers }
-												className="font-medium text-indigo-600 hover:text-indigo-500"
-											>
-												{ __( 'Confirm', 'simple-performance-for-wordpress' ) }
-											</button>
-											<button
-												type="button"
-												onClick={ () => setShowTrustedConfirm( false ) }
-												className="font-medium text-gray-500 hover:text-gray-700"
-											>
-												{ __( 'Cancel', 'simple-performance-for-wordpress' ) }
-											</button>
-										</span>
-									) : (
-										<button
-											type="button"
-											onClick={ () => setShowTrustedConfirm( true ) }
-											className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-										>
-											{ __(
-												'Pre-fill common third-party origins',
-												'simple-performance-for-wordpress'
-											) }
-										</button>
-									) }
-									{ showPaymentConfirm ? (
-										<span className="flex items-center gap-x-2 text-sm">
-											<span className="text-gray-700">
-												{ __(
-													'Add Stripe & PayPal origins?',
-													'simple-performance-for-wordpress'
-												) }
-											</span>
-											<button
-												type="button"
-												onClick={ applyPaymentOrigins }
-												className="font-medium text-indigo-600 hover:text-indigo-500"
-											>
-												{ __(
-													'Confirm',
-													'simple-performance-for-wordpress'
-												) }
-											</button>
-											<button
-												type="button"
-												onClick={ () =>
-													setShowPaymentConfirm(
-														false
-													)
-												}
-												className="font-medium text-gray-500 hover:text-gray-700"
-											>
-												{ __(
-													'Cancel',
-													'simple-performance-for-wordpress'
-												) }
-											</button>
-										</span>
-									) : (
+									{ ! showProviders && (
 										<button
 											type="button"
 											onClick={ () =>
-												setShowPaymentConfirm( true )
+												setShowProviders( true )
 											}
 											className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
 										>
 											{ __(
-												'Pre-fill payment provider origins',
+												'Pre-fill third-party origins',
 												'simple-performance-for-wordpress'
 											) }
 										</button>
@@ -1261,6 +1315,27 @@ export default function CspPolicyCard( {
 									</button>
 								</div>
 							</div>
+
+							{ showProviders && (
+								<ProviderPrefillPanel
+									directives={ directives }
+									selection={ providerSelection }
+									originCount={ selectedOriginCount }
+									overflow={ overflowDirectives }
+									maxTokens={ maxTokens }
+									onToggle={ ( id, checked ) =>
+										setProviderSelection( ( prev ) => ( {
+											...prev,
+											[ id ]: checked,
+										} ) )
+									}
+									onApply={ applySelectedProviders }
+									onCancel={ () => {
+										setShowProviders( false );
+										setProviderSelection( {} );
+									} }
+								/>
+							) }
 
 							{ CSP_DIRECTIVES.map( ( directive ) => {
 								const selected =
